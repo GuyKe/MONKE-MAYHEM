@@ -23,6 +23,18 @@ export interface FlatSpot {
   level: number;
 }
 
+/** A lake: a bowl in the ground with a flat water surface. */
+export interface Lake {
+  x: number;
+  z: number;
+  /** Radius where the water meets the bank, roughly. */
+  r: number;
+  /** Height of the water surface. */
+  level: number;
+  /** Height of the lake floor. */
+  bed: number;
+}
+
 export interface Terrain {
   /** The smooth height function. Use it to place things before `build`. */
   heightAt(x: number, z: number): number;
@@ -31,6 +43,9 @@ export interface Terrain {
   /** Rise over run, 0 = flat. */
   slopeAt(x: number, z: number): number;
   addFlatSpot(spot: Omit<FlatSpot, 'level'> & { level?: number }): FlatSpot;
+  /** Digs a lake (the water is a little under the lowest bank). Do this before `build`. */
+  addLake(x: number, z: number, r: number): Lake;
+  readonly lakes: ReadonlyArray<Lake>;
   /**
    * Builds the height grid, one mesh per chunk (indexed [cz][cx]) and the collider.
    * Call once, after every flat spot has been added.
@@ -40,11 +55,12 @@ export interface Terrain {
 
 export function createTerrain(noise: Noise2D, spawn: { x: number; z: number }): Terrain {
   const spots: FlatSpot[] = [];
+  const lakes: Lake[] = [];
   let grid: Float32Array | null = null;
 
   const baseHeight = (x: number, z: number): number => {
-    const broad = noise.fbm(x * 0.005 + 17, z * 0.005 - 3, 3) * 9;
-    const hills = noise.fbm(x * 0.018 + 40, z * 0.018 + 40, 4) * 3.4;
+    const broad = noise.fbm(x * 0.005 + 17, z * 0.005 - 3, 3) * 15;
+    const hills = noise.fbm(x * 0.016 + 40, z * 0.016 + 40, 4) * 6.2;
     const detail = noise.get(x * 0.09, z * 0.09) * 0.22;
     // Dead flat at the spawn clearing, easing into hills around it.
     const r = Math.hypot(x - spawn.x, z - spawn.z);
@@ -93,6 +109,21 @@ export function createTerrain(noise: Noise2D, spawn: { x: number; z: number }): 
     surfaceAt,
     slopeAt,
 
+    lakes,
+
+    addLake(x, z, r) {
+      // The water sits a little below the lowest bank all round, so it never spills over a low side.
+      let low = Infinity;
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        low = Math.min(low, heightAt(x + Math.cos(a) * (r + 6), z + Math.sin(a) * (r + 6)));
+      }
+      const lake: Lake = { x, z, r, level: low - 0.5, bed: low - 3.4 };
+      lakes.push(lake);
+      spots.push({ x, z, inner: r * 0.55, outer: r + 8, level: lake.bed });
+      return lake;
+    },
+
     addFlatSpot(spot) {
       const full: FlatSpot = { ...spot, level: spot.level ?? baseHeight(spot.x, spot.z) };
       spots.push(full);
@@ -114,6 +145,8 @@ export function createTerrain(noise: Noise2D, spawn: { x: number; z: number }): 
       const grass = new THREE.Color(0x5f8a3c);
       const moss = new THREE.Color(0x3f6b34);
       const dirt = new THREE.Color(0x7a6040);
+      const sand = new THREE.Color(0xb7a572);
+      const mud = new THREE.Color(0x5b5038);
       const c = new THREE.Color();
       for (let j = 0; j < N; j++) {
         for (let i = 0; i < N; i++) {
@@ -130,6 +163,13 @@ export function createTerrain(noise: Noise2D, spawn: { x: number; z: number }): 
           const patch = noise.fbm(x * 0.06 + 11, z * 0.06 - 7, 3) * 0.5 + 0.5;
           c.copy(grass).lerp(moss, smoothstep(0.35, 0.7, patch));
           c.lerp(dirt, smoothstep(0.35, 0.8, Math.hypot(dx, dz)) * 0.8);
+          // Banks go sandy and the floor muddy.
+          for (const lake of lakes) {
+            if (Math.hypot(x - lake.x, z - lake.z) > lake.r + 10) continue;
+            const h = heights[j * N + i];
+            if (h < lake.level - 0.6) c.copy(mud);
+            else if (h < lake.level + 0.9) c.copy(sand).lerp(mud, smoothstep(lake.level, lake.level - 0.6, h));
+          }
           const shade = 0.92 + noise.get(x * 0.4, z * 0.4) * 0.08;
           colors[k] = c.r * shade;
           colors[k + 1] = c.g * shade;

@@ -85,6 +85,8 @@ export interface GrabHooks {
   ropes?: TreeRopes;
   /** A rope was torn off its tree (the new coil is already in the hand). */
   onRopePulled?(coil: Stick): void;
+  /** Called when a squeezed empty hand has nothing else to take: may make something to hold (a berry). */
+  pick?(handPos: THREE.Vector3): Stick | null;
   /** Something was picked up. */
   onGrab?(stick: Stick, side: 'left' | 'right'): void;
 }
@@ -188,6 +190,11 @@ export class Grab {
   private tryGrab(i: number, handP: THREE.Vector3, handQ: THREE.Quaternion): void {
     const near = this.sticks.nearest(handP, GRAB_RADIUS);
     if (!near) {
+      const picked = this.hooks.pick?.(handP);
+      if (picked) {
+        this.hold(i, picked, handP, handQ);
+        return;
+      }
       // Nothing to pick up: is there a rope hanging here to pull on?
       const rope = this.hooks.ropes?.nearest(handP, ROPE_GRAB_RADIUS);
       if (rope && !rope.held) {

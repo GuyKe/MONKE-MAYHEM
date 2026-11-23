@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Settings } from '../settings';
 import type { MapMarker, MapView } from '../world/mapview';
 import type { PieceKind, Stick, Sticks } from '../world/sticks';
-import { FACE_COUNT, FACE_H, FACE_W, drawFace, parseSettingValue, type BlueprintView, type FaceContext, type Hit } from './bookFaces';
+import { FACE, FACE_COUNT, FACE_H, FACE_W, drawFace, parseSettingValue, type BlueprintView, type FaceContext, type Hit } from './bookFaces';
 import { RECIPES, type Journal, type Recipe } from './journal';
 
 /** What the book needs to know about a hand each frame. */
@@ -514,24 +514,26 @@ export class Book {
     switch (face) {
       case 0:
         return String(j);
-      case 1:
+      case FACE.recipesA:
+      case FACE.recipesB:
         return `${j}|${hover}`;
-      case 2: {
+      case FACE.tools: {
         const c = this.services.craft();
         return `${c.smashes}|${Math.round(c.lashing * 25)}`;
       }
-      case 3:
-      case 4:
+      case FACE.plansA:
+      case FACE.plansB:
+      case FACE.plan:
         return `${this.services.blueprints?.version() ?? 0}|${hover}`;
-      case 6:
-      case 7: {
+      case FACE.map:
+      case FACE.places: {
         const p = this.services.player();
         return `${this.services.map?.version ?? 0}|${Math.round(p.x / 3)}|${Math.round(p.z / 3)}|${Math.round(p.heading * 12)}|${this.services.markers().filter((m) => m.discovered).length}`;
       }
-      case 8:
-      case 9:
+      case FACE.settingsA:
+      case FACE.settingsB:
         return `${this.settingsVersion}|${hover}`;
-      case 12:
+      case FACE.notes:
         return `${j}|${this.services.world().clock}`;
       default:
         return '1';

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { LOCOMOTION } from '../config';
+import { buildHandGeometry } from './body';
 
 export type Handedness = 'left' | 'right';
 
@@ -20,10 +21,8 @@ export class Hand {
 
   constructor(readonly handedness: Handedness, scene: THREE.Scene) {
     const r = LOCOMOTION.handRadius;
-    this.material = new THREE.MeshLambertMaterial({ color: this.idleColor });
-    const geo = new THREE.SphereGeometry(r, 16, 12);
-    geo.scale(1.0, 0.75, 1.25); // flattened mitt shape
-    this.mesh = new THREE.Mesh(geo, this.material);
+    this.material = new THREE.MeshLambertMaterial({ color: this.idleColor, vertexColors: true, flatShading: true });
+    this.mesh = new THREE.Mesh(buildHandGeometry(handedness === 'left' ? 1 : -1, r), this.material);
     this.mesh.visible = false;
     scene.add(this.mesh);
 

@@ -12,6 +12,7 @@ export interface MapWater {
   z: number;
   r: number;
   ice: boolean;
+  lake?: boolean;
 }
 
 /** Pixels across the terrain image, and cells across the explored mask. */
@@ -65,7 +66,7 @@ export class MapView {
     }
     c.putImageData(image, 0, 0);
     for (const w of water) {
-      c.fillStyle = w.ice ? '#b9dff0' : '#6b5238';
+      c.fillStyle = w.lake ? '#3f7fa6' : w.ice ? '#b9dff0' : '#6b5238';
       c.beginPath();
       c.arc(((w.x + worldHalf) / size) * IMAGE, ((w.z + worldHalf) / size) * IMAGE, Math.max(1.5, (w.r / size) * IMAGE), 0, Math.PI * 2);
       c.fill();

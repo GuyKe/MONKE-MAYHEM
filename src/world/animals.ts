@@ -13,13 +13,15 @@ export interface AnimalsOptions {
   trees: ReadonlyArray<Tree>;
   /** Fewer or no animals when off. */
   enabled?: boolean;
+  /** Called when an animal is killed, with where it died. */
+  onKill?(species: Species, at: THREE.Vector3): void;
 }
 
-type Species = 'rabbit' | 'deer';
+export type Species = 'rabbit' | 'deer';
 
-type GroundState = 'idle' | 'wander' | 'alert' | 'flee';
+type GroundState = 'idle' | 'wander' | 'flee';
 
-interface Ground {
+export interface Ground {
   species: Species;
   x: number;
   z: number;
@@ -31,6 +33,7 @@ interface Ground {
   tz: number;
   phase: number;
   tint: THREE.Color;
+  hp: number;
 }
 
 interface Bird {
@@ -128,7 +131,7 @@ const BIRD_GEO = build([
  */
 export class Animals {
   readonly stats = { rabbits: RABBITS, deer: DEER, birds: PERCHED_BIRDS + FLOCKS * BIRDS_PER_FLOCK, active: 0 };
-  private readonly ground: Ground[] = [];
+  readonly ground: Ground[] = [];
   private readonly birds: Bird[] = [];
   private readonly rabbitMesh: THREE.InstancedMesh;
   private readonly deerMesh: THREE.InstancedMesh;
@@ -181,6 +184,7 @@ export class Animals {
           tz: at.z,
           phase: rand() * 10,
           tint: new THREE.Color().setHSL(0.08, 0.1, 0.9 + rand() * 0.2),
+          hp: species === 'rabbit' ? 2 : 6,
         });
       }
     };
@@ -255,9 +259,9 @@ export class Animals {
 
   private stepGround(a: Ground, dt: number, dist: number, dx: number, dz: number): void {
     const rabbit = a.species === 'rabbit';
-    const alertAt = rabbit ? 0 : 24; // deer notice you first and watch
-    const fleeAt = rabbit ? 8 : 15;
-    const calmAt = rabbit ? 22 : 40;
+    // They keep an eye on where you are without ever turning to stare: they just keep their distance.
+    const fleeAt = rabbit ? 8 : 13;
+    const calmAt = rabbit ? 22 : 34;
 
     if (dist < fleeAt) {
       if (a.state !== 'flee') a.state = 'flee';
@@ -265,11 +269,6 @@ export class Animals {
     } else if (a.state === 'flee' && dist > calmAt) {
       a.state = 'idle';
       a.timer = 2 + this.rand() * 3;
-    } else if (!rabbit && dist < alertAt && (a.state === 'idle' || a.state === 'wander')) {
-      a.state = 'alert'; // freeze and look at you
-    } else if (a.state === 'alert' && dist >= alertAt + 6) {
-      a.state = 'idle';
-      a.timer = 1 + this.rand() * 2;
     }
 
     let speed = 0;
@@ -294,9 +293,6 @@ export class Animals {
         }
         break;
       }
-      case 'alert':
-        want = Math.atan2(-dx, -dz); // face the player
-        break;
       case 'flee':
         want = Math.atan2(dx, dz) + Math.sin(this.time * 3 + a.phase) * 0.35; // run away, a little zig-zag
         speed = rabbit ? 6.5 : 9;
@@ -330,6 +326,35 @@ export class Animals {
       }
     }
     a.y += (this.o.surfaceAt(a.x, a.z) - a.y) * Math.min(1, dt * 14);
+  }
+
+  /** Hurts an animal. It runs; if it is out of health it dies and drops what it carried. */
+  damage(a: Ground, amount: number): boolean {
+    a.hp -= amount;
+    if (a.hp > 0) {
+      a.state = 'flee';
+      a.timer = 0;
+      return false;
+    }
+    const i = this.ground.indexOf(a);
+    if (i >= 0) this.ground.splice(i, 1);
+    this.o.onKill?.(a.species, _p.set(a.x, a.y + 0.2, a.z).clone());
+    return true;
+  }
+
+  /** The nearest living ground animal within `reach` of a point (they are about a metre long). */
+  nearest(point: THREE.Vector3, reach: number): Ground | null {
+    let best: Ground | null = null;
+    let bestD = reach;
+    for (const a of this.ground) {
+      const h = a.species === 'deer' ? 0.9 : 0.15;
+      const d = Math.hypot(a.x - point.x, a.z - point.z, Math.max(0, Math.abs(a.y + h - point.y) - h));
+      if (d < bestD) {
+        bestD = d;
+        best = a;
+      }
+    }
+    return best;
   }
 
   private hop(a: Ground): number {

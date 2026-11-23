@@ -13,6 +13,15 @@ export interface BuildingHooks {
   pulse(side: Side, strength: number, ms: number): void;
 }
 
+/** A structure as saved: where it is and which parts are in. */
+export interface SiteSave {
+  id: string;
+  x: number;
+  z: number;
+  yaw: number;
+  filled: string[];
+}
+
 export interface BuildingWorld {
   surfaceAt(x: number, z: number): number;
   isBlocked(x: number, z: number, pad?: number, ignoreSpawn?: boolean): boolean;
@@ -105,6 +114,10 @@ export class Building {
   private lastTriggered = [false, false];
   private lastHead = new THREE.Vector3();
   private lastForward = new THREE.Vector3(0, 0, -1);
+  /** True while a saved world is being put back: no messages, nothing counted. */
+  private restoring = false;
+  /** Called when a structure is finished. */
+  onFinish: ((id: string) => void) | null = null;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -124,6 +137,57 @@ export class Building {
       /* storage can be unavailable */
     }
     for (const bp of BLUEPRINTS) if (bp.unlockedBy === null) this.unlocked.add(bp.id);
+  }
+
+  private say(text: string): void {
+    if (!this.restoring) this.hooks.say(text);
+  }
+
+  private pulse(side: Side, strength: number, ms: number): void {
+    if (!this.restoring) this.hooks.pulse(side, strength, ms);
+  }
+
+  // --- Saving ---------------------------------------------------------------------------
+
+  /** Every structure, finished or not, for the save file. */
+  export(): SiteSave[] {
+    const all = this.site && !this.sites.includes(this.site) ? [...this.sites, this.site] : this.sites;
+    return all.map((s) => ({ id: s.bp.id, x: s.pos.x, z: s.pos.z, yaw: s.yaw, filled: s.slots.filter((o) => o.filled).map((o) => o.slot.id) }));
+  }
+
+  /** Puts saved structures back (parts that were in are solid again). */
+  restore(list: SiteSave[]): void {
+    this.restoring = true;
+    const counts = { ...this.built };
+    try {
+      for (const saved of list) {
+        const bp = BLUEPRINTS.find((b) => b.id === saved.id);
+        if (!bp) continue;
+        this.createSite(bp, new THREE.Vector3(saved.x, this.terrain.surfaceAt(saved.x, saved.z), saved.z), saved.yaw);
+        const site = this.site!;
+        for (const id of saved.filled) {
+          const s = site.slots.find((o) => o.slot.id === id);
+          if (s && !s.filled) this.fill(site, s);
+        }
+        if (this.site) {
+          // Unfinished: leave the ghosts of what is missing, and put it with the others.
+          for (const s of site.slots) if (!s.filled) site.group.remove(s.ghost);
+          this.sites.push(site);
+          this.site = null;
+        }
+      }
+    } finally {
+      Object.assign(this.built, counts);
+      this.restoring = false;
+    }
+    this.version++;
+  }
+
+  /** Finished structures of a kind, for spawning and drying meat. */
+  completed(kind: 'shelter' | 'rack'): Array<{ id: string; x: number; z: number }> {
+    return this.sites
+      .filter((s) => s.complete && s.bp[kind])
+      .map((s) => ({ id: s.bp.id, x: s.pos.x, z: s.pos.z }));
   }
 
   // --- What the book shows ------------------------------------------------------------
@@ -159,7 +223,7 @@ export class Building {
   select(id: string): void {
     const bp = blueprint(id);
     if (!this.unlocked.has(id)) {
-      this.hooks.say(`Locked: ${bp.hint}`);
+      this.say(`Locked: ${bp.hint}`);
       return;
     }
     this.cancel(false);
@@ -167,7 +231,7 @@ export class Building {
     this.scene.add(group);
     this.placing = { bp, group, pos: new THREE.Vector3(), turn: 0, valid: false, aimed: false };
     this.placeAhead();
-    this.hooks.say('Hold a trigger and point to move it. Thumbstick turns it. Let go to put it down.');
+    this.say('Hold a trigger and point to move it. Thumbstick turns it. Let go to put it down.');
     this.version++;
   }
 
@@ -181,7 +245,7 @@ export class Building {
       for (const s of this.site.slots) if (!s.filled) this.site.group.remove(s.ghost);
       this.sites.push(this.site);
       this.site = null;
-      if (say) this.hooks.say('You give up on the plan. What you built stays.');
+      if (say) this.say('You give up on the plan. What you built stays.');
     }
     this.version++;
   }
@@ -227,7 +291,7 @@ export class Building {
     this.fill(site, best);
     const side = stick.heldBy;
     this.sticks.stash(stick);
-    if (side) this.hooks.pulse(side, 0.9, 90);
+    if (side) this.pulse(side, 0.9, 90);
     return true;
   }
 
@@ -290,7 +354,7 @@ export class Building {
         this.placing = null;
         this.createSite(bp, p.pos.clone(), yaw);
       } else {
-        this.hooks.say("It won't go there: the ground is too steep, or something is in the way.");
+        this.say("It won't go there: the ground is too steep, or something is in the way.");
         p.aimed = false;
       }
     }
@@ -368,7 +432,7 @@ export class Building {
     });
     group.rotation.y = yaw;
     this.site = { bp, pos, yaw, slots, group, complete: false };
-    this.hooks.say(`${bp.name} placed. Gather what it needs. Glowing parts go next.`);
+    this.say(`${bp.name} placed. Gather what it needs. Glowing parts go next.`);
     this.version++;
   }
 
@@ -424,11 +488,11 @@ export class Building {
       const added = tying.tie.update(dt, tying.pos, tying.axis, frame.hands[i], hand.triggered);
       // The ghost ring swells as the rope goes round.
       tying.ghost.scale.setScalar(1 + 0.5 * tying.tie.progress);
-      if (added > 0) this.hooks.pulse(i === 0 ? 'left' : 'right', 0.15 + 0.5 * tying.tie.progress, 40);
+      if (added > 0) this.pulse(i === 0 ? 'left' : 'right', 0.15 + 0.5 * tying.tie.progress, 40);
       if (tying.tie.progress >= 1) {
         this.fill(site, tying);
         this.sticks.stash(coil);
-        this.hooks.pulse(i === 0 ? 'left' : 'right', 1, 150);
+        this.pulse(i === 0 ? 'left' : 'right', 1, 150);
       }
     }
     // Any joint that no hand is working on starts again (once, after both hands have been considered).
@@ -467,7 +531,7 @@ export class Building {
     else {
       const step = site.bp.steps[s.slot.step];
       const stepDone = site.slots.filter((o) => o.slot.step === s.slot.step).every((o) => o.filled);
-      if (stepDone && step) this.hooks.say(`Done: ${step.split('.')[0]}.`);
+      if (stepDone && step) this.say(`Done: ${step.split('.')[0]}.`);
     }
   }
 
@@ -475,7 +539,7 @@ export class Building {
     site.complete = true;
     this.sites.push(site);
     this.site = null;
-    this.built[site.bp.id] = (this.built[site.bp.id] ?? 0) + 1;
+    if (!this.restoring) this.built[site.bp.id] = (this.built[site.bp.id] ?? 0) + 1;
     const unlocked: string[] = [];
     for (const bp of BLUEPRINTS) {
       if (bp.unlockedBy === site.bp.id && !this.unlocked.has(bp.id)) {
@@ -484,13 +548,14 @@ export class Building {
       }
     }
     try {
-      localStorage.setItem(STORAGE, JSON.stringify({ unlocked: [...this.unlocked], built: this.built }));
+      if (!this.restoring) localStorage.setItem(STORAGE, JSON.stringify({ unlocked: [...this.unlocked], built: this.built }));
     } catch {
       /* ignore */
     }
-    this.hooks.say(unlocked.length ? `${site.bp.name} finished! New plan: ${unlocked.join(', ')}.` : `${site.bp.name} finished!`);
-    this.hooks.pulse('left', 1, 250);
-    this.hooks.pulse('right', 1, 250);
+    if (!this.restoring) this.onFinish?.(site.bp.id);
+    this.say(unlocked.length ? `${site.bp.name} finished! New plan: ${unlocked.join(', ')}.` : `${site.bp.name} finished!`);
+    this.pulse('left', 1, 250);
+    this.pulse('right', 1, 250);
     this.version++;
   }
 

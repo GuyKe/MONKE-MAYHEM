@@ -25,6 +25,43 @@ export interface Tree {
   z: number;
   height: number;
   radius: number;
+  /** Chopped down: only a stump is left. */
+  felled?: boolean;
+}
+
+interface TreeData extends Tree {
+  y: number;
+  pine: boolean;
+  width: number;
+  jungle: boolean;
+  spin: number;
+  spin2: number;
+  bark: THREE.Color;
+  foliage: THREE.Color;
+  branches: Array<{ pos: THREE.Vector3; quat: THREE.Quaternion; len: number; collider: RAPIER.Collider }>;
+  collider: RAPIER.Collider;
+  felled: boolean;
+}
+
+/** A lake: where it is, how big, how high the water stands and whether something lives in it. */
+/** A bush with berries on it. */
+export interface Bush {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  hue: number;
+  /** Where the berries sit. */
+  fruit: Array<{ x: number; y: number; z: number }>;
+}
+
+export interface ForestLake {
+  x: number;
+  z: number;
+  r: number;
+  level: number;
+  bed: number;
+  croc: boolean;
 }
 
 /** A rope hanging down a tree trunk, within reach of the ground, that can be pulled down. */
@@ -51,7 +88,28 @@ export interface PoiInfo {
   loot: Array<{ kind: PieceKind; x: number; y: number; z: number }>;
 }
 
+/** Where a felled tree landed. */
+export interface FellInfo {
+  x: number;
+  y: number;
+  z: number;
+  /** The way it fell (flat, unit). */
+  dirX: number;
+  dirZ: number;
+  height: number;
+  radius: number;
+  pine: boolean;
+}
+
 export interface Forest {
+  /** Lakes: deep water, with the odd crocodile. */
+  lakes: ReadonlyArray<ForestLake>;
+  /** The height of the water at (x, z) if it is under a lake, else null. */
+  waterLevelAt(x: number, z: number): number | null;
+  /** Fruit bushes. */
+  bushes: ReadonlyArray<Bush>;
+  /** Chops a tree down (it falls away from `fromX, fromZ`); `done` is called once it has landed. */
+  fellTree(tree: Tree, fromX: number, fromZ: number, done: (landed: FellInfo) => void): boolean;
   seed: number;
   /** Old buildings and stone circles scattered through the forest, to look around and find. */
   pois: ReadonlyArray<PoiInfo>;
@@ -73,9 +131,9 @@ export interface Forest {
   /** Ropes hanging in trees. */
   ropes: ReadonlyArray<RopeSpot>;
   /** The frozen ponds and mud puddles (circles), for the map. */
-  water: ReadonlyArray<{ x: number; z: number; r: number; ice: boolean }>;
+  water: ReadonlyArray<{ x: number; z: number; r: number; ice: boolean; lake?: boolean }>;
   /** Shows the chunks near `viewer` and hides the rest. Call every frame (it is cheap). */
-  update(viewer: THREE.Vector3): void;
+  update(viewer: THREE.Vector3, dt?: number): void;
   /** Changes how far chunks are drawn. */
   setViewRadius(metres: number): void;
   setGrass(on: boolean): void;
@@ -111,6 +169,9 @@ interface Chunk {
   propsMesh?: THREE.Mesh;
   propsLowMesh?: THREE.Mesh;
   tuftsMesh?: THREE.Mesh;
+  /** The trees (apart from other props, so a felled one can be taken out). */
+  treesMesh?: THREE.Mesh;
+  treesLowMesh?: THREE.Mesh;
 }
 
 const _m = new THREE.Matrix4();
@@ -140,9 +201,11 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
   const keepouts: Keepout[] = [{ x: spawn.x, z: spawn.z, r: 9, spawn: true }];
   let colliders = 0;
 
-  const addCollider = (desc: RAPIER.ColliderDesc, surface: SurfaceMaterial): void => {
-    setSurface(world.createCollider(desc.setCollisionGroups(WORLD_GROUPS).setFriction(0.9)), surface);
+  const addCollider = (desc: RAPIER.ColliderDesc, surface: SurfaceMaterial): RAPIER.Collider => {
+    const collider = world.createCollider(desc.setCollisionGroups(WORLD_GROUPS).setFriction(0.9));
+    setSurface(collider, surface);
     colliders++;
+    return collider;
   };
   const blocked = (x: number, z: number, pad = 0, ignoreSpawn = false): boolean =>
     keepouts.some((k) => !(ignoreSpawn && k.spawn) && Math.hypot(x - k.x, z - k.z) < k.r + pad);
@@ -172,6 +235,38 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
       }
     }
   };
+
+  // --- Lakes ---------------------------------------------------------------------
+  // Deep bowls with flat water. The first is a walk from the start; about one in ten has a crocodile.
+  const lakes: ForestLake[] = [];
+  const addLake = (near: boolean): void => {
+    for (let tries = 0; tries < 400; tries++) {
+      const r = range(13, 26);
+      let x: number;
+      let z: number;
+      if (near) {
+        const a = rand() * Math.PI * 2;
+        const d = range(70, 115);
+        x = spawn.x + Math.cos(a) * d;
+        z = spawn.z + Math.sin(a) * d;
+      } else {
+        x = range(-WORLD_HALF + r + 45, WORLD_HALF - r - 45);
+        z = range(-WORLD_HALF + r + 45, WORLD_HALF - r - 45);
+      }
+      if (!inside(x, z, r + 40) || Math.hypot(x - spawn.x, z - spawn.z) < r + 50) continue;
+      if (terrain.slopeAt(x, z) > 0.2) continue;
+      if (lakes.some((l) => Math.hypot(l.x - x, l.z - z) < l.r + r + 40)) continue;
+      if (!farFromOthers(x, z, r + 12)) continue;
+      const lake = terrain.addLake(x, z, r);
+      keepouts.push({ x, z, r: r + 9 });
+      lakes.push({ ...lake, croc: rand() < 0.1 });
+      return;
+    }
+  };
+  addLake(true);
+  for (let i = 0; i < 8; i++) addLake(false);
+  const inLake = (x: number, z: number, margin = 0) => lakes.some((l) => Math.hypot(x - l.x, z - l.z) < l.r + 8 + margin);
+
   place(
     6,
     400,
@@ -211,7 +306,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
         z = range(-WORLD_HALF + 45, WORLD_HALF - 45);
         if (Math.hypot(x - spawn.x, z - spawn.z) < 40) continue;
       }
-      if (!inside(x, z, 45) || terrain.slopeAt(x, z) > 0.14) continue;
+      if (!inside(x, z, 45) || terrain.slopeAt(x, z) > 0.22) continue;
       if (plans.some((p) => Math.hypot(p.x - x, p.z - z) < 70)) continue;
       if (keepouts.some((kp) => Math.hypot(x - kp.x, z - kp.z) < kp.r + ruin.footprint + 4)) continue;
       terrain.addFlatSpot({ x, z, inner: ruin.footprint + 1.5, outer: ruin.footprint + 9 });
@@ -255,11 +350,6 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
   }
 
   // --- Trees ------------------------------------------------------------------
-  interface TreeData extends Tree {
-    y: number;
-    pine: boolean;
-    width: number;
-  }
   const trees: TreeData[] = [];
   const SPACING = options.treeSpacing ?? 4.8;
   for (let gx = -WORLD_HALF + 2; gx < WORLD_HALF - 1; gx += SPACING) {
@@ -272,61 +362,60 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
       const edge = Math.max(Math.abs(x), Math.abs(z));
       const chance = edge > WORLD_HALF - 22 ? 0.95 : 0.3 + 0.6 * density;
       if (rand() > chance) continue;
-      const pine = rand() < 0.6;
+      const pine = rand() < 0.55;
       // Tall and thick, with the odd giant.
-      const giant = rand() < 0.06;
-      const height = (pine ? range(15, 27) : range(10, 17)) * (giant ? 1.3 : 1);
+      const giant = rand() < 0.07;
+      const height = (pine ? range(16, 28) : range(11, 19)) * (giant ? 1.3 : 1);
+      const jungle = !pine && rand() < 0.5; // broadleaf trees: half are lush, with vines and dense crowns
       trees.push({
         x,
         z,
         y: surfaceAt(x, z) - 0.35,
         height,
-        radius: (0.3 + height * 0.022 + range(0, 0.18)) * (giant ? 1.5 : 1),
+        radius: (0.34 + height * 0.024 + range(0, 0.2)) * (giant ? 1.5 : 1),
         pine,
         width: range(0.85, 1.25),
+        jungle,
+        spin: rand() * 6.28,
+        spin2: rand() * 6.28,
+        bark: new THREE.Color().setHSL(0.07 + range(-0.01, 0.015), 0.35, range(0.2, 0.3)),
+        foliage: pine
+          ? new THREE.Color().setHSL(0.36 + range(-0.02, 0.02), 0.45, range(0.16, 0.25))
+          : new THREE.Color().setHSL(jungle ? 0.31 + range(-0.04, 0.03) : 0.27 + range(-0.03, 0.03), jungle ? 0.62 : 0.5, range(0.24, 0.36)),
+        branches: [],
+        collider: null as unknown as RAPIER.Collider,
+        felled: false,
       });
     }
   }
+  const chunkTrees = new Map<Chunk, TreeData[]>();
+  const propsMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
   const trunkGeo = new THREE.CylinderGeometry(0.72, 1, 1, 6, 1, true).translate(0, 0.5, 0); // open ended: both ends are hidden
+  const stumpGeo = new THREE.CylinderGeometry(0.72, 1, 1, 6).translate(0, 0.5, 0);
   const pineGeo = mergeGeometries([
     new THREE.ConeGeometry(0.2, 0.45, 6).translate(0, 0.4, 0),
     new THREE.ConeGeometry(0.16, 0.4, 6).translate(0, 0.62, 0),
     new THREE.ConeGeometry(0.11, 0.35, 6).translate(0, 0.82, 0),
   ])!;
   const leafGeo = new THREE.SphereGeometry(1, 6, 4);
+  const vineGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 3, 1, true).translate(0, -0.5, 0);
   // Far-away versions: one cone for a pine, a plain 20-sided blob for a broadleaf.
   const pineLowGeo = new THREE.ConeGeometry(0.2, 0.75, 5).translate(0, 0.55, 0);
   const leafLowGeo = new THREE.IcosahedronGeometry(1, 0);
 
-  for (const t of trees) {
-    const chunk = chunkAt(t.x, t.z);
-    const trunkH = t.height + 0.35;
-    _m.compose(_p.set(t.x, t.y, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(t.radius, trunkH, t.radius));
-    const barkColor = _c.setHSL(0.07 + range(-0.01, 0.015), 0.35, range(0.2, 0.3));
-    chunk.props.add(trunkGeo, _m, barkColor);
-    if (!t.pine) chunk.propsLow.add(trunkGeo, _m, barkColor);
-    addCollider(RAPIER.ColliderDesc.cylinder(trunkH / 2, t.radius * 0.86).setTranslation(t.x, t.y + trunkH / 2, t.z), SURFACES.bark);
-
-    if (t.pine) {
-      const w = t.height * t.width * 0.75;
-      _m.compose(_p.set(t.x, t.y + 0.35, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(w, t.height, w));
-      const needles = _c.setHSL(0.36 + range(-0.02, 0.02), 0.45, range(0.16, 0.25));
-      chunk.props.add(pineGeo, _m, needles);
-      chunk.propsLow.add(pineLowGeo, _m, needles);
-    } else {
-      const w = t.height * 0.24 * t.width;
-      _m.compose(_p.set(t.x, t.y + 0.35 + t.height * 0.78, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(w, w * 0.8, w));
-      const foliage = _c.setHSL(0.27 + range(-0.03, 0.03), 0.5, range(0.26, 0.36));
-      chunk.props.add(leafGeo, _m, foliage);
-      chunk.propsLow.add(leafLowGeo, _m, foliage);
-    }
-  }
-
-  // Low branches to grab and climb on.
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  const VINE = new THREE.Color(0x2f6f2a);
   let branches = 0;
   for (const t of trees) {
+    const chunk = chunkAt(t.x, t.z);
+    const list = chunkTrees.get(chunk);
+    if (list) list.push(t);
+    else chunkTrees.set(chunk, [t]);
+    const trunkH = t.height + 0.35;
+    t.collider = addCollider(RAPIER.ColliderDesc.cylinder(trunkH / 2, t.radius * 0.86).setTranslation(t.x, t.y + trunkH / 2, t.z), SURFACES.bark);
+
+    // Low branches to grab and climb on.
     if (rand() > 0.55) continue;
     const count = 1 + Math.floor(rand() * 2);
     for (let b = 0; b < count; b++) {
@@ -336,20 +425,81 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
         .setFromAxisAngle(UP, Math.atan2(Math.cos(angle), Math.sin(angle)))
         .multiply(_qa.setFromAxisAngle(X_AXIS, -range(0.1, 0.35))); // outer end rises
       const reach = t.radius * 0.5 + len / 2;
-      const px = t.x + Math.cos(angle) * reach;
-      const py = t.y + 0.35 + range(0.9, 5.5); // the higher ones you climb up to
-      const pz = t.z + Math.sin(angle) * reach;
-      _m.compose(_p.set(px, py, pz), quat, _s.set(0.11, 0.11, len));
-      chunkAt(px, pz).props.add(boxGeo, _m, _c.set(SURFACES.wood.color));
-      addCollider(
+      const pos = new THREE.Vector3(t.x + Math.cos(angle) * reach, t.y + 0.35 + range(0.9, 5.5), t.z + Math.sin(angle) * reach); // the higher ones you climb up to
+      const collider = addCollider(
         RAPIER.ColliderDesc.cuboid(0.07, 0.07, len / 2)
-          .setTranslation(px, py, pz)
+          .setTranslation(pos.x, pos.y, pos.z)
           .setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w }),
         SURFACES.wood,
       );
+      t.branches.push({ pos, quat, len, collider });
       branches++;
     }
   }
+
+  /** (Re)builds the baked trees of a chunk: trunks, crowns, branches, and stumps for felled ones. */
+  const bakeTrees = (chunk: Chunk): void => {
+    const high = new Baker();
+    const low = new Baker();
+    for (const t of chunkTrees.get(chunk) ?? []) {
+      if (t.felled) {
+        _m.compose(_p.set(t.x, t.y, t.z), _q.setFromAxisAngle(UP, t.spin), _s.set(t.radius, 0.45, t.radius));
+        high.add(stumpGeo, _m, t.bark);
+        low.add(stumpGeo, _m, t.bark);
+        continue;
+      }
+      const trunkH = t.height + 0.35;
+      _m.compose(_p.set(t.x, t.y, t.z), _q.setFromAxisAngle(UP, t.spin), _s.set(t.radius, trunkH, t.radius));
+      high.add(trunkGeo, _m, t.bark);
+      if (!t.pine) low.add(trunkGeo, _m, t.bark);
+      if (t.pine) {
+        const w = t.height * t.width * 0.75;
+        _m.compose(_p.set(t.x, t.y + 0.35, t.z), _q.setFromAxisAngle(UP, t.spin2), _s.set(w, t.height, w));
+        high.add(pineGeo, _m, t.foliage);
+        low.add(pineLowGeo, _m, t.foliage);
+      } else {
+        // A crown of blobs: one big in the middle and a few around it. Lush trees have more, and hang vines.
+        const w = t.height * (t.jungle ? 0.3 : 0.24) * t.width;
+        const cy = t.y + 0.35 + t.height * 0.78;
+        _m.compose(_p.set(t.x, cy, t.z), _q.setFromAxisAngle(UP, t.spin2), _s.set(w, w * 0.8, w));
+        high.add(leafGeo, _m, t.foliage);
+        low.add(leafLowGeo, _m, t.foliage);
+        const extra = t.jungle ? 4 : 2;
+        for (let k = 0; k < extra; k++) {
+          const a = t.spin + (k / extra) * Math.PI * 2;
+          const ox = Math.cos(a) * w * 0.7;
+          const oz = Math.sin(a) * w * 0.7;
+          const sw = w * 0.62;
+          _m.compose(_p.set(t.x + ox, cy - w * 0.15 + Math.sin(a * 3) * w * 0.15, t.z + oz), _q.identity(), _s.set(sw, sw * 0.75, sw));
+          high.add(leafLowGeo, _m, _c.copy(t.foliage).offsetHSL(0.01 * k, 0, 0.02 * (k % 2)));
+          if (t.jungle && k < 3) {
+            const vl = t.height * 0.35 + (k % 2) * 3;
+            _m.compose(_p.set(t.x + ox * 1.15, cy - w * 0.3, t.z + oz * 1.15), _q.identity(), _s.set(0.04, vl, 0.04));
+            high.add(vineGeo, _m, VINE);
+          }
+        }
+      }
+      for (const b of t.branches) {
+        _m.compose(b.pos, b.quat, _s.set(0.11, 0.11, b.len));
+        high.add(boxGeo, _m, _c.set(SURFACES.wood.color));
+      }
+    }
+    const swap = (current: THREE.Mesh | undefined, baker: Baker, visible: boolean): THREE.Mesh | undefined => {
+      if (baker.isEmpty) return current;
+      if (current) {
+        current.geometry.dispose();
+        current.geometry = baker.build();
+        return current;
+      }
+      const mesh = new THREE.Mesh(baker.build(), propsMaterial);
+      mesh.frustumCulled = false;
+      mesh.visible = visible;
+      scene.add(mesh);
+      return mesh;
+    };
+    chunk.treesMesh = swap(chunk.treesMesh, high, true);
+    chunk.treesLowMesh = swap(chunk.treesLowMesh, low, false);
+  };
 
   // Ropes hanging down some of the bigger trunks, ending within reach of the ground.
   const ropes: RopeSpot[] = [];
@@ -360,12 +510,12 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     const ground = surfaceAt(x, z);
     ropes.push({ x, z, top: ground + Math.min(t.height * 0.5, 9), bottom: ground + range(1.15, 1.4) });
   };
-  for (const t of trees) if (t.radius > 0.55 && rand() < 0.07) addRope(t);
+  for (const t of trees) if (t.radius > 0.5 && rand() < 0.13) addRope(t);
   // Always a few close to where you start.
   const byDistance = [...trees].sort((p, q) => Math.hypot(p.x - spawn.x, p.z - spawn.z) - Math.hypot(q.x - spawn.x, q.z - spawn.z));
   let nearRopes = ropes.filter((r) => Math.hypot(r.x - spawn.x, r.z - spawn.z) < 45).length;
   for (const t of byDistance) {
-    if (nearRopes >= 4) break;
+    if (nearRopes >= 9) break;
     const d = Math.hypot(t.x - spawn.x, t.z - spawn.z);
     if (d > 12 && d < 40 && t.radius > 0.45) {
       addRope(t);
@@ -413,7 +563,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     for (let dx = -reach; dx <= reach; dx++) {
       for (let dz = -reach; dz <= reach; dz++) {
         for (const o of buckets.get(bucketKey(ix + dx, iz + dz)) ?? []) {
-          if (!o.tree) continue;
+          if (!o.tree || o.tree.felled) continue;
           const d = Math.hypot(o.x - x, o.z - z) - o.radius;
           if (d < pad && d < bestD) {
             bestD = d;
@@ -570,7 +720,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
         const x = range(chunk.minX, chunk.maxX);
         const z = range(chunk.minZ, chunk.maxZ);
         if (!inside(x, z, 6)) continue;
-        if (pads.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 0.3)) continue;
+        if (pads.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 0.3) || inLake(x, z, -4)) continue;
         if (slopeAt(x, z) > 0.7 || treeNear(x, z, 0.1)) continue;
         const s = range(0.6, 1.5);
         _q.setFromEuler(_e.set(range(-0.2, 0.2), rand() * 6.28, range(-0.2, 0.2)));
@@ -581,11 +731,102 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     }
   }
 
+  // --- Leaf litter, ferns, flowers and fruit bushes --------------------------------
+  const leafLitterGeo = new THREE.PlaneGeometry(0.13, 0.2).rotateX(-Math.PI / 2);
+  const fernGeo = mergeGeometries(
+    [0, 1, 2].map((k) => {
+      const g = new THREE.ConeGeometry(0.09, 0.8, 3, 1, true).scale(1, 1, 0.35).translate(0, 0.4, 0);
+      g.rotateZ(0.85); // leans out
+      g.rotateY((k / 3) * Math.PI * 2);
+      return g;
+    }),
+  )!;
+  const bloomGeo = new THREE.IcosahedronGeometry(0.06, 0).translate(0, 0.32, 0);
+  const stemGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.32, 3).translate(0, 0.16, 0);
+  const LEAF_COLORS = [0xb8761e, 0xd39a2b, 0x9c4a1c, 0x7a8a2a, 0x5f8a2c, 0xc2562a];
+  const BLOOMS = [0xe0405a, 0xf0d040, 0xb060d8, 0xf08a2a, 0xffffff];
+  const bushes: Bush[] = [];
+  for (const row of chunks) {
+    for (const chunk of row) {
+      for (let tries = 0, made = 0; made < 260 && tries < 600; tries++) {
+        const x = range(chunk.minX, chunk.maxX);
+        const z = range(chunk.minZ, chunk.maxZ);
+        if (!inside(x, z, 6) || inLake(x, z, -4) || slopeAt(x, z) > 0.6 || treeNear(x, z, 0.1)) continue;
+        // Fallen leaves gather under the broadleaf trees.
+        const under = !!nearestTree(x, z, 3);
+        if (!under && rand() < 0.55) continue;
+        _q.setFromEuler(_e.set(range(-0.15, 0.15), rand() * 6.28, range(-0.15, 0.15)));
+        const sc = range(0.7, 1.5);
+        _m.compose(_p.set(x, surfaceAt(x, z) + 0.015, z), _q, _s.set(sc, 1, sc));
+        chunk.tufts.add(leafLitterGeo, _m, _c.set(LEAF_COLORS[Math.floor(rand() * LEAF_COLORS.length)]).offsetHSL(0, 0, range(-0.05, 0.05)));
+        made++;
+      }
+      for (let tries = 0, made = 0; made < 60 && tries < 300; tries++) {
+        const x = range(chunk.minX, chunk.maxX);
+        const z = range(chunk.minZ, chunk.maxZ);
+        if (!inside(x, z, 6) || inLake(x, z, -4) || slopeAt(x, z) > 0.6 || treeNear(x, z, 0.3)) continue;
+        const s = range(0.7, 1.5);
+        _q.setFromAxisAngle(UP, rand() * 6.28);
+        _m.compose(_p.set(x, surfaceAt(x, z) - 0.02, z), _q, _s.set(s, s, s));
+        chunk.tufts.add(fernGeo, _m, _c.setHSL(0.3 + range(-0.03, 0.03), 0.6, range(0.2, 0.3)));
+        if (rand() < 0.2) {
+          const bx = x + range(-1, 1);
+          const bz = z + range(-1, 1);
+          _m.compose(_p.set(bx, surfaceAt(bx, bz), bz), _q.identity(), _s.set(1, 1, 1));
+          chunk.tufts.add(stemGeo, _m, _c.set(0x3f7a30));
+          chunk.tufts.add(bloomGeo, _m, _c.set(BLOOMS[Math.floor(rand() * BLOOMS.length)]));
+        }
+        made++;
+      }
+      // Fruit bushes: a few green mounds with berries you can pick.
+      for (let tries = 0, made = 0; made < 9 && tries < 200; tries++) {
+        const x = range(chunk.minX, chunk.maxX);
+        const z = range(chunk.minZ, chunk.maxZ);
+        if (!inside(x, z, 8) || blocked(x, z, 1, true) || inLake(x, z, 1) || slopeAt(x, z) > 0.4 || treeNear(x, z, 1.4)) continue;
+        const r = range(0.5, 0.8);
+        const y = surfaceAt(x, z);
+        const bush: Bush = { x, y, z, r, hue: [0.0, 0.07, 0.78, 0.14][Math.floor(rand() * 4)], fruit: [] };
+        const green = _c.setHSL(0.3 + range(-0.03, 0.03), 0.55, range(0.2, 0.3));
+        for (let k = 0; k < 3; k++) {
+          const a = k * 2.1 + rand();
+          const br = r * range(0.55, 0.8);
+          _m.compose(_p.set(x + Math.cos(a) * r * 0.35, y + br * 0.6, z + Math.sin(a) * r * 0.35), _q.identity(), _s.set(br, br * 0.8, br));
+          chunk.props.add(leafGeo, _m, green);
+        }
+        const berries = 3 + Math.floor(rand() * 3);
+        for (let k = 0; k < berries; k++) {
+          const a = rand() * 6.28;
+          const rr = r * range(0.7, 0.95);
+          bush.fruit.push({ x: x + Math.cos(a) * rr, y: y + range(0.25, r * 1.1), z: z + Math.sin(a) * rr });
+        }
+        bushes.push(bush);
+        made++;
+      }
+    }
+  }
+
+  // --- Water: a flat, see-through disc over each lake ---------------------------------
+  const waterMaterial = new THREE.MeshLambertMaterial({ color: 0x2c7189, transparent: true, opacity: 0.78, depthWrite: false });
+  const lakeMeshes = lakes.map((lake) => {
+    const mesh = new THREE.Mesh(new THREE.CircleGeometry(lake.r + 7, 40).rotateX(-Math.PI / 2), waterMaterial);
+    mesh.position.set(lake.x, lake.level, lake.z);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 2;
+    scene.add(mesh);
+    return mesh;
+  });
+  const waterLevelAt = (x: number, z: number): number | null => {
+    for (const l of lakes) {
+      if (Math.hypot(x - l.x, z - l.z) < l.r + 7 && surfaceAt(x, z) < l.level) return l.level;
+    }
+    return null;
+  };
+
   // --- One mesh per chunk for everything baked ---------------------------------
-  const propsMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const tuftMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
   for (const row of chunks) {
     for (const chunk of row) {
+      bakeTrees(chunk);
       if (!chunk.props.isEmpty) {
         chunk.propsMesh = new THREE.Mesh(chunk.props.build(), propsMaterial);
         chunk.propsMesh.frustumCulled = false;
@@ -616,9 +857,87 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     addCollider(RAPIER.ColliderDesc.cuboid(hx, 60, hz).setTranslation(x, 0, z), SURFACES.stone);
   }
 
+  // --- Felling trees -----------------------------------------------------------------
+  interface Falling {
+    group: THREE.Group;
+    t: number;
+    axis: THREE.Vector3;
+    done: (landed: FellInfo) => void;
+    info: FellInfo;
+  }
+  const falling: Falling[] = [];
+  const fellTree = (tree: Tree, fromX: number, fromZ: number, done: (landed: FellInfo) => void): boolean => {
+    const t = tree as TreeData;
+    if (!trees.includes(t) || t.felled) return false;
+    t.felled = true;
+    world.removeCollider(t.collider, true);
+    for (const b of t.branches) world.removeCollider(b.collider, true);
+    t.branches.length = 0;
+    t.collider = addCollider(RAPIER.ColliderDesc.cylinder(0.225, t.radius * 0.86).setTranslation(t.x, t.y + 0.225, t.z), SURFACES.bark);
+    bakeTrees(chunkAt(t.x, t.z));
+
+    // It falls away from you.
+    let dx = t.x - fromX;
+    let dz = t.z - fromZ;
+    const len = Math.hypot(dx, dz) || 1;
+    dx /= len;
+    dz /= len;
+    const group = new THREE.Group();
+    group.position.set(t.x, t.y, t.z);
+    const wood = new THREE.MeshLambertMaterial({ color: t.bark, flatShading: true });
+    const trunk = new THREE.Mesh(trunkGeo, wood);
+    trunk.scale.set(t.radius, t.height + 0.35, t.radius);
+    group.add(trunk);
+    const crownMaterial = new THREE.MeshLambertMaterial({ color: t.foliage, flatShading: true });
+    if (t.pine) {
+      const crown = new THREE.Mesh(pineGeo, crownMaterial);
+      const w = t.height * t.width * 0.75;
+      crown.scale.set(w, t.height, w);
+      crown.position.y = 0.35;
+      group.add(crown);
+    } else {
+      const w = t.height * (t.jungle ? 0.3 : 0.24) * t.width;
+      const crown = new THREE.Mesh(leafGeo, crownMaterial);
+      crown.scale.set(w, w * 0.8, w);
+      crown.position.y = 0.35 + t.height * 0.78;
+      group.add(crown);
+    }
+    scene.add(group);
+    falling.push({
+      group,
+      t: 0,
+      axis: new THREE.Vector3(dz, 0, -dx),
+      done,
+      info: { x: t.x, y: t.y + 0.35, z: t.z, dirX: dx, dirZ: dz, height: t.height, radius: t.radius, pine: t.pine },
+    });
+    return true;
+  };
+  const FALL_SECONDS = 2.6;
+  const stepFalling = (dt: number): void => {
+    for (let i = falling.length - 1; i >= 0; i--) {
+      const f = falling[i];
+      f.t += dt / FALL_SECONDS;
+      const k = Math.min(1, f.t);
+      // Creaks over slowly, then speeds up and thumps down.
+      const angle = (Math.PI / 2 - 0.04) * (k * k * k) + Math.sin(f.t * 30) * 0.01 * (1 - k);
+      f.group.quaternion.setFromAxisAngle(f.axis, angle);
+      if (f.t >= 1) {
+        scene.remove(f.group);
+        f.group.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh) (m.material as THREE.Material).dispose();
+        });
+        falling.splice(i, 1);
+        f.done(f.info);
+      }
+    }
+  };
+
   let viewRadius = options.viewRadius ?? VIEW_RADIUS;
   let grassOn = options.grass ?? true;
-  const update = (viewer: THREE.Vector3): void => {
+  const update = (viewer: THREE.Vector3, dt = 0): void => {
+    if (dt > 0) stepFalling(dt);
+    lakes.forEach((l, i) => (lakeMeshes[i].visible = Math.hypot(l.x - viewer.x, l.z - viewer.z) < viewRadius + l.r + 30));
     for (const row of chunks) {
       for (const c of row) {
         const dx = Math.max(c.minX - viewer.x, 0, viewer.x - c.maxX);
@@ -630,6 +949,8 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
         c.terrain.low.visible = shown && !detailed;
         if (c.propsMesh) c.propsMesh.visible = detailed;
         if (c.propsLowMesh) c.propsLowMesh.visible = shown && !detailed;
+        if (c.treesMesh) c.treesMesh.visible = detailed;
+        if (c.treesLowMesh) c.treesLowMesh.visible = shown && !detailed;
         if (c.tuftsMesh) c.tuftsMesh.visible = grassOn && d < GRASS_RADIUS;
       }
     }
@@ -647,7 +968,14 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     spawn: new THREE.Vector3(spawn.x, surfaceAt(spawn.x, spawn.z), spawn.z),
     trees,
     ropes,
-    water: pads.map((p) => ({ x: p.x, z: p.z, r: p.r, ice: p.surface === SURFACES.ice })),
+    water: [
+      ...pads.map((p) => ({ x: p.x, z: p.z, r: p.r, ice: p.surface === SURFACES.ice })),
+      ...lakes.map((l) => ({ x: l.x, z: l.z, r: l.r + 3, ice: false, lake: true })),
+    ],
+    lakes,
+    waterLevelAt,
+    bushes,
+    fellTree,
     update,
     setViewRadius: (metres) => void (viewRadius = metres),
     setGrass: (on) => void (grassOn = on),

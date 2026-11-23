@@ -1,9 +1,9 @@
 import type { PieceKind } from '../world/sticks';
 
 /** Things that happen in the game and can unlock a recipe. */
-export type JournalEvent = 'stash' | 'dusk' | 'throw' | 'craft:torch';
+export type JournalEvent = 'stash' | 'dusk' | 'throw' | 'craft:torch' | 'axe' | 'axe2' | 'log' | 'kill' | 'swim';
 
-export type RecipeId = 'pole' | 'torch' | 'campfire' | 'spear';
+export type RecipeId = 'pole' | 'torch' | 'campfire' | 'spear' | 'knife' | 'club' | 'mirror';
 
 export interface Recipe {
   id: RecipeId;
@@ -55,6 +55,33 @@ export const RECIPES: readonly Recipe[] = [
     blurb: 'A ring of stones and a fire that stays lit.',
     unlockedBy: 'craft:torch',
     hint: 'Craft a torch.',
+  },
+  {
+    id: 'knife',
+    name: 'Stone Knife',
+    cost: 2,
+    makes: 'knife',
+    blurb: 'A short blade. Quick, and it takes little to make.',
+    unlockedBy: 'axe',
+    hint: 'Make a stone axe.',
+  },
+  {
+    id: 'club',
+    name: 'Heavy Club',
+    cost: 4,
+    makes: 'club',
+    blurb: 'A knob of wood on a handle. Slow, but it hits hard.',
+    unlockedBy: 'log',
+    hint: 'Chop a log loose from a tree.',
+  },
+  {
+    id: 'mirror',
+    name: 'Mirror',
+    cost: 3,
+    makes: 'mirror',
+    blurb: 'A polished disc on a handle. Hold it up to see yourself.',
+    unlockedBy: 'swim',
+    hint: 'Swim for a few seconds in a lake.',
   },
 ];
 

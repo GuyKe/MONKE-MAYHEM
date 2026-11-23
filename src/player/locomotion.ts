@@ -31,6 +31,14 @@ const _normal = new THREE.Vector3();
 const _tangent = new THREE.Vector3();
 const _pinned = new THREE.Vector3();
 const IDENTITY_ROT = { x: 0, y: 0, z: 0, w: 1 };
+/** Water this deep (metres, at the feet) and you are swimming rather than wading. */
+const SWIM_DEPTH = 0.4;
+/** Body speed (m/s) gained per metre a submerged hand is pulled through the water. */
+const SWIM_GAIN = 3.4;
+const SWIM_DRAG = 1.35;
+const SWIM_VERTICAL_DRAG = 3.2;
+const _arm = new THREE.Vector3();
+const _stroke = new THREE.Vector3();
 
 /**
  * Hand-driven movement with no thumbstick, in the style of Gorilla Tag.
@@ -57,6 +65,18 @@ export class Locomotion {
   handsIgnoreStructures = false;
   /** Material under the body when standing or sliding on the ground. */
   groundSurface: SurfaceMaterial = DEFAULT_SURFACE;
+  /** Height of the water surface at (x, z), or null where there is none. Set by the game. */
+  waterAt: ((x: number, z: number) => number | null) | null = null;
+  /** In water too deep to stand in: hands paddle instead of pushing off the ground. */
+  swimming = false;
+  /** The head is under the surface. */
+  headUnderwater = false;
+  /** Water surface height under the player (valid while in water). */
+  waterLevel = -Infinity;
+  /** True when any part of the body is in water (wading or swimming). */
+  inWater = false;
+  private readonly lastArm: [THREE.Vector3, THREE.Vector3] = [new THREE.Vector3(), new THREE.Vector3()];
+  private readonly armKnown = [false, false];
 
   private readonly headLocal = new THREE.Vector3(0, 1.6, 0);
   private readonly bodyCollider: RAPIER.Collider;
@@ -119,6 +139,8 @@ export class Locomotion {
       hand.touching = hand.wasTouching = hand.justTouched = false;
       hand.lift = 0;
     }
+    this.armKnown[0] = this.armKnown[1] = false;
+    this.swimming = this.headUnderwater = this.inWater = false;
   }
 
   /**
@@ -138,6 +160,14 @@ export class Locomotion {
     // --- 1. Hand sweeps → rig correction -------------------------------------
     const headWorld = this.headWorld(new THREE.Vector3());
     const movement = new THREE.Vector3();
+    // Water: deep enough and you swim.
+    const level = this.waterAt ? this.waterAt(headWorld.x, headWorld.z) : null;
+    const feetY = headWorld.y - (2 * C.bodyHalfHeight + C.bodyRadius + 0.02);
+    this.swimming = level !== null && level - feetY > SWIM_DEPTH;
+    this.inWater = level !== null && level > feetY + 0.05;
+    this.headUnderwater = level !== null && headWorld.y < level;
+    this.waterLevel = level ?? -Infinity;
+    _stroke.set(0, 0, 0);
     let touchingCount = 0;
     const probe = Math.max(2 * C.gravity * dt * dt, C.contactProbe);
 
@@ -148,9 +178,15 @@ export class Locomotion {
       if (!local) {
         hand.touching = hand.wasTouching = false;
         hand.initialized = false;
+        this.armKnown[i] = false;
         continue;
       }
       const current = this.handWorld(local, headWorld, hand.rawPosition);
+      // Paddling: a hand pulled through water pushes the body the other way.
+      _arm.subVectors(current, headWorld);
+      if (this.swimming && this.armKnown[i] && current.y < this.waterLevel) _stroke.add(this.lastArm[i]).sub(_arm);
+      this.lastArm[i].copy(_arm);
+      this.armKnown[i] = true;
       if (!hand.initialized) {
         // First frame, respawn or tracking regained: start the hand at the head
         // and let the sweep carry it out to the controller. It then stops at any
@@ -209,8 +245,19 @@ export class Locomotion {
 
     // --- 2. Free flight --------------------------------------------------------
     if (touchingCount === 0) {
-      this.velocity.y -= C.gravity * dt;
-      this.velocity.multiplyScalar(Math.max(0, 1 - C.airDrag * dt));
+      if (this.swimming) {
+        this.velocity.addScaledVector(_stroke, SWIM_GAIN);
+        // The water holds you up, with your head just above the surface.
+        this.velocity.y += (this.waterLevel + 0.1 - headWorld.y) * 10 * dt;
+        const keep = 1 / (1 + SWIM_DRAG * dt);
+        this.velocity.x *= keep;
+        this.velocity.z *= keep;
+        this.velocity.y *= 1 / (1 + SWIM_VERTICAL_DRAG * dt);
+      } else {
+        this.velocity.y -= (this.inWater ? C.gravity * 0.6 : C.gravity) * dt;
+        const drag = this.inWater ? 1.2 : C.airDrag;
+        this.velocity.multiplyScalar(Math.max(0, 1 - drag * dt));
+      }
       movement.addScaledVector(this.velocity, dt);
     }
 

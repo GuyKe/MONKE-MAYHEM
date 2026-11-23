@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { Tree } from '../world/forest';
-import type { Side, Stick, Sticks } from '../world/sticks';
+import type { FellInfo, Tree } from '../world/forest';
+import { type Side, type Stick, type Sticks } from '../world/sticks';
 import type { Grab } from './grab';
 import type { Hands } from './hands';
 import { TieGesture } from './tie';
@@ -13,16 +13,20 @@ export interface CraftingHooks {
   pulse(side: Side, strength: number, ms: number): void;
   /** Tells the journal something happened. */
   notify?(event: 'axe' | 'log' | 'axe2'): void;
+  /** A tree came down and landed. */
+  onFelled?(tree: Tree): void;
 }
 
 export interface CraftingWorld {
   /** The tree whose trunk is within `pad` of (x, z). */
   nearestTree(x: number, z: number, pad: number): Tree | null;
   surfaceAt(x: number, z: number): number;
+  /** Chops a tree down: it falls away from (fromX, fromZ), and `done` is called when it lands. */
+  fellTree?(tree: Tree, fromX: number, fromZ: number, done: (landed: FellInfo) => void): boolean;
 }
 
-/** How many good smashes turn a stone and a stick into an axe. */
-export const SMASHES_FOR_AXE = 5;
+/** How many good smashes of a stone against the outline turn a stick into an axe. */
+export const SMASHES_FOR_AXE = 3;
 /** How fast (m/s) the stone and stick must come together for a smash to count. */
 const SMASH_SPEED = 1.6;
 /** Surface-to-surface distance (metres) at which they count as touching. */
@@ -35,6 +39,8 @@ const LOGS_PER_TREE = 4;
 const CHOP_SPEED = 3.2;
 /** A swing counts for this long (seconds) after the head moved fast: the blow itself stops it dead. */
 const SWING_MEMORY = 0.15;
+/** Blows to bring a tree down: more for a thicker trunk, fewer with a lashed axe. */
+const hitsToFell = (tree: Tree, axe: Stick): number => Math.ceil(tree.radius * 12 * (axe.kind === 'axe2' ? 0.65 : 1));
 
 interface SwingSample {
   speed: number;
@@ -43,7 +49,6 @@ interface SwingSample {
 }
 
 const _a = new THREE.Vector3();
-const _b = new THREE.Vector3();
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _axis = new THREE.Vector3();
@@ -76,6 +81,11 @@ export class Crafting {
   private readonly tie = new TieGesture(1.5, 0.025, 0.24, 0.16);
   private lashBuzz = 0;
   private told = { lashing: false, worn: new Set<Stick>() };
+  /** The outline of a stone that appears on the tip of a stick you hold a trigger on. */
+  private readonly ghost: THREE.Mesh | null;
+  private ghostTime = 0;
+  /** Trees that are coming down (so they are not chopped twice). */
+  private readonly falling = new Set<Tree>();
 
   constructor(
     private readonly sticks: Sticks,
@@ -83,7 +93,26 @@ export class Crafting {
     private readonly hands: Hands,
     private readonly world: CraftingWorld,
     private readonly hooks: CraftingHooks,
-  ) {}
+    scene?: THREE.Scene,
+  ) {
+    if (scene) {
+      this.ghost = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(1, 0),
+        new THREE.MeshBasicMaterial({ color: 0x66d0ff, wireframe: true, transparent: true, opacity: 0.9, depthTest: false }),
+      );
+      this.ghost.scale.set(0.075, 0.06, 0.04);
+      this.ghost.renderOrder = 5;
+      this.ghost.visible = false;
+      scene.add(this.ghost);
+    } else {
+      this.ghost = null;
+    }
+  }
+
+  /** Where the stone outline is right now, or null if it is not showing (for tests). */
+  get outlineAt(): THREE.Vector3 | null {
+    return this.ghost && this.ghost.visible ? this.ghost.position : null;
+  }
 
   update(dt: number): void {
     this.smashCooldown = Math.max(0, this.smashCooldown - dt);
@@ -104,38 +133,53 @@ export class Crafting {
     const held = [this.grab.held(0), this.grab.held(1)] as const;
     const stoneHand = held[0]?.kind === 'stone' ? 0 : held[1]?.kind === 'stone' ? 1 : -1;
     const stickHand = held[0]?.kind === 'stick' ? 0 : held[1]?.kind === 'stick' ? 1 : -1;
-    if (stoneHand < 0 || stickHand < 0 || stoneHand === stickHand) {
+    if (this.ghost) this.ghost.visible = false;
+    if (stickHand < 0) {
       this.sinceSmash += dt;
       if (this.sinceSmash > 6) this.smashes = 0; // wandered off; start again
       return;
     }
-    const stone = held[stoneHand as 0 | 1]!;
     const stick = held[stickHand as 0 | 1]!;
-    const triggers = this.hands.left.triggered && this.hands.right.triggered;
+    const trigger = (stickHand === 0 ? this.hands.left : this.hands.right).triggered;
 
-    if (!triggers && this.guideCooldown === 0 && this.smashes === 0) {
-      this.guideCooldown = 25;
-      this.hooks.say('Hold both triggers and smash the stone onto the stick.');
+    if (!trigger) {
+      if (stoneHand >= 0 && this.guideCooldown === 0 && this.smashes === 0) {
+        this.guideCooldown = 25;
+        this.hooks.say('Hold the trigger on the hand with the stick: an outline of a stone appears. Smash a stone into it.');
+      }
+      return;
     }
-    if (!triggers) return;
+
+    // The outline of a stone, on the tip of the stick.
+    this.sticks.headPosition(stick, _hp);
+    this.ghostTime += dt;
+    const stone = stoneHand >= 0 && stoneHand !== stickHand ? held[stoneHand as 0 | 1]! : null;
+    const near = stone ? stone.pos.distanceTo(_hp) < 0.3 : false;
+    if (this.ghost) {
+      this.ghost.visible = true;
+      this.ghost.position.copy(_hp);
+      this.ghost.quaternion.copy(stick.quat);
+      this.ghost.scale.set(0.075, 0.06, 0.04).multiplyScalar(1.15 + 0.12 * Math.sin(this.ghostTime * 6));
+      (this.ghost.material as THREE.MeshBasicMaterial).color.set(near ? 0x70ff90 : 0x66d0ff);
+    }
+    if (!stone) return;
     this.sinceSmash += dt;
     if (this.sinceSmash > 6) this.smashes = 0;
     if (this.smashCooldown > 0) return;
 
-    // Are they touching, and coming together fast?
-    const gap = this.sticks.distanceTo(stick, stone.pos) - stone.radius;
+    // Is the stone at the outline, and coming at it fast?
+    const gap = stone.pos.distanceTo(_hp) - stone.radius - 0.04;
     if (gap > SMASH_GAP) return;
-    this.closestOnAxis(stick, stone.pos, _a);
-    _n.subVectors(stone.pos, _a).normalize(); // from the stick to the stone
+    _n.subVectors(_hp, stone.pos).normalize(); // from the stone to the outline
     this.grab.velocity(stickHand as 0 | 1, _v);
     this.grab.velocity(stoneHand as 0 | 1, _w);
-    const closing = _v.sub(_w).dot(_n);
+    const closing = _w.sub(_v).dot(_n);
     if (closing < SMASH_SPEED) return;
 
     this.smashCooldown = 0.3;
     this.sinceSmash = 0;
     this.smashes++;
-    this.hooks.burst(_a.add(stone.pos).multiplyScalar(0.5), 6);
+    this.hooks.burst(_hp, 6);
     this.hooks.pulse('left', 0.9, 70);
     this.hooks.pulse('right', 0.9, 70);
 
@@ -146,12 +190,13 @@ export class Crafting {
 
     // Done: the stone is bound to the stick. It stays in the hand that held the stick.
     this.smashes = 0;
+    if (this.ghost) this.ghost.visible = false;
     const length = THREE.MathUtils.clamp(stick.length, 0.6, 0.9);
     const axe = this.sticks.craft('axe', stick.pos.clone(), stick.quat.clone(), { length });
     this.sticks.stash(stone);
     this.sticks.stash(stick);
     if (axe) this.grab.give(stickHand as 0 | 1, axe);
-    this.hooks.burst(stone.pos, 14);
+    this.hooks.burst(_hp, 14);
     this.hooks.say('You made a stone axe! Swing it into a tree. It will wear out.');
     this.hooks.notify?.('axe');
     this.hooks.pulse('left', 1, 160);
@@ -200,6 +245,17 @@ export class Crafting {
     record.hits++;
     axe.durability -= 1;
 
+    // Enough blows and the tree comes down.
+    if (this.world.fellTree && !this.falling.has(tree) && record.hits >= hitsToFell(tree, axe)) {
+      this.falling.add(tree);
+      this.hooks.pulse(sideName, 1, 250);
+      if (this.world.fellTree(tree, head.x, head.z, (info) => this.landed(tree, info))) {
+        this.hooks.say('Timber! Stand clear.');
+      } else {
+        this.falling.delete(tree);
+      }
+    }
+
     const needed = axe.kind === 'axe2' ? HITS_PER_LOG.axe2 : HITS_PER_LOG.axe;
     if (record.hits % needed === 0) {
       if (record.logs >= LOGS_PER_TREE) {
@@ -220,6 +276,31 @@ export class Crafting {
       this.told.worn.add(axe);
       this.hooks.say('The axe is wearing out.');
     }
+  }
+
+  /** A felled tree has hit the ground: logs along the trunk, sticks where the crown lies. */
+  private landed(tree: Tree, info: FellInfo): void {
+    this.falling.delete(tree);
+    this.treeHits.delete(tree);
+    const dir = new THREE.Vector3(info.dirX, 0, info.dirZ);
+    const along = new THREE.Quaternion().setFromUnitVectors(_up, dir);
+    const logs = Math.max(2, Math.min(5, Math.floor(info.height / 4.5)));
+    for (let i = 0; i < logs; i++) {
+      const d = 1.3 + i * 1.5;
+      const x = info.x + dir.x * d;
+      const z = info.z + dir.z * d;
+      this.sticks.craft('log', new THREE.Vector3(x, this.world.surfaceAt(x, z) + 0.5 + i * 0.05, z), along.clone());
+    }
+    for (let i = 0; i < 7; i++) {
+      const d = info.height * (0.55 + Math.random() * 0.4);
+      const x = info.x + dir.x * d + (Math.random() - 0.5) * 2.5;
+      const z = info.z + dir.z * d + (Math.random() - 0.5) * 2.5;
+      this.sticks.craft('stick', new THREE.Vector3(x, this.world.surfaceAt(x, z) + 0.6 + Math.random() * 0.4, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6)));
+    }
+    this.hooks.burst(new THREE.Vector3(info.x + dir.x * info.height * 0.7, this.world.surfaceAt(info.x, info.z) + 0.3, info.z + dir.z * info.height * 0.7), 24);
+    this.hooks.notify?.('log');
+    this.hooks.onFelled?.(tree);
+    this.hooks.say('The tree is down. Logs and sticks lie along it.');
   }
 
   /** The axe falls apart into what it was made of (and a lashed one gives back its rope). */
@@ -286,13 +367,5 @@ export class Crafting {
     this.hooks.pulse('right', 1, 160);
     this.hooks.say('Lashed tight! A stronger axe: it lasts longer and chops faster.');
     this.hooks.notify?.('axe2');
-  }
-
-  private closestOnAxis(stick: Stick, point: THREE.Vector3, out: THREE.Vector3): void {
-    const half = _b.set(0, stick.length / 2, 0).applyQuaternion(stick.quat);
-    const a = out.copy(stick.pos).sub(half);
-    const ab = half.multiplyScalar(2);
-    const t = Math.min(1, Math.max(0, _v.subVectors(point, a).dot(ab) / ab.lengthSq()));
-    out.copy(a).addScaledVector(ab, t);
   }
 }

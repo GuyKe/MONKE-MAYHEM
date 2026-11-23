@@ -6,8 +6,10 @@ import { RECIPES, type Journal, type Recipe } from './journal';
 /** Pixel size of one page face; the page is 0.2 m by 0.27 m. */
 export const FACE_W = 512;
 export const FACE_H = 692;
-/** Two faces per spread, seven spreads: the inside covers and six leaves. */
-export const FACE_COUNT = 14;
+/** Two faces per spread, nine spreads: the inside covers and eight leaves. */
+export const FACE_COUNT = 18;
+/** Which face is which (the left page of a spread is even). */
+export const FACE = { cover: 0, recipesA: 1, recipesB: 2, tools: 3, plansA: 4, plansB: 5, plan: 6, ropes: 7, survival: 8, wildlife: 9, map: 10, places: 11, settingsA: 12, settingsB: 13, controlsA: 14, controlsB: 15, notes: 16, back: 17 } as const;
 
 /** A pokeable region of a page, in page pixels. */
 export interface Hit {
@@ -61,6 +63,8 @@ const CONTROLS: Array<[string, string]> = [
   ['Stash', 'Hold a stick to the book and let go.'],
   ['Fire', 'Rub two sticks together over a pile of five or more.'],
   ['Ropes', 'Grab a rope hanging from a tree and pull it down hard.'],
+  ['Swim', 'In deep water pull your hands back through it, like a stroke.'],
+  ['Eat', 'Raise fruit or meat to your mouth.'],
   ['Measure', 'Both grips held, arms out wide, for a second and a half.'],
 ];
 
@@ -85,19 +89,23 @@ export function drawFace(index: number, c: Ctx, f: FaceContext, hover: string | 
   c.textBaseline = 'alphabetic';
 
   switch (index) {
-    case 0: coverInside(c, f); break;
-    case 1: recipes(c, f, hits, hover); break;
-    case 2: tools(c, f); break;
-    case 3: structures(c, f, hits, hover); break;
-    case 4: plan(c, f, hits, hover); break;
-    case 5: ropesAndTies(c); break;
-    case 6: mapPage(c, f); break;
-    case 7: mapNotes(c, f); break;
-    case 8: settingsPage(c, f, hits, hover, [0, 1]); break;
-    case 9: settingsPage(c, f, hits, hover, [2]); startOver(c, hits, hover); break;
-    case 10: controls(c, 'Controls', CONTROLS.slice(0, 4)); break;
-    case 11: controls(c, 'Controls, continued', CONTROLS.slice(4)); break;
-    case 12: notes(c, f); break;
+    case FACE.cover: coverInside(c, f); break;
+    case FACE.recipesA: recipes(c, f, hits, hover, 0); break;
+    case FACE.recipesB: recipes(c, f, hits, hover, 4); break;
+    case FACE.tools: tools(c, f); break;
+    case FACE.plansA: structures(c, f, hits, hover, 0); break;
+    case FACE.plansB: structures(c, f, hits, hover, 3); break;
+    case FACE.plan: plan(c, f, hits, hover); break;
+    case FACE.ropes: ropesAndTies(c); break;
+    case FACE.survival: survival(c); break;
+    case FACE.wildlife: wildlife(c); break;
+    case FACE.map: mapPage(c, f); break;
+    case FACE.places: mapNotes(c, f); break;
+    case FACE.settingsA: settingsPage(c, f, hits, hover, [0, 1]); break;
+    case FACE.settingsB: settingsPage(c, f, hits, hover, [2]); startOver(c, hits, hover); break;
+    case FACE.controlsA: controls(c, 'Controls', CONTROLS.slice(0, 4)); break;
+    case FACE.controlsB: controls(c, 'Controls, continued', CONTROLS.slice(4)); break;
+    case FACE.notes: notes(c, f); break;
     default: backCover(c); break;
   }
   footer(c, index, hits, hover);
@@ -225,9 +233,11 @@ function coverInside(c: Ctx, f: FaceContext): void {
   y = para(c, 'Poke a recipe on the next page to make it. Recipes stay locked until you have done what they ask.', y, 22);
 }
 
-function recipes(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null): void {
-  heading(c, 'Recipes');
-  RECIPES.forEach((recipe, i) => recipeRow(c, f, hits, hover, recipe, 96 + i * 134));
+function recipes(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null, start: number): void {
+  heading(c, start === 0 ? 'Recipes' : 'Recipes, continued');
+  const shown = RECIPES.slice(start, start + 4);
+  if (shown.length === 0) para(c, 'That is everything so far.', 112);
+  shown.forEach((recipe, i) => recipeRow(c, f, hits, hover, recipe, 96 + i * 134));
 }
 
 function recipeRow(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null, recipe: Recipe, top: number): void {
@@ -274,7 +284,7 @@ function tools(c: Ctx, f: FaceContext): void {
   c.font = 'bold 25px Georgia, serif';
   c.fillText('Stone axe', 30, y);
   y += 12;
-  y = para(c, 'Take a stone in one hand and a stick in the other. Hold both triggers and smash them together, five times.', y + 12, 20);
+  y = para(c, 'Hold a stick and squeeze its trigger: an outline of a stone appears on the tip. Smash a stone against the outline.', y + 12, 20);
   c.fillStyle = f.craft.smashes > 0 ? GREEN : FAINT;
   c.font = 'bold 21px Georgia, serif';
   c.fillText(`Smashes: ${f.craft.smashes} of ${f.craft.smashesNeeded}`, 30, y + 6);
@@ -282,7 +292,7 @@ function tools(c: Ctx, f: FaceContext): void {
   c.fillStyle = INK;
   c.font = 'bold 25px Georgia, serif';
   c.fillText('Chopping', 30, y);
-  y = para(c, 'Swing the axe hard into a trunk. Logs come loose, but every swing wears the axe, and it will break.', y + 14, 20);
+  y = para(c, 'Swing the axe hard into a trunk. Chips fly, logs come loose and after enough blows the whole tree comes down. Every swing wears the axe.', y + 14, 20);
   y += 20;
   c.fillStyle = INK;
   c.font = 'bold 25px Georgia, serif';
@@ -293,16 +303,16 @@ function tools(c: Ctx, f: FaceContext): void {
   c.fillText(`Winding: ${Math.round(f.craft.lashing * 100)}%`, 30, y + 6);
 }
 
-function structures(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null): void {
-  heading(c, 'Structures');
+function structures(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null, start: number): void {
+  heading(c, start === 0 ? 'Structures' : 'Structures, continued');
   const bp = f.blueprints;
   if (!bp || bp.list.length === 0) {
     para(c, 'No plans yet.', 120);
     return;
   }
-  para(c, 'Choose a plan. It is placed in the world where you point, then you gather what it needs and put it together.', 100, 19, SOFT);
-  bp.list.forEach((plan, i) => {
-    const top = 188 + i * 150;
+  if (start === 0) para(c, 'Choose a plan. It is placed in the world where you point, then you gather what it needs and put it together.', 100, 19, SOFT);
+  bp.list.slice(start, start + 3).forEach((plan, i) => {
+    const top = (start === 0 ? 188 : 100) + i * 150;
     const id = `bp:select:${plan.id}`;
     const chosen = bp.active?.id === plan.id;
     c.fillStyle = plan.locked ? '#cdbf9f' : hover === id ? '#f6ecd0' : '#f1e6c8';
@@ -358,6 +368,26 @@ function ropesAndTies(c: Ctx): void {
   y = para(c, 'Some trees have a rope hanging down their trunk. Grab the lower end and pull down hard, about half a metre. If you let go too soon it springs back up.', y, 21) + 14;
   y = para(c, 'To tie a joint, hold the rope in one hand near it, hold the trigger and circle the rope around it with your hand, about one and a half times.', y, 21) + 14;
   para(c, 'Rope is precious. The same rope can lash an axe or tie part of a structure, but not both.', y, 21, FAINT);
+}
+
+function survival(c: Ctx): void {
+  heading(c, 'Staying alive');
+  let y = 112;
+  y = para(c, 'Your health shows on the gauge on your left forearm. It mends slowly when you are not hurt.', y, 21) + 12;
+  y = para(c, 'Food: fruit from the bushes and trees, and meat. Raise it to your mouth to eat. Raw meat is a poor meal: leave it lying out for one day and it is roasted, which feeds you well.', y, 21) + 12;
+  y = para(c, 'Leave it for two days and it rots. Rotten meat poisons you.', y, 21, '#8a3a22') + 12;
+  y = para(c, 'Build a shelter and rest in it. If you die you wake up at the last shelter you rested in.', y, 21) + 12;
+  para(c, 'A mirror lets you see what you look like. Craft one in the book.', y, 21, FAINT);
+}
+
+function wildlife(c: Ctx): void {
+  heading(c, 'Water and wildlife');
+  let y = 112;
+  y = para(c, 'Lakes are deep. Pull your hands back through the water to swim.', y, 21) + 12;
+  y = para(c, 'Leeches cling on in the water and drain you. Grab one with your free hand and pull it off.', y, 21) + 12;
+  y = para(c, 'About one lake in ten is home to a crocodile. It hunts what is in or near the water. Stay out of the lake, or fight it with a spear or axe.', y, 21, '#8a3a22') + 12;
+  y = para(c, 'Rabbits and deer run from you. Hit them with a weapon, or throw a spear, and they drop meat.', y, 21) + 12;
+  para(c, 'Weapons: stick, club, knife, spear, axe. Heavier swings hurt more.', y, 21, FAINT);
 }
 
 function mapPage(c: Ctx, f: FaceContext): void {

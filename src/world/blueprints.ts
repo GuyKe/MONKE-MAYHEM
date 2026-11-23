@@ -31,6 +31,10 @@ export interface Blueprint {
   slots: Slot[];
   /** Radius of the ground it needs to be clear and level (metres). */
   footprint: number;
+  /** Resting in it makes it your respawn point. */
+  shelter?: boolean;
+  /** Meat left near it dries twice as fast. */
+  rack?: boolean;
 }
 
 /** A rafter running from the ridge down to the ground behind the posts. */
@@ -66,6 +70,7 @@ const LEAN_TO: Blueprint = {
     'Tie the three joints with rope. Hold the rope at the joint, hold the trigger, and circle it.',
   ],
   footprint: 1.7,
+  shelter: true,
   slots: [
     { id: 'post-l', kind: 'log', pos: [-0.9, 0.475, 0], axis: [0, 1, 0], length: 0.95, radius: 0.11, requires: [], step: 0 },
     { id: 'post-r', kind: 'log', pos: [0.9, 0.475, 0], axis: [0, 1, 0], length: 0.95, radius: 0.11, requires: [], step: 0 },
@@ -112,7 +117,107 @@ const LOOKOUT: Blueprint = {
   ],
 };
 
-export const BLUEPRINTS: readonly Blueprint[] = [LEAN_TO, LOOKOUT];
+const tie = (id: string, x: number, y: number, z: number, requires: string[], step: number, axis: [number, number, number] = [1, 0, 0]): Slot => ({
+  id,
+  kind: 'tie',
+  pos: [x, y, z],
+  axis,
+  length: 0.2,
+  radius: 0.03,
+  requires,
+  step,
+});
+
+const HUT: Blueprint = {
+  id: 'hut',
+  name: 'Stick Hut',
+  blurb: 'Four posts, two beams and a roof of sticks. Roomier and drier than a lean-to.',
+  needs: '4 logs, 2 poles, 6 sticks, 4 ropes',
+  unlockedBy: 'lean-to',
+  hint: 'Finish a lean-to.',
+  steps: [
+    'Stand the four posts upright at the corners.',
+    'Lay a pole across the top at the front and at the back.',
+    'Lay six sticks across for the roof.',
+    'Tie the four corners with rope.',
+  ],
+  footprint: 1.6,
+  shelter: true,
+  slots: [
+    { id: 'post-fl', kind: 'log', pos: [-0.85, 0.6, 0.5], axis: [0, 1, 0], length: 1.2, radius: 0.11, requires: [], step: 0 },
+    { id: 'post-fr', kind: 'log', pos: [0.85, 0.6, 0.5], axis: [0, 1, 0], length: 1.2, radius: 0.11, requires: [], step: 0 },
+    { id: 'post-bl', kind: 'log', pos: [-0.85, 0.6, -0.5], axis: [0, 1, 0], length: 1.2, radius: 0.11, requires: [], step: 0 },
+    { id: 'post-br', kind: 'log', pos: [0.85, 0.6, -0.5], axis: [0, 1, 0], length: 1.2, radius: 0.11, requires: [], step: 0 },
+    { id: 'beam-f', kind: 'pole', pos: [0, 1.24, 0.5], axis: [1, 0, 0], length: 2.0, radius: 0.04, requires: ['post-fl', 'post-fr'], step: 1 },
+    { id: 'beam-b', kind: 'pole', pos: [0, 1.24, -0.5], axis: [1, 0, 0], length: 2.0, radius: 0.04, requires: ['post-bl', 'post-br'], step: 1 },
+    ...[-0.75, -0.45, -0.15, 0.15, 0.45, 0.75].map(
+      (x, i): Slot => ({ id: `roof-${i}`, kind: 'stick', pos: [x, 1.33, 0], axis: [0, 0, 1], length: 1.1, radius: 0.025, requires: ['beam-f', 'beam-b'], step: 2 }),
+    ),
+    tie('tie-fl', -0.85, 1.24, 0.5, ['post-fl', 'beam-f'], 3),
+    tie('tie-fr', 0.85, 1.24, 0.5, ['post-fr', 'beam-f'], 3),
+    tie('tie-bl', -0.85, 1.24, -0.5, ['post-bl', 'beam-b'], 3),
+    tie('tie-br', 0.85, 1.24, -0.5, ['post-br', 'beam-b'], 3),
+  ],
+};
+
+const RACK: Blueprint = {
+  id: 'rack',
+  name: 'Drying Rack',
+  blurb: 'Two posts and a pole. Meat left near it dries in half the time.',
+  needs: '2 logs, 1 pole, 2 ropes',
+  unlockedBy: 'lean-to',
+  hint: 'Finish a lean-to.',
+  steps: ['Stand the two posts upright.', 'Lay the pole across the tops.', 'Tie both ends with rope.'],
+  footprint: 1.3,
+  rack: true,
+  slots: [
+    { id: 'post-l', kind: 'log', pos: [-0.8, 0.55, 0], axis: [0, 1, 0], length: 1.1, radius: 0.11, requires: [], step: 0 },
+    { id: 'post-r', kind: 'log', pos: [0.8, 0.55, 0], axis: [0, 1, 0], length: 1.1, radius: 0.11, requires: [], step: 0 },
+    { id: 'bar', kind: 'pole', pos: [0, 1.14, 0], axis: [1, 0, 0], length: 2.0, radius: 0.04, requires: ['post-l', 'post-r'], step: 1 },
+    tie('tie-l', -0.8, 1.14, 0, ['post-l', 'bar'], 2),
+    tie('tie-r', 0.8, 1.14, 0, ['post-r', 'bar'], 2),
+  ],
+};
+
+const FENCE: Blueprint = {
+  id: 'fence',
+  name: 'Log Fence',
+  blurb: 'A row of upright logs with a rail across. Keeps a camp tidy and gives you something to climb.',
+  needs: '5 logs, 1 pole, 2 ropes',
+  unlockedBy: 'rack',
+  hint: 'Finish a drying rack.',
+  steps: ['Stand five logs in a row.', 'Lay the rail across the tops.', 'Tie the two ends with rope.'],
+  footprint: 1.5,
+  slots: [
+    ...[-0.8, -0.4, 0, 0.4, 0.8].map((x, i): Slot => ({ id: `post-${i}`, kind: 'log', pos: [x, 0.55, 0], axis: [0, 1, 0], length: 1.1, radius: 0.11, requires: [], step: 0 })),
+    { id: 'rail', kind: 'pole', pos: [0, 1.14, 0], axis: [1, 0, 0], length: 2.0, radius: 0.04, requires: ['post-0', 'post-1', 'post-2', 'post-3', 'post-4'], step: 1 },
+    tie('tie-l', -0.8, 1.14, 0, ['post-0', 'rail'], 2),
+    tie('tie-r', 0.8, 1.14, 0, ['post-4', 'rail'], 2),
+  ],
+};
+
+const BED: Blueprint = {
+  id: 'bed',
+  name: 'Sleeping Platform',
+  blurb: 'Two logs on the ground and sticks laid across. Dry and off the damp earth.',
+  needs: '2 logs, 6 sticks, 2 ropes',
+  unlockedBy: 'hut',
+  hint: 'Finish a stick hut.',
+  steps: ['Lay two logs side by side on the ground.', 'Lay six sticks across them.', 'Tie the two logs to the sticks.'],
+  footprint: 1.2,
+  shelter: true,
+  slots: [
+    { id: 'sill-l', kind: 'log', pos: [-0.55, 0.12, 0], axis: [0, 0, 1], length: 1.2, radius: 0.11, requires: [], step: 0 },
+    { id: 'sill-r', kind: 'log', pos: [0.55, 0.12, 0], axis: [0, 0, 1], length: 1.2, radius: 0.11, requires: [], step: 0 },
+    ...[-0.5, -0.3, -0.1, 0.1, 0.3, 0.5].map(
+      (z, i): Slot => ({ id: `slat-${i}`, kind: 'stick', pos: [0, 0.27, z], axis: [1, 0, 0], length: 1.1, radius: 0.025, requires: ['sill-l', 'sill-r'], step: 1 }),
+    ),
+    tie('tie-l', -0.55, 0.27, 0.5, ['slat-5'], 2, [0, 0, 1]),
+    tie('tie-r', 0.55, 0.27, 0.5, ['slat-5'], 2, [0, 0, 1]),
+  ],
+};
+
+export const BLUEPRINTS: readonly Blueprint[] = [LEAN_TO, HUT, LOOKOUT, RACK, FENCE, BED];
 
 export function blueprint(id: string): Blueprint {
   return BLUEPRINTS.find((b) => b.id === id)!;

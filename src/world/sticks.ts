@@ -5,7 +5,10 @@ import { mulberry32 } from './noise';
 export type Side = 'left' | 'right';
 
 /** What a piece is. Everything you can pick up is a piece; sticks and stones are the raw materials. */
-export type PieceKind = 'stick' | 'pole' | 'torch' | 'spear' | 'stone' | 'rope' | 'log' | 'axe' | 'axe2';
+export type PieceKind = 'stick' | 'pole' | 'torch' | 'spear' | 'stone' | 'rope' | 'log' | 'axe' | 'axe2' | 'club' | 'knife' | 'mirror' | 'fruit' | 'meat';
+
+/** Food goes through these as the days pass. */
+export type FoodState = 'raw' | 'roast' | 'rotten';
 
 /** How a piece looks and is built: a long thin prism, a rounded stone, or a flat coil of rope. */
 type Shape = 'prism' | 'stone' | 'coil';
@@ -29,7 +32,25 @@ const KINDS: Record<PieceKind, KindSpec> = {
   axe2: { shape: 'prism', length: [0.6, 0.9], radius: [0.022, 0.026], density: 450, color: [0.08, [0.3, 0.4], [0.28, 0.36]] },
   stone: { shape: 'stone', length: [0.1, 0.15], radius: [0.05, 0.075], density: 1600, color: [0.1, [0.03, 0.08], [0.36, 0.5]] },
   rope: { shape: 'coil', length: [0.05, 0.05], radius: [0.12, 0.12], density: 300, color: [0.11, [0.35, 0.45], [0.45, 0.55]] },
+  club: { shape: 'prism', length: [0.85, 0.95], radius: [0.035, 0.04], density: 650, color: [0.07, [0.3, 0.4], [0.18, 0.24]] },
+  knife: { shape: 'prism', length: [0.34, 0.34], radius: [0.014, 0.014], density: 450, color: [0.08, [0.3, 0.4], [0.3, 0.36]] },
+  mirror: { shape: 'prism', length: [0.32, 0.32], radius: [0.016, 0.016], density: 450, color: [0.09, [0.3, 0.4], [0.3, 0.36]] },
+  fruit: { shape: 'stone', length: [0.07, 0.09], radius: [0.035, 0.05], density: 900, color: [0.0, [0.7, 0.8], [0.45, 0.55]] },
+  meat: { shape: 'stone', length: [0.14, 0.16], radius: [0.075, 0.095], density: 1000, color: [0.0, [0.55, 0.6], [0.42, 0.48]] },
 };
+
+/** The heads on tools: where along the handle (from the tip), how big, and what colour. */
+export const HEADS: Partial<Record<PieceKind, { along: number; scale: [number, number, number]; color: [number, number, number] }>> = {
+  axe: { along: -0.03, scale: [0.085, 0.07, 0.035], color: [0.1, 0.05, 0.42] },
+  axe2: { along: -0.03, scale: [0.085, 0.07, 0.035], color: [0.1, 0.05, 0.42] },
+  club: { along: -0.1, scale: [0.075, 0.13, 0.075], color: [0.07, 0.35, 0.2] },
+  knife: { along: -0.08, scale: [0.02, 0.1, 0.007], color: [0.58, 0.05, 0.6] },
+};
+/** Pieces that do damage, and how much (before swing speed). */
+export const WEAPON_POWER: Partial<Record<PieceKind, number>> = { stick: 0.7, pole: 1.2, spear: 3.2, axe: 2.6, axe2: 4, club: 3.4, knife: 2.2, torch: 0.9, log: 1.5 };
+
+/** Food that heals, and by how much (raw meat is a poor meal). */
+export const FOOD_VALUE = { fruit: 12, meat: { raw: 8, roast: 35, rotten: 0 } } as const;
 
 /** Kinds that are sticks of wood: they rub together to make fire, and so on. */
 export function isWood(kind: PieceKind): boolean {
@@ -38,7 +59,7 @@ export function isWood(kind: PieceKind): boolean {
 
 export interface Stick {
   readonly id: number;
-  readonly kind: PieceKind;
+  kind: PieceKind;
   readonly shape: Shape;
   readonly body: RAPIER.RigidBody;
   readonly length: number;
@@ -60,8 +81,11 @@ export interface Stick {
   readonly maxDurability: number;
   /** How much rope is wound around the head (0 to 1), drawn on an axe. */
   wrap: number;
-  /** Axes carry a stone head, and a lashed one has rope wound round it. */
+  /** Tools carry a head (stone blade, club knob), and a lashed axe has rope wound round it. */
   hasHead: boolean;
+  /** Food: how it is doing, and how many game days old it is. */
+  state: FoodState;
+  age: number;
 }
 
 export interface SticksOptions {
@@ -85,6 +109,9 @@ export interface PieceOptions {
   length?: number;
   durability?: number;
   wrap?: number;
+  color?: THREE.ColorRepresentation;
+  state?: FoodState;
+  age?: number;
 }
 
 /** Room in each mesh beyond the pieces scattered at the start, for crafted ones and loot. */
@@ -145,6 +172,7 @@ function stoneShape(radius: number, offset: THREE.Vector3Like = { x: 0, y: 0, z:
 
 /** The head of an axe: a flat stone blade lashed across the top of the handle. */
 export const AXE_HEAD = { along: -0.03, scale: [0.085, 0.07, 0.035] as [number, number, number] };
+const headOf = (kind: PieceKind) => HEADS[kind];
 
 const _m = new THREE.Matrix4();
 const _s = new THREE.Vector3();
@@ -263,7 +291,7 @@ export class Sticks {
 
   /** Where the working end of an axe is (the head), in the world. */
   headPosition(stick: Stick, out: THREE.Vector3): THREE.Vector3 {
-    return out.set(0, stick.length / 2 + AXE_HEAD.along, 0).applyQuaternion(stick.quat).add(stick.pos);
+    return out.set(0, stick.length / 2 + (headOf(stick.kind)?.along ?? AXE_HEAD.along), 0).applyQuaternion(stick.quat).add(stick.pos);
   }
 
   /**
@@ -296,19 +324,20 @@ export class Sticks {
       slots.mesh.setMatrixAt(at, _m);
       slots.mesh.setColorAt(at, stick.highlighted ? HIGHLIGHT : _color.copy(stick.baseColor));
 
-      // An axe: a stone head at the top of the handle, and rope wound round it.
-      if (stick.hasHead) {
+      // A tool: a head at the top of the handle (and rope wound round an axe's).
+      const spec = headOf(stick.kind);
+      if (stick.hasHead && spec) {
         const head = this.slots.head;
         const wrap = this.slots.wrap;
         if (head.used < head.mesh.instanceMatrix.count) {
-          _off.set(0, stick.length / 2 + AXE_HEAD.along, 0).applyQuaternion(stick.quat).add(stick.pos);
-          _m.compose(_off, stick.quat, _s.set(...AXE_HEAD.scale));
+          _off.set(0, stick.length / 2 + spec.along, 0).applyQuaternion(stick.quat).add(stick.pos);
+          _m.compose(_off, stick.quat, _s.set(...spec.scale));
           head.mesh.setMatrixAt(head.used, _m);
-          head.mesh.setColorAt(head.used, _color.setHSL(0.1, 0.05, 0.42));
+          head.mesh.setColorAt(head.used, _color.setHSL(...spec.color));
           head.used++;
         }
-        if (wrap.used < wrap.mesh.instanceMatrix.count) {
-          _off.set(0, stick.length / 2 + AXE_HEAD.along - 0.045, 0).applyQuaternion(stick.quat).add(stick.pos);
+        if (stick.kind === 'axe2' && wrap.used < wrap.mesh.instanceMatrix.count) {
+          _off.set(0, stick.length / 2 + spec.along - 0.045, 0).applyQuaternion(stick.quat).add(stick.pos);
           _m.compose(_off, stick.quat, _s.setScalar(0.32 * Math.max(0.001, stick.wrap)));
           wrap.mesh.setMatrixAt(wrap.used, _m);
           wrap.used++;
@@ -379,11 +408,11 @@ export class Sticks {
           : RAPIER.ColliderDesc.cylinder(length / 2, radius);
     this.world.createCollider(shape.setDensity(spec.density).setFriction(0.7).setRestitution(0).setCollisionGroups(STICK_GROUPS), body);
 
-    const isAxe = kind === 'axe' || kind === 'axe2';
-    if (isAxe) {
-      // The stone head is part of the same body.
-      const head = stoneShape(1, { x: 0, y: length / 2 + AXE_HEAD.along, z: 0 }, AXE_HEAD.scale);
-      this.world.createCollider(head.setDensity(1600).setFriction(0.7).setRestitution(0).setCollisionGroups(STICK_GROUPS), body);
+    const headSpec = headOf(kind);
+    if (headSpec) {
+      // The head is part of the same body.
+      const head = stoneShape(1, { x: 0, y: length / 2 + headSpec.along, z: 0 }, headSpec.scale);
+      this.world.createCollider(head.setDensity(kind === 'club' ? 900 : 1600).setFriction(0.7).setRestitution(0).setCollisionGroups(STICK_GROUPS), body);
     }
 
     const [hue, sat, light] = spec.color;
@@ -392,7 +421,7 @@ export class Sticks {
       sat[0] + rand() * (sat[1] - sat[0]),
       light[0] + rand() * (light[1] - light[0]),
     );
-    const max = extra.durability ?? (kind === 'axe' ? 12 : kind === 'axe2' ? 40 : 0);
+    const max = extra.durability ?? (kind === 'axe' ? 22 : kind === 'axe2' ? 60 : 0);
     const piece: Stick = {
       id: this.list.length,
       kind,
@@ -411,8 +440,11 @@ export class Sticks {
       durability: max,
       maxDurability: max,
       wrap: extra.wrap ?? (kind === 'axe2' ? 1 : 0),
-      hasHead: isAxe,
+      hasHead: !!headSpec,
+      state: extra.state ?? 'raw',
+      age: extra.age ?? 0,
     };
+    if (extra.color !== undefined) baseColor.set(extra.color);
     this.list.push(piece);
     return piece;
   }

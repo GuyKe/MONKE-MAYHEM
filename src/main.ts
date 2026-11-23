@@ -22,6 +22,12 @@ import { Crafting, SMASHES_FOR_AXE } from './player/crafting';
 import { Animals } from './world/animals';
 import { FrictionFire } from './world/friction';
 import { Sticks } from './world/sticks';
+import { Body } from './player/body';
+import { Vitals, VitalsView } from './player/vitals';
+import { Survival } from './player/survival';
+import { Combat } from './player/combat';
+import { Crocs } from './world/crocs';
+import { Fruits } from './world/fruit';
 import type { DesktopEmulator } from './debug/desktop';
 import { DAY_SECONDS, FOG_SCALE, Settings, TREE_SPACING_M, VIEW_DISTANCE_M } from './settings';
 import { Menu } from './ui/menu';
@@ -104,13 +110,16 @@ async function main(): Promise<void> {
     if (!params.has('cycle') && settings.data.dayLength === 'always-day') atmosphere.frozenAt = 0.42;
     rig.add(atmosphere.sky);
     const s = forest.stats;
-    worldStats = `seed ${seed}: ${s.trees} trees, ${forest.ropes.length} ropes, ${s.ponds} ponds`;
+    worldStats = `seed ${seed}: ${s.trees} trees, ${forest.ropes.length} ropes, ${forest.lakes.length} lakes, ${forest.bushes.length} bushes`;
   }
   world.step(); // populate the broad phase so queries see the static scenery
 
+  // Things that need the survival system, which is built once the player exists.
+  const refs: { survival: Survival | null } = { survival: null };
   // Wildlife: rabbits, deer and birds (forest only).
   const animals = forestRef
     ? new Animals(scene, {
+        onKill: (species, at) => refs.survival?.dropMeat(at, species === 'deer' ? 3 : 1),
         seed,
         surfaceAt: forestRef.surfaceAt,
         isBlocked: forestRef.isBlocked,
@@ -131,6 +140,7 @@ async function main(): Promise<void> {
   });
 
   const hands = new Hands(renderer, rig, scene);
+  const body = new Body(scene);
 
   // The field journal on your hip: stash sticks in it, craft from it, unlock recipes as you go.
   const journal = new Journal(params.has('resetbook'));
@@ -191,7 +201,14 @@ async function main(): Promise<void> {
 
   // Ropes hanging in trees: grab one and pull down to tear it free.
   const treeRopes = forestRef ? new TreeRopes(scene, forestRef.ropes) : null;
+  const fruits = forestRef ? new Fruits(scene, forestRef.bushes) : null;
   const grab = new Grab(sticks, hands, {
+    pick: (handPos) => {
+      const f = fruits?.nearest(handPos, 0.2);
+      if (!f || !fruits) return null;
+      fruits.take(f, refs.survival?.days ?? 0);
+      return sticks.craft('fruit', handPos.clone(), new THREE.Quaternion(), { color: fruits.colour(f, new THREE.Color()) });
+    },
     stash: (stick, handPos) => book.acceptStash(stick, handPos) || (buildingRef.current?.accept(stick) ?? false),
     onFarThrow: () => void journal.notify('throw'),
     ropes: treeRopes ?? undefined,
@@ -234,7 +251,17 @@ async function main(): Promise<void> {
       say: (text) => book.say(text),
       burst: (at, count) => friction.burst(at, count),
       pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
+      notify: (event) => void journal.notify(event),
+      onFelled: (tree) => {
+        // Ropes hanging on it come down too.
+        for (const r of treeRopes?.ropes ?? []) {
+          if (r.taken || Math.hypot(r.spot.x - tree.x, r.spot.z - tree.z) > tree.radius + 0.5) continue;
+          treeRopes!.take(r);
+          sticks.craft('rope', new THREE.Vector3(r.spot.x, (forestRef?.surfaceAt(r.spot.x, r.spot.z) ?? 0) + 0.3, r.spot.z), new THREE.Quaternion());
+        }
+      },
     },
+    scene,
   );
   const handViews: [HandView, HandView] = hands.all.map((hand) => ({
     tracked: false,
@@ -245,6 +272,33 @@ async function main(): Promise<void> {
     pulse: (strength: number, ms: number) => hand.pulse(strength, ms),
   })) as [HandView, HandView];
   const locomotion = new Locomotion(world, rig);
+  locomotion.waterAt = forestRef ? forestRef.waterLevelAt : null;
+  const vitals = new Vitals();
+  const vitalsView = new VitalsView(scene, camera, vitals);
+  const crocs = forestRef
+    ? new Crocs(scene, forestRef.lakes, {
+        surfaceAt: forestRef.surfaceAt,
+        waterLevelAt: forestRef.waterLevelAt,
+        onBite: (damage) => {
+          vitals.hurt(damage, 'crocodile');
+          book.say('The crocodile bit you!');
+        },
+        onKill: (at) => refs.survival?.dropMeat(at, 4),
+      })
+    : null;
+  const survival = new Survival(scene, sticks, grab, hands, locomotion, vitals, vitalsView, building, spawn, {
+    say: (text) => book.say(text),
+    pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
+    cycleSeconds: () => (atmosphere && !atmosphere.frozenAt ? atmosphere.cycleSeconds : 600),
+    surfaceAt: forestRef ? forestRef.surfaceAt : () => 0,
+  });
+  refs.survival = survival;
+  const combat = new Combat(sticks, grab, animals, crocs, {
+    pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
+    burst: (at, count) => friction.burst(at, count),
+    say: (text) => book.say(text),
+  });
+  let swimTime = 0;
   const armSpan = new ArmSpan();
   let calibrationTick = 0;
   locomotion.respawn(spawn);
@@ -303,6 +357,7 @@ async function main(): Promise<void> {
   const hud = document.getElementById('hud')!;
   const _viewer = new THREE.Vector3();
   const headLocal = new THREE.Vector3(0, 1.6, 0);
+  const _hq = new THREE.Quaternion();
   const handLocals: [THREE.Vector3, THREE.Vector3] = [new THREE.Vector3(), new THREE.Vector3()];
   const clock = new THREE.Clock();
   let fpsFrames = 0;
@@ -355,6 +410,7 @@ async function main(): Promise<void> {
 
       grab.update(dt, locomotion.hands);
       crafting.update(dt);
+      combat.update(dt);
       camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
       camForward.y = 0;
       building.update(dt, {
@@ -373,17 +429,33 @@ async function main(): Promise<void> {
       });
       book.update(dt, { head: locomotion.headWorld(_viewer), hands: handViews, phase: atmosphere?.phase ?? null });
 
+      camera.getWorldQuaternion(_hq);
+      const headNow = locomotion.headWorld(_viewer);
+      body.update(dt, headNow, _hq, [
+        hands.left.tracked ? locomotion.hands[0].position : null,
+        hands.right.tracked ? locomotion.hands[1].position : null,
+      ]);
+      survival.update(dt, headNow, _hq);
+      crocs?.update(dt, headNow, locomotion.inWater);
+      vitalsView.update(dt, hands.left.tracked ? body.forearm[0] : null, headNow, locomotion.headUnderwater);
+      swimTime = locomotion.swimming ? swimTime + dt : 0;
+      if (swimTime > 4) {
+        swimTime = 0;
+        void journal.notify('swim');
+      }
+
       if (rig.position.y < LOCOMOTION.killY) locomotion.respawn(spawn);
     }
 
     // The world around the player: which chunks are drawn, and the time of day.
     const viewer = locomotion.headWorld(_viewer);
-    forestRef?.update(viewer);
+    forestRef?.update(viewer, dt);
     atmosphere?.update(dt, viewer);
     animals?.update(dt, viewer, atmosphere?.night ?? 0);
     mapView?.explore(viewer.x, viewer.z);
     poisRef.current?.update(viewer);
     treeRopes?.update(dt, viewer);
+    fruits?.update(dt, viewer, survival.days);
     fire.update(dt, viewer, atmosphere?.night ?? 0);
     friction.update(dt);
 
@@ -409,7 +481,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
+  Object.assign(window, { __monke: { THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(
