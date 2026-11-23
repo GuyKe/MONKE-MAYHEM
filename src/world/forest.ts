@@ -54,6 +54,8 @@ export interface Forest {
   trees: ReadonlyArray<Tree>;
   /** Ropes hanging in trees. */
   ropes: ReadonlyArray<RopeSpot>;
+  /** The frozen ponds and mud puddles (circles), for the map. */
+  water: ReadonlyArray<{ x: number; z: number; r: number; ice: boolean }>;
   /** Shows the chunks near `viewer` and hides the rest. Call every frame (it is cheap). */
   update(viewer: THREE.Vector3): void;
   /** Changes how far chunks are drawn. */
@@ -534,6 +536,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     spawn: new THREE.Vector3(spawn.x, surfaceAt(spawn.x, spawn.z), spawn.z),
     trees,
     ropes,
+    water: pads.map((p) => ({ x: p.x, z: p.z, r: p.r, ice: p.surface === SURFACES.ice })),
     update,
     setViewRadius: (metres) => void (viewRadius = metres),
     setGrass: (on) => void (grassOn = on),

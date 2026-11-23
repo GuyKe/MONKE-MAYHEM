@@ -13,9 +13,10 @@ import { ArmSpan } from './player/armSpan';
 import { Grab } from './player/grab';
 import { Journal, RECIPES } from './player/journal';
 import { Book, type HandView } from './player/book';
+import { MapView } from './world/mapview';
 import { Fire } from './world/fire';
 import { TreeRopes } from './world/ropes';
-import { Crafting } from './player/crafting';
+import { Crafting, SMASHES_FOR_AXE } from './player/crafting';
 import { Animals } from './world/animals';
 import { FrictionFire } from './world/friction';
 import { Sticks } from './world/sticks';
@@ -132,10 +133,38 @@ async function main(): Promise<void> {
   // The field journal on your hip: stash sticks in it, craft from it, unlock recipes as you go.
   const journal = new Journal(params.has('resetbook'));
   const fire = new Fire(scene, sticks, world, forestRef ? forestRef.surfaceAt : () => 0);
-  const book = new Book(scene, camera, journal, sticks, {
-    makePiece: (kind, position, quaternion) => void sticks.craft(kind, position, quaternion),
-    buildCampfire: (x, z) => void fire.addCampfire(x, z),
-  });
+  // The map fills in as you explore. (Stage 6 adds places to find.)
+  const mapView = forestRef ? new MapView(WORLD_HALF, forestRef.surfaceAt, forestRef.water) : null;
+  const camForward = new THREE.Vector3();
+  const book = new Book(
+    scene,
+    camera,
+    journal,
+    sticks,
+    {
+      makePiece: (kind, position, quaternion) => void sticks.craft(kind, position, quaternion),
+      buildCampfire: (x, z) => void fire.addCampfire(x, z),
+    },
+    {
+      settings,
+      craft: () => ({ smashes: crafting.smashes, lashing: crafting.lashing, smashesNeeded: SMASHES_FOR_AXE }),
+      world: () => ({
+        seed,
+        clock: atmosphere?.clock ?? '--:--',
+        phase: atmosphere?.phase ?? 'day',
+        day: atmosphere?.day ?? 1,
+      }),
+      map: mapView,
+      markers: () => [],
+      player: () => {
+        const head = locomotion.headWorld(_viewer);
+        camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+        return { x: head.x, z: head.z, heading: Math.atan2(camForward.x, -camForward.z) };
+      },
+      blueprints: null,
+      resetArms: () => armSpan.reset(),
+    },
+  );
   // Rub two sticks together to make fire; over a pile of sticks it becomes a campfire.
   const friction = new FrictionFire(scene, sticks, fire, forestRef ? forestRef.surfaceAt : () => 0, {
     onMessage: (text) => book.say(text),
@@ -172,6 +201,7 @@ async function main(): Promise<void> {
     pos: new THREE.Vector3(),
     squeezed: false,
     holding: false,
+    stickX: 0,
     pulse: (strength: number, ms: number) => hand.pulse(strength, ms),
   })) as [HandView, HandView];
   const locomotion = new Locomotion(world, rig);
@@ -292,6 +322,7 @@ async function main(): Promise<void> {
         view.pos.copy(locomotion.hands[i].position);
         view.squeezed = hand.squeezed;
         view.holding = grab.held(i as 0 | 1) !== null;
+        view.stickX = hand.stickX;
       });
       book.update(dt, { head: locomotion.headWorld(_viewer), hands: handViews, phase: atmosphere?.phase ?? null });
 
@@ -303,6 +334,7 @@ async function main(): Promise<void> {
     forestRef?.update(viewer);
     atmosphere?.update(dt, viewer);
     animals?.update(dt, viewer, atmosphere?.night ?? 0);
+    mapView?.explore(viewer.x, viewer.z);
     treeRopes?.update(dt);
     fire.update(dt, viewer, atmosphere?.night ?? 0);
     friction.update(dt);
