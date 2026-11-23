@@ -11,6 +11,9 @@ import { Hands } from './player/hands';
 import { Locomotion } from './player/locomotion';
 import { ArmSpan } from './player/armSpan';
 import { Grab } from './player/grab';
+import { Journal, RECIPES } from './player/journal';
+import { Book, type HandView } from './player/book';
+import { Fire } from './world/fire';
 import { Sticks } from './world/sticks';
 import type { DesktopEmulator } from './debug/desktop';
 
@@ -78,7 +81,25 @@ async function main(): Promise<void> {
   });
 
   const hands = new Hands(renderer, rig, scene);
-  const grab = new Grab(sticks, hands);
+
+  // The field journal on your hip: stash sticks in it, craft from it, unlock recipes as you go.
+  const journal = new Journal(params.has('resetbook'));
+  const fire = new Fire(scene, sticks, world, forestRef ? forestRef.surfaceAt : () => 0);
+  const book = new Book(scene, camera, journal, sticks, {
+    makePiece: (kind, position, quaternion) => void sticks.craft(kind, position, quaternion),
+    buildCampfire: (x, z) => void fire.addCampfire(x, z),
+  });
+  const grab = new Grab(sticks, hands, {
+    stash: (stick, handPos) => book.acceptStash(stick, handPos),
+    onFarThrow: () => void journal.notify('throw'),
+  });
+  const handViews: [HandView, HandView] = hands.all.map((hand) => ({
+    tracked: false,
+    pos: new THREE.Vector3(),
+    squeezed: false,
+    holding: false,
+    pulse: (strength: number, ms: number) => hand.pulse(strength, ms),
+  })) as [HandView, HandView];
   const locomotion = new Locomotion(world, rig);
   const armSpan = new ArmSpan();
   let calibrationTick = 0;
@@ -95,6 +116,10 @@ async function main(): Promise<void> {
   });
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyR') locomotion.respawn(spawn);
+    // Desktop emulator: it can't poke the pages, so the keys do it.
+    if (emulator && e.code === 'KeyB') book.toggle();
+    const digit = /^Digit([1-9])$/.exec(e.code);
+    if (emulator && digit && Number(digit[1]) <= RECIPES.length) book.pressRow(Number(digit[1]) - 1);
   });
 
   const hud = document.getElementById('hud')!;
@@ -152,6 +177,15 @@ async function main(): Promise<void> {
 
       grab.update(dt, locomotion.hands);
 
+      hands.all.forEach((hand, i) => {
+        const view = handViews[i];
+        view.tracked = hand.tracked;
+        view.pos.copy(locomotion.hands[i].position);
+        view.squeezed = hand.squeezed;
+        view.holding = grab.held(i as 0 | 1) !== null;
+      });
+      book.update(dt, { head: locomotion.headWorld(_viewer), hands: handViews, phase: atmosphere?.phase ?? null });
+
       if (rig.position.y < LOCOMOTION.killY) locomotion.respawn(spawn);
     }
 
@@ -159,6 +193,7 @@ async function main(): Promise<void> {
     const viewer = locomotion.headWorld(_viewer);
     forestRef?.update(viewer);
     atmosphere?.update(dt, viewer);
+    fire.update(dt, viewer, atmosphere?.night ?? 0);
 
     // Step physics by the real frame time so sticks fall at the right speed whatever
     // the refresh rate, in steps of at most 1/60 s so slow frames don't make the
@@ -176,13 +211,13 @@ async function main(): Promise<void> {
       fpsFrames = 0;
       fpsTime = 0;
     }
-    hud.textContent = hudText(renderer, locomotion, armSpan, grab, fps, emulator !== null, worldStats, atmosphere);
+    hud.textContent = hudText(renderer, locomotion, armSpan, grab, journal, fps, emulator !== null, worldStats, atmosphere);
 
     renderer.render(scene, camera);
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire } });
 }
 
 function hudText(
@@ -190,6 +225,7 @@ function hudText(
   loco: Locomotion,
   arms: ArmSpan,
   grab: Grab,
+  journal: Journal,
   fps: number,
   emulated: boolean,
   worldStats: string,
@@ -208,7 +244,8 @@ function hudText(
     `hands    L ${loco.hands[0].touching ? '●' : '○'}  R ${loco.hands[1].touching ? '●' : '○'}`,
     `grounded ${loco.grounded ? 'yes' : 'no'}`,
     `surface  L ${surfaceLabel(loco, 0)}  R ${surfaceLabel(loco, 1)}`,
-    `holding  L ${grab.held(0) ? 'stick' : '-'}  R ${grab.held(1) ? 'stick' : '-'}`,
+    `holding  L ${grab.held(0)?.kind ?? '-'}  R ${grab.held(1)?.kind ?? '-'}`,
+    `book     ${journal.stash} sticks, ${journal.unlocked.size}/${RECIPES.length} recipes`,
     `reach    x${arms.scale.toFixed(2)}  (arm span ${arms.span.toFixed(2)} m, ${arms.calibrated ? 'calibrated' : 'estimated'})`,
   ];
   if (emulated) {
@@ -219,6 +256,8 @@ function hudText(
       'shift   faster strokes',
       'space   jump',
       'Q / E   squeeze left / right grip (grab and throw)',
+      'B       open / close the book',
+      '1-4     craft (book open)',
       'T       T-pose arm calibration',
       '[ ]     shorter / longer emulated arms',
       'R       respawn',

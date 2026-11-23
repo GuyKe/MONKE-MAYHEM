@@ -65,6 +65,23 @@ const _drive = new THREE.Vector3();
 const _spin = new THREE.Vector3();
 const _dq = new THREE.Quaternion();
 
+/** Optional ways for other systems to join in. */
+export interface GrabHooks {
+  /** A held piece was let go at `handPos`. Return true to take it (it is then removed from the world). */
+  stash?(stick: Stick, handPos: THREE.Vector3): boolean;
+  /** A thrown stick has landed more than FAR_THROW metres from where it left the hand. */
+  onFarThrow?(): void;
+}
+
+/** How far a throw must go to count as a far throw (metres, along the ground). */
+export const FAR_THROW = 8;
+
+interface Flight {
+  stick: Stick;
+  from: THREE.Vector3;
+  time: number;
+}
+
 /**
  * Grabbing with the grip button.
  *
@@ -76,10 +93,12 @@ const _dq = new THREE.Quaternion();
  */
 export class Grab {
   private readonly states: [HandState, HandState] = [newState(), newState()];
+  private flights: Flight[] = [];
 
   constructor(
     private readonly sticks: Sticks,
     private readonly hands: Hands,
+    private readonly hooks: GrabHooks = {},
   ) {}
 
   held(i: 0 | 1): Stick | null {
@@ -88,6 +107,7 @@ export class Grab {
 
   /** Call once per frame after the player and hands have moved. */
   update(dt: number, contacts: [HandContact, HandContact]): void {
+    this.trackFlights(dt);
     for (let i = 0; i < 2; i++) {
       const hand = this.hands.all[i];
       const state = this.states[i];
@@ -203,6 +223,13 @@ export class Grab {
     state.held = null;
     stick.heldBy = null;
 
+    // Held up to the book: it takes the stick instead.
+    if (this.hooks.stash?.(stick, state.lastPos)) {
+      this.sticks.stash(stick);
+      this.hands.all[i].pulse(0.5, 40);
+      return;
+    }
+
     const body = stick.body;
     body.setGravityScale(1, true);
     body.setLinearDamping(0.05);
@@ -221,7 +248,24 @@ export class Grab {
 
     body.setLinvel(lin, true);
     body.setAngvel(ang, true);
-    if (throwIt) this.hands.all[i].pulse(Math.min(1, 0.2 + lin.length() / 12), 30);
+    if (throwIt) {
+      this.hands.all[i].pulse(Math.min(1, 0.2 + lin.length() / 12), 30);
+      if (lin.length() > 4) this.flights.push({ stick, from: stick.pos.clone(), time: 0 });
+    }
+  }
+
+  /** Watches thrown sticks until they land, to see whether one went far. */
+  private trackFlights(dt: number): void {
+    if (!this.flights.length) return;
+    this.flights = this.flights.filter((f) => {
+      f.time += dt;
+      if (f.stick.heldBy !== null || f.stick.hidden) return false; // caught again or put away
+      const v = f.stick.body.linvel();
+      const landed = f.time > 0.3 && Math.hypot(v.x, v.y, v.z) < 0.8;
+      if (!landed && f.time < 6) return true;
+      if (Math.hypot(f.stick.pos.x - f.from.x, f.stick.pos.z - f.from.z) >= FAR_THROW) this.hooks.onFarThrow?.();
+      return false;
+    });
   }
 
   /** Velocity and angular velocity of the hand over the last moments. */
