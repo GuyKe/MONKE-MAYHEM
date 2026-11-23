@@ -40,8 +40,14 @@ export const LOCOMOTION = {
 
   /** Gap the hand sweep keeps from surfaces. */
   contactSkin: 0.001,
-  /** Minimum downward probe per frame so a resting hand stays in contact. */
+  /** Small push into the surface each frame so a resting hand stays in contact. */
   contactProbe: 0.004,
+  /**
+   * A touching hand lets go once the controller has moved this far away from
+   * the surface it is on, however slowly. Without this a gentle lift never
+   * breaks contact and the hand feels glued to the ground.
+   */
+  releaseLift: 0.003,
 
   /** Longer frames than this are simulated as this long (prevents tunnelling). */
   maxFrameDt: 1 / 30,

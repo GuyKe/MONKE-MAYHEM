@@ -16,6 +16,10 @@ export interface HandContact {
   initialized: boolean;
   /** Material of the surface the hand is touching (last one touched when not touching). */
   surface: SurfaceMaterial;
+  /** Outward normal of the surface the hand is touching (last one when not touching). */
+  readonly normal: THREE.Vector3;
+  /** How far the controller has moved away from the surface since contact began. */
+  lift: number;
 }
 
 const _v = new THREE.Vector3();
@@ -85,6 +89,8 @@ export class Locomotion {
       justTouched: false,
       initialized: false,
       surface: DEFAULT_SURFACE,
+      normal: new THREE.Vector3(0, 1, 0),
+      lift: 0,
     });
     this.hands = [newHand(), newHand()];
     for (let i = 0; i < C.velocityHistorySize; i++) this.history.push(new THREE.Vector3());
@@ -109,6 +115,7 @@ export class Locomotion {
     for (const hand of this.hands) {
       hand.initialized = false;
       hand.touching = hand.wasTouching = hand.justTouched = false;
+      hand.lift = 0;
     }
   }
 
@@ -143,14 +150,31 @@ export class Locomotion {
       }
       const current = this.handWorld(local, headWorld, hand.rawPosition);
       if (!hand.initialized) {
-        hand.position.copy(current);
+        // First frame, respawn or tracking regained: start the hand at the head
+        // and let the sweep carry it out to the controller. It then stops at any
+        // surface in between instead of starting inside one, where sweeps ignore it.
+        hand.position.copy(headWorld);
         hand.initialized = true;
+        hand.lift = 0;
       }
 
       _travel.subVectors(current, hand.position);
-      _travel.y -= probe;
+
+      // A resting hand is nudged into its surface so contact is kept. That
+      // nudge must not outlast a lift: track how far the controller has moved
+      // away from the surface and drop the nudge once it passes releaseLift.
+      let push = probe;
+      if (hand.wasTouching) {
+        hand.lift = Math.max(0, hand.lift + _travel.dot(hand.normal));
+        if (hand.lift > C.releaseLift) push = 0;
+        _travel.addScaledVector(hand.normal, -push);
+      } else {
+        hand.lift = 0;
+        _travel.y -= push;
+      }
       const hit = this.sweep(hand.position, _travel, _hit, _normal);
       if (hit) {
+        hand.normal.copy(_normal);
         hand.surface = surfaceOf(hit.collider);
         // A hand already in contact stays exactly where it was. A hand that
         // just arrived stops at the surface.
@@ -172,7 +196,11 @@ export class Locomotion {
         touchingCount++;
         hand.touching = true;
       } else {
+        // No contact. The hand carries on from where the controller is, not
+        // from where it was pinned, so it can't re-grab a point it has left.
+        hand.position.copy(current);
         hand.touching = false;
+        hand.lift = 0;
       }
     }
     if (touchingCount > 1) movement.divideScalar(touchingCount);
@@ -229,6 +257,17 @@ export class Locomotion {
         hand.touching = true;
       } else {
         hand.position.copy(current);
+      }
+
+      // The move above can carry a hand off its surface (the other hand's push
+      // lifts the body, say). Only stay in contact if the surface is still
+      // right there.
+      if (hand.touching) {
+        _travel.copy(hand.normal).multiplyScalar(-(2 * C.contactProbe + C.contactSkin));
+        if (!this.sweep(hand.position, _travel, _hit)) {
+          hand.touching = false;
+          hand.lift = 0;
+        }
       }
     }
 
