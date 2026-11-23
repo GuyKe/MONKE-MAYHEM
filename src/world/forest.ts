@@ -12,6 +12,8 @@ export interface Forest {
   sky: THREE.Object3D;
   /** Where the player starts, standing on the ground. */
   spawn: THREE.Vector3;
+  /** True if (x, z) is within `pad` metres of a tree, pond, puddle or the spawn. */
+  isBlocked(x: number, z: number, pad?: number): boolean;
   /** Every tree trunk: ground position, height and radius. */
   trees: ReadonlyArray<{ x: number; z: number; height: number; radius: number }>;
   stats: { trees: number; branches: number; rocks: number; logs: number; colliders: number };
@@ -333,6 +335,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, seed = 1337
 
   return {
     heightAt,
+    isBlocked: (x, z, pad = 0) => blocked(x, z, pad) || trees.some((t) => Math.hypot(t.x - x, t.z - z) < t.radius + pad),
     sky: createSky(),
     spawn: new THREE.Vector3(SPAWN.x, heightAt(SPAWN.x, SPAWN.z), SPAWN.z),
     trees,

@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
 import { LOCOMOTION, SPAWN } from './config';
-import { createPhysicsWorld } from './physics';
+import { RAPIER, createPhysicsWorld } from './physics';
 import { buildTestArena } from './world/testArena';
 import { buildForest } from './world/forest';
 import { Hands } from './player/hands';
 import { Locomotion } from './player/locomotion';
 import { ArmSpan } from './player/armSpan';
+import { Grab } from './player/grab';
+import { Sticks } from './world/sticks';
 import type { DesktopEmulator } from './debug/desktop';
 
 async function main(): Promise<void> {
@@ -52,7 +54,14 @@ async function main(): Promise<void> {
   }
   world.step(); // populate the broad phase so queries see the static scenery
 
+  const sticks = new Sticks(scene, world, {
+    heightAt: forestRef ? forestRef.heightAt : () => 0,
+    isBlocked: forestRef ? forestRef.isBlocked : () => false,
+    spawn,
+  });
+
   const hands = new Hands(renderer, rig, scene);
+  const grab = new Grab(sticks, hands);
   const locomotion = new Locomotion(world, rig);
   const armSpan = new ArmSpan();
   let calibrationTick = 0;
@@ -123,10 +132,19 @@ async function main(): Promise<void> {
         if (contact.justTouched) hand.pulse(0.3, 25);
       });
 
+      grab.update(dt, locomotion.hands);
+
       if (rig.position.y < LOCOMOTION.killY) locomotion.respawn(spawn);
     }
 
-    world.step();
+    // Step physics by the real frame time so sticks fall at the right speed whatever
+    // the refresh rate, in steps of at most 1/60 s so slow frames don't make the
+    // contacts mushy.
+    const physicsDt = Math.min(Math.max(dt, 1 / 144), 1 / 20);
+    const substeps = Math.ceil(physicsDt / (1 / 60) - 1e-6);
+    world.timestep = physicsDt / substeps;
+    for (let i = 0; i < substeps; i++) world.step();
+    sticks.sync();
 
     fpsFrames++;
     fpsTime += frameDt;
@@ -135,19 +153,20 @@ async function main(): Promise<void> {
       fpsFrames = 0;
       fpsTime = 0;
     }
-    hud.textContent = hudText(renderer, locomotion, armSpan, fps, emulator !== null, worldStats);
+    hud.textContent = hudText(renderer, locomotion, armSpan, grab, fps, emulator !== null, worldStats);
 
     renderer.render(scene, camera);
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER } });
 }
 
 function hudText(
   renderer: THREE.WebGLRenderer,
   loco: Locomotion,
   arms: ArmSpan,
+  grab: Grab,
   fps: number,
   emulated: boolean,
   worldStats: string,
@@ -164,6 +183,7 @@ function hudText(
     `hands    L ${loco.hands[0].touching ? '●' : '○'}  R ${loco.hands[1].touching ? '●' : '○'}`,
     `grounded ${loco.grounded ? 'yes' : 'no'}`,
     `surface  L ${surfaceLabel(loco, 0)}  R ${surfaceLabel(loco, 1)}`,
+    `holding  L ${grab.held(0) ? 'stick' : '-'}  R ${grab.held(1) ? 'stick' : '-'}`,
     `reach    x${arms.scale.toFixed(2)}  (arm span ${arms.span.toFixed(2)} m, ${arms.calibrated ? 'calibrated' : 'estimated'})`,
   ];
   if (emulated) {
@@ -173,6 +193,7 @@ function hudText(
       'W A S D knuckle-walk',
       'shift   faster strokes',
       'space   jump',
+      'Q / E   squeeze left / right grip (grab and throw)',
       'T       T-pose arm calibration',
       '[ ]     shorter / longer emulated arms',
       'R       respawn',

@@ -9,7 +9,7 @@ Built with Three.js (WebXR), Rapier physics, Vite and TypeScript.
 - [x] **Milestone 1: Scaffold.** Vite + Three.js + Rapier, Enter VR, tracked hands, Pages deploy workflow.
 - [x] **Milestone 2: Hand locomotion.** Pushing off surfaces, launching, gravity, body collision, on a test course.
 - [x] **Milestone 3: Forest.** Rolling terrain, about 325 climbable trees, rocks, logs, grass, a frozen pond and mud puddles, sky and fog.
-- [ ] Milestone 4: Grabbable, throwable sticks.
+- [x] **Milestone 4: Sticks.** Grab with the grip, carry, throw. 40 physical sticks around the forest.
 - [ ] Milestone 5: Sounds, particles, comfort options, performance pass.
 
 ## Running it
@@ -38,6 +38,7 @@ fake controllers from the keyboard:
 | W A S D | Knuckle-walk (scripted arm strokes) |
 | Shift | Faster strokes |
 | Space | Push both hands down to jump |
+| Q / E | Squeeze the left / right grip (grab and throw sticks) |
 | T | T-pose arm calibration |
 | [ and ] | Shorter / longer emulated arms (to test arm-span scaling) |
 | R | Respawn |
@@ -53,6 +54,21 @@ fake controllers from the keyboard:
 - **Slip spots:** a frozen pond far out, plus a frozen puddle (left) and a mud patch (right) a few metres from the spawn, and more mud puddles
   further out. The rest of the ground is moss (10% slip).
 - **Cost:** everything repeated is instanced, so the whole forest is about 28 draw calls.
+
+## Sticks
+
+`src/world/sticks.ts`, `src/player/grab.ts`. Forty loose sticks lie around the forest, six of them just in front of the spawn.
+
+- **Grab:** squeeze a grip with a stick within about 13 cm of your hand. It stays exactly where you took hold of it. You must press
+  the grip anew to grab; holding it while walking over a stick does nothing.
+- **Throw:** let go and the stick keeps your hand's velocity and spin, including the swing of its far end. Dropping it without moving just drops it.
+- **Hand to hand:** grabbing a stick the other hand holds takes it over.
+- **Feedback:** sticks within about 20 cm of a hand glow yellow, with a small buzz when one becomes grabbable, a firmer buzz on grab,
+  and a buzz on release that scales with the throw.
+- **Physics:** every stick is a real rigid body. Each is a six-sided prism (like its mesh), so it comes to rest instead of rolling
+  down slopes. Sticks collide with the ground, trees, rocks and each other, but never block your hands or body. A stick that falls out
+  of the world comes back near the spawn.
+- Physics runs in steps no longer than 1/60 s whatever the refresh rate.
 
 ## How the movement works
 

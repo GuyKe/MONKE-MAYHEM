@@ -5,6 +5,7 @@ export { RAPIER };
 /** Collision group bits. */
 export const GROUP_WORLD = 0x0001;
 export const GROUP_PLAYER = 0x0002;
+export const GROUP_STICK = 0x0004;
 
 /** Packs Rapier interaction groups: high 16 bits = membership, low 16 = filter. */
 export function groups(membership: number, filter: number): number {
@@ -15,6 +16,8 @@ export function groups(membership: number, filter: number): number {
 export const WORLD_GROUPS = groups(GROUP_WORLD, 0xffff);
 /** The player's body capsule: only collides with the world. */
 export const PLAYER_GROUPS = groups(GROUP_PLAYER, GROUP_WORLD);
+/** Sticks: collide with the world and each other, never with the player's body or hand sweeps. */
+export const STICK_GROUPS = groups(GROUP_STICK, GROUP_WORLD | GROUP_STICK);
 /** Filter used by hand sweeps and the body controller: hit world only. */
 export const QUERY_WORLD = groups(0xffff, GROUP_WORLD);
 
