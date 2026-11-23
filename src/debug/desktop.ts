@@ -35,6 +35,8 @@ export class DesktopEmulator {
   private tPoseTime = -1;
   /** Multiplies the emulated arms' reach. 1 is an average adult (1.7 m span). */
   armScale = 1;
+  /** Debug/test hook: pin a hand to exact tracking-space coordinates instead of the scripted pose. */
+  override: { left?: [number, number, number]; right?: [number, number, number] } = {};
   private readonly headHeight = 1.6;
 
   constructor() {
@@ -148,6 +150,13 @@ export class DesktopEmulator {
 
       const c = d.controllers[name];
       if (!c) continue;
+      const pinned = this.override[name];
+      if (pinned) {
+        c.position.set(pinned[0], pinned[1], pinned[2]);
+        setYawPitch(c.quaternion, this.yaw, 0);
+        c.updateButtonValue('squeeze', this.keys.has(name === 'left' ? 'KeyQ' : 'KeyE') ? 1 : 0);
+        continue;
+      }
       if (this.tPoseTime >= 0) {
         // T-pose: arms straight out to the sides at head height, grips held.
         const half = EMULATED_ARM_SPAN * this.armScale * 0.5;

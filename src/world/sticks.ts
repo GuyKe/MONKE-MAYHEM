@@ -11,7 +11,7 @@ export interface Stick {
   readonly radius: number;
   /** Which hand is holding it, if any. */
   heldBy: Side | null;
-  /** Current pose: from the physics body, or from the hand while held. */
+  /** Current pose, from the physics body. */
   readonly pos: THREE.Vector3;
   readonly quat: THREE.Quaternion;
   readonly baseColor: THREE.Color;
@@ -157,16 +157,15 @@ export class Sticks {
     return Math.max(0, _ap.distanceTo(_ab.multiplyScalar(t)) - stick.radius);
   }
 
-  /** Copies body poses to the meshes (held sticks use the pose their hand gave them). */
+  /** Copies body poses to the meshes. */
   sync(): void {
     for (const stick of this.list) {
-      if (stick.heldBy === null) {
-        const t = stick.body.translation();
-        const r = stick.body.rotation();
-        stick.pos.set(t.x, t.y, t.z);
-        stick.quat.set(r.x, r.y, r.z, r.w);
-        if (t.y < -20) this.respawn(stick); // fell out of the world
-      }
+      // Held sticks are real bodies too, so the pose always comes from the physics.
+      const t = stick.body.translation();
+      const r = stick.body.rotation();
+      stick.pos.set(t.x, t.y, t.z);
+      stick.quat.set(r.x, r.y, r.z, r.w);
+      if (t.y < -20) this.respawn(stick); // fell out of the world
       this.updateStickDamping(stick);
       _m.compose(stick.pos, stick.quat, _s.set(stick.radius, stick.length, stick.radius));
       this.mesh.setMatrixAt(stick.id, _m);

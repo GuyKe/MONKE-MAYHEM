@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { RAPIER } from '../physics';
 import type { Stick, Sticks } from '../world/sticks';
 import type { HandContact } from './locomotion';
 import type { Hands } from './hands';
@@ -12,6 +11,22 @@ const HOVER_RADIUS = 0.2;
 const MAX_THROW_SPEED = 25;
 /** Hand motion over this long before release gives the throw velocity. */
 const THROW_WINDOW = 0.1;
+/** A held stick is driven toward the hand no faster than this (m/s, rad/s). */
+const MAX_HOLD_SPEED = 30;
+const MAX_HOLD_SPIN = 40;
+/**
+ * How hard the held stick is pulled toward the hand, per second of error, on top of copying
+ * the hand's own velocity. Kept modest so that a blocked stick never builds up a push big
+ * enough to force its way through whatever blocks it.
+ */
+const HOLD_STIFFNESS = 14;
+const HOLD_SPIN_STIFFNESS = 20;
+/** The catch-up part of the drive never exceeds this (m/s, rad/s). */
+const MAX_CATCHUP_SPEED = 2.5;
+const MAX_CATCHUP_SPIN = 12;
+/** If something blocks a held stick this far from the hand for a moment, it is dropped. */
+const BREAK_DISTANCE = 0.45;
+const BREAK_TIME = 0.2;
 
 interface Sample {
   readonly p: THREE.Vector3;
@@ -30,6 +45,11 @@ interface HandState {
   readonly history: Sample[];
   /** Where this hand was on the latest frame. */
   readonly lastPos: THREE.Vector3;
+  /** How long the held stick has been stuck far from the hand. */
+  blockedFor: number;
+  /** Where the stick was meant to be on the previous frame, for the target's velocity. */
+  readonly lastTarget: THREE.Vector3;
+  hasLastTarget: boolean;
 }
 
 const _handP = new THREE.Vector3();
@@ -39,6 +59,10 @@ const _lin = new THREE.Vector3();
 const _ang = new THREE.Vector3();
 const _lever = new THREE.Vector3();
 const _swing = new THREE.Vector3();
+const _targetP = new THREE.Vector3();
+const _targetQ = new THREE.Quaternion();
+const _drive = new THREE.Vector3();
+const _spin = new THREE.Vector3();
 const _dq = new THREE.Quaternion();
 
 /**
@@ -88,7 +112,7 @@ export class Grab {
       state.wasSqueezed = squeezed;
 
       if (state.held) {
-        this.follow(state, _handP, _handQ);
+        this.follow(i, state, _handP, _handQ, dt);
         this.setHover(i, null);
       } else {
         const near = this.sticks.nearest(_handP, HOVER_RADIUS);
@@ -111,7 +135,14 @@ export class Grab {
 
     stick.heldBy = i === 0 ? 'left' : 'right';
     state.held = stick;
-    stick.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+    // The stick stays a real dynamic body, so it collides with the ground, trees and other
+    // sticks (including one in your other hand) instead of passing through them. Gravity and
+    // damping are off while it is held so it doesn't sag or lag behind the hand.
+    stick.body.setGravityScale(0, true);
+    stick.body.setLinearDamping(0);
+    stick.body.setAngularDamping(0);
+    state.blockedFor = 0;
+    state.hasLastTarget = false;
 
     // Remember the stick's pose in the hand's frame so it doesn't jump.
     _inv.copy(handQ).invert();
@@ -122,12 +153,46 @@ export class Grab {
     this.hands.all[i].pulse(0.6, 40);
   }
 
-  private follow(state: HandState, handP: THREE.Vector3, handQ: THREE.Quaternion): void {
+  /**
+   * Drives the held stick toward where the hand wants it with a velocity, rather than putting
+   * it there. Contacts still win, so a stick pressed against another stick, a trunk or the
+   * ground stops there while the hand carries on.
+   */
+  private follow(i: number, state: HandState, handP: THREE.Vector3, handQ: THREE.Quaternion, dt: number): void {
     const stick = state.held!;
-    stick.pos.copy(state.offsetPos).applyQuaternion(handQ).add(handP);
-    stick.quat.copy(handQ).multiply(state.offsetRot);
-    stick.body.setNextKinematicTranslation(stick.pos);
-    stick.body.setNextKinematicRotation(stick.quat);
+    const step = Math.max(dt, 1 / 144);
+    _targetP.copy(state.offsetPos).applyQuaternion(handQ).add(handP);
+    _targetQ.copy(handQ).multiply(state.offsetRot);
+
+    // Copy the target's own velocity, plus a bounded pull to close any gap.
+    _drive.subVectors(_targetP, stick.pos);
+    const gap = _drive.length();
+    _drive.multiplyScalar(HOLD_STIFFNESS);
+    if (_drive.length() > MAX_CATCHUP_SPEED) _drive.setLength(MAX_CATCHUP_SPEED);
+    if (state.hasLastTarget) _drive.addScaledVector(_swing.subVectors(_targetP, state.lastTarget), 1 / step);
+    state.lastTarget.copy(_targetP);
+    state.hasLastTarget = true;
+    if (_drive.length() > MAX_HOLD_SPEED) _drive.setLength(MAX_HOLD_SPEED);
+
+    // Shortest rotation from the stick's pose to the target, as a world-frame rotation.
+    _dq.copy(_targetQ).multiply(_inv.copy(stick.quat).invert());
+    if (_dq.w < 0) _dq.set(-_dq.x, -_dq.y, -_dq.z, -_dq.w);
+    const angle = 2 * Math.acos(Math.min(1, _dq.w));
+    const s = Math.sqrt(Math.max(0, 1 - _dq.w * _dq.w));
+    _spin.set(0, 0, 0);
+    if (s > 1e-4) _spin.set(_dq.x / s, _dq.y / s, _dq.z / s).multiplyScalar(angle * HOLD_SPIN_STIFFNESS);
+    if (_spin.length() > MAX_CATCHUP_SPIN) _spin.setLength(MAX_CATCHUP_SPIN);
+    if (_spin.length() > MAX_HOLD_SPIN) _spin.setLength(MAX_HOLD_SPIN);
+
+    stick.body.setLinvel(_drive, true);
+    stick.body.setAngvel(_spin, true);
+
+    // Wedged against something while the hand moved on: let go rather than fight it.
+    state.blockedFor = gap > BREAK_DISTANCE ? state.blockedFor + dt : 0;
+    if (state.blockedFor > BREAK_TIME) {
+      this.release(i, false);
+      this.hands.all[i].pulse(0.8, 60);
+    }
   }
 
   /** Lets go. With `throwIt` the stick keeps the hand's velocity and spin. */
@@ -139,9 +204,10 @@ export class Grab {
     stick.heldBy = null;
 
     const body = stick.body;
-    body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
-    body.setTranslation(stick.pos, true);
-    body.setRotation(stick.quat, true);
+    body.setGravityScale(1, true);
+    body.setLinearDamping(0.05);
+    body.setAngularDamping(0.3);
+    stick.settling = false;
 
     const lin = _lin.set(0, 0, 0);
     const ang = _ang.set(0, 0, 0);
@@ -212,5 +278,8 @@ function newState(): HandState {
     offsetRot: new THREE.Quaternion(),
     history: [],
     lastPos: new THREE.Vector3(),
+    blockedFor: 0,
+    lastTarget: new THREE.Vector3(),
+    hasLastTarget: false,
   };
 }
