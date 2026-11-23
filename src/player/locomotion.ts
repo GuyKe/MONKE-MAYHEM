@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { LOCOMOTION as C } from '../config';
-import { PLAYER_GROUPS, QUERY_WORLD, RAPIER } from '../physics';
+import { PLAYER_GROUPS, QUERY_TERRAIN, QUERY_WORLD, RAPIER } from '../physics';
 import { DEFAULT_SURFACE, surfaceOf, type SurfaceMaterial } from '../world/materials';
 
 /** Per-hand contact state. */
@@ -53,6 +53,8 @@ export class Locomotion {
   grounded = false;
   /** Multiplies every hand offset from the head. Set from the player's arm span. */
   reachScale = 1;
+  /** While true, hands pass through built structures (so a joint can be tied). */
+  handsIgnoreStructures = false;
   /** Material under the body when standing or sliding on the ground. */
   groundSurface: SurfaceMaterial = DEFAULT_SURFACE;
 
@@ -318,7 +320,7 @@ export class Locomotion {
       1,
       false,
       undefined,
-      QUERY_WORLD,
+      this.handsIgnoreStructures ? QUERY_TERRAIN : QUERY_WORLD,
       this.bodyCollider,
     );
     if (!hit) return null;

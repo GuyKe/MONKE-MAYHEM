@@ -15,6 +15,7 @@ import { Journal, RECIPES } from './player/journal';
 import { Book, type HandView } from './player/book';
 import { MapView } from './world/mapview';
 import { Fire } from './world/fire';
+import { Building } from './world/building';
 import { TreeRopes } from './world/ropes';
 import { Crafting, SMASHES_FOR_AXE } from './player/crafting';
 import { Animals } from './world/animals';
@@ -136,6 +137,9 @@ async function main(): Promise<void> {
   // The map fills in as you explore. (Stage 6 adds places to find.)
   const mapView = forestRef ? new MapView(WORLD_HALF, forestRef.surfaceAt, forestRef.water) : null;
   const camForward = new THREE.Vector3();
+  // The book shows the building plans, and the building system needs the grab code, which needs the book to
+  // stash sticks: so the building system is filled in once it exists.
+  const buildingRef: { current: Building | null } = { current: null };
   const book = new Book(
     scene,
     camera,
@@ -161,7 +165,12 @@ async function main(): Promise<void> {
         camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
         return { x: head.x, z: head.z, heading: Math.atan2(camForward.x, -camForward.z) };
       },
-      blueprints: null,
+      blueprints: {
+        view: () => buildingRef.current?.view() ?? { list: [], active: null },
+        version: () => buildingRef.current?.version ?? 0,
+        select: (id) => buildingRef.current?.select(id),
+        cancel: () => buildingRef.current?.cancel(),
+      },
       resetArms: () => armSpan.reset(),
     },
   );
@@ -173,11 +182,32 @@ async function main(): Promise<void> {
   // Ropes hanging in trees: grab one and pull down to tear it free.
   const treeRopes = forestRef ? new TreeRopes(scene, forestRef.ropes) : null;
   const grab = new Grab(sticks, hands, {
-    stash: (stick, handPos) => book.acceptStash(stick, handPos),
+    stash: (stick, handPos) => book.acceptStash(stick, handPos) || (buildingRef.current?.accept(stick) ?? false),
     onFarThrow: () => void journal.notify('throw'),
     ropes: treeRopes ?? undefined,
     onRopePulled: () => book.say('Rope! Keep it: wind it round an axe head, or use it to tie things.'),
   });
+
+  // Structures: pick a plan in the book, place it, then bring the parts and tie them together.
+  const building = new Building(
+    scene,
+    world,
+    sticks,
+    forestRef ?? { surfaceAt: () => 0, isBlocked: () => false },
+    hands,
+    grab,
+    { say: (text) => book.say(text), pulse: (side, strength, ms) => hands[side].pulse(strength, ms) },
+    {
+      // (The player is created below; these are only used once the game is running.)
+      get handsIgnoreStructures() {
+        return locomotion.handsIgnoreStructures;
+      },
+      set handsIgnoreStructures(on: boolean) {
+        locomotion.handsIgnoreStructures = on;
+      },
+    },
+  );
+  buildingRef.current = building;
 
   // Tools: smash a stone on a stick for an axe, chop with it, lash rope round it for a better one.
   // The arena has a few trunks to chop; the forest has thousands.
@@ -315,6 +345,13 @@ async function main(): Promise<void> {
 
       grab.update(dt, locomotion.hands);
       crafting.update(dt);
+      camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      camForward.y = 0;
+      building.update(dt, {
+        head: locomotion.headWorld(_viewer),
+        hands: [locomotion.hands[0].position, locomotion.hands[1].position],
+        forward: camForward.lengthSq() > 1e-6 ? camForward.normalize() : camForward.set(0, 0, -1),
+      });
 
       hands.all.forEach((hand, i) => {
         const view = handViews[i];
@@ -361,7 +398,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building } });
 }
 
 function hudText(

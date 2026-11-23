@@ -21,7 +21,7 @@ export interface Hit {
 
 /** What the blueprint pages show. Filled in by the building system. */
 export interface BlueprintView {
-  list: Array<{ id: string; name: string; blurb: string; needs: string }>;
+  list: Array<{ id: string; name: string; blurb: string; needs: string; locked?: boolean }>;
   active: null | {
     id: string;
     name: string;
@@ -305,13 +305,13 @@ function structures(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null): 
     const top = 188 + i * 150;
     const id = `bp:select:${plan.id}`;
     const chosen = bp.active?.id === plan.id;
-    c.fillStyle = hover === id ? '#f6ecd0' : '#f1e6c8';
+    c.fillStyle = plan.locked ? '#cdbf9f' : hover === id ? '#f6ecd0' : '#f1e6c8';
     roundRect(c, 22, top, FACE_W - 44, 138, 14);
     c.fill();
     c.strokeStyle = chosen ? GOLD : '#a99468';
     c.lineWidth = chosen ? 5 : 2;
     c.stroke();
-    c.fillStyle = INK;
+    c.fillStyle = plan.locked ? FAINT : INK;
     c.textAlign = 'left';
     c.font = 'bold 29px Georgia, serif';
     c.fillText(plan.name, 40, top + 38);
@@ -321,7 +321,7 @@ function structures(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null): 
     c.fillStyle = FAINT;
     c.font = 'italic 17px Georgia, serif';
     wrap(c, plan.needs, 40, y + 2, 300, 22);
-    button(c, hits, hover, id, chosen ? 'ACTIVE' : 'SET PLAN', 352, top + 36, 140, 62, { color: GREEN, on: chosen });
+    if (!plan.locked) button(c, hits, hover, id, chosen ? 'ACTIVE' : 'SET PLAN', 352, top + 36, 140, 62, { color: GREEN, on: chosen });
   });
 }
 
