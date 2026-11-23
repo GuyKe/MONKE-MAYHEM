@@ -39,6 +39,16 @@ export class Hand {
     return this.grip !== null && this.source !== null;
   }
 
+  /** True while the trigger (index finger) is held. */
+  get triggered(): boolean {
+    return this.source?.gamepad?.buttons[0]?.pressed ?? false;
+  }
+
+  /** The thumbstick, left (-1) to right (1), or 0 if it is not touched. */
+  get stickX(): number {
+    return this.source?.gamepad?.axes[2] ?? 0;
+  }
+
   /** True while the grip button is held. */
   get squeezed(): boolean {
     return this.source?.gamepad?.buttons[1]?.pressed ?? false;

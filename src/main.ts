@@ -14,6 +14,8 @@ import { Grab } from './player/grab';
 import { Journal, RECIPES } from './player/journal';
 import { Book, type HandView } from './player/book';
 import { Fire } from './world/fire';
+import { TreeRopes } from './world/ropes';
+import { Crafting } from './player/crafting';
 import { Animals } from './world/animals';
 import { FrictionFire } from './world/friction';
 import { Sticks } from './world/sticks';
@@ -121,6 +123,7 @@ async function main(): Promise<void> {
     spawn,
     worldHalf: forestRef ? WORLD_HALF : 25,
     count: forestRef ? 280 : 40,
+    stones: forestRef ? 120 : 14,
     seed,
   });
 
@@ -138,10 +141,32 @@ async function main(): Promise<void> {
     onMessage: (text) => book.say(text),
     pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
   });
+  // Ropes hanging in trees: grab one and pull down to tear it free.
+  const treeRopes = forestRef ? new TreeRopes(scene, forestRef.ropes) : null;
   const grab = new Grab(sticks, hands, {
     stash: (stick, handPos) => book.acceptStash(stick, handPos),
     onFarThrow: () => void journal.notify('throw'),
+    ropes: treeRopes ?? undefined,
+    onRopePulled: () => book.say('Rope! Keep it: wind it round an axe head, or use it to tie things.'),
   });
+
+  // Tools: smash a stone on a stick for an axe, chop with it, lash rope round it for a better one.
+  // The arena has a few trunks to chop; the forest has thousands.
+  const arenaTrees = [[4, -3, 0.3], [6.5, -6, 0.45], [3, -9, 0.3], [8, -1.5, 0.45]].map(([x, z, radius]) => ({ x, z, radius, height: 7 }));
+  const crafting = new Crafting(
+    sticks,
+    grab,
+    hands,
+    forestRef ?? {
+      surfaceAt: () => 0,
+      nearestTree: (x, z, pad) => arenaTrees.find((t) => Math.hypot(t.x - x, t.z - z) - t.radius < pad) ?? null,
+    },
+    {
+      say: (text) => book.say(text),
+      burst: (at, count) => friction.burst(at, count),
+      pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
+    },
+  );
   const handViews: [HandView, HandView] = hands.all.map((hand) => ({
     tracked: false,
     pos: new THREE.Vector3(),
@@ -259,6 +284,7 @@ async function main(): Promise<void> {
       });
 
       grab.update(dt, locomotion.hands);
+      crafting.update(dt);
 
       hands.all.forEach((hand, i) => {
         const view = handViews[i];
@@ -277,6 +303,7 @@ async function main(): Promise<void> {
     forestRef?.update(viewer);
     atmosphere?.update(dt, viewer);
     animals?.update(dt, viewer, atmosphere?.night ?? 0);
+    treeRopes?.update(dt);
     fire.update(dt, viewer, atmosphere?.night ?? 0);
     friction.update(dt);
 
@@ -296,13 +323,13 @@ async function main(): Promise<void> {
       fpsFrames = 0;
       fpsTime = 0;
     }
-    hud.textContent = hudText(renderer, locomotion, armSpan, grab, journal, friction.heat, fps, emulator !== null, worldStats, atmosphere);
+    hud.textContent = hudText(renderer, locomotion, armSpan, grab, journal, friction.heat, crafting, fps, emulator !== null, worldStats, atmosphere);
 
     renderer.render(scene, camera);
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting } });
 }
 
 function hudText(
@@ -312,6 +339,7 @@ function hudText(
   grab: Grab,
   journal: Journal,
   heat: number,
+  crafting: Crafting,
   fps: number,
   emulated: boolean,
   worldStats: string,
@@ -332,6 +360,7 @@ function hudText(
     `surface  L ${surfaceLabel(loco, 0)}  R ${surfaceLabel(loco, 1)}`,
     `holding  L ${grab.held(0)?.kind ?? '-'}  R ${grab.held(1)?.kind ?? '-'}`,
     `book     ${journal.stash} sticks, ${journal.unlocked.size}/${RECIPES.length} recipes`,
+    crafting.smashes > 0 || crafting.lashing > 0 ? `tools    smashes ${crafting.smashes}/5  lashing ${Math.round(crafting.lashing * 100)}%` : 'tools    -',
     heat > 0.02 ? `heat     ${'#'.repeat(Math.round(heat * 10)).padEnd(10, '.')} rub sticks together` : 'heat     -',
     `reach    x${arms.scale.toFixed(2)}  (arm span ${arms.span.toFixed(2)} m, ${arms.calibrated ? 'calibrated' : 'estimated'})`,
   ];

@@ -4,10 +4,14 @@ import { mulberry32 } from './noise';
 
 export type Side = 'left' | 'right';
 
-/** What a piece is. Everything you can pick up is a piece; sticks are the raw material. */
-export type PieceKind = 'stick' | 'pole' | 'torch' | 'spear';
+/** What a piece is. Everything you can pick up is a piece; sticks and stones are the raw materials. */
+export type PieceKind = 'stick' | 'pole' | 'torch' | 'spear' | 'stone' | 'rope' | 'log' | 'axe' | 'axe2';
+
+/** How a piece looks and is built: a long thin prism, a rounded stone, or a flat coil of rope. */
+type Shape = 'prism' | 'stone' | 'coil';
 
 interface KindSpec {
+  shape: Shape;
   length: [number, number];
   radius: [number, number];
   density: number;
@@ -16,15 +20,26 @@ interface KindSpec {
 }
 
 const KINDS: Record<PieceKind, KindSpec> = {
-  stick: { length: [0.6, 1.2], radius: [0.018, 0.03], density: 400, color: [0.07, [0.3, 0.45], [0.2, 0.32]] },
-  pole: { length: [2.0, 2.0], radius: [0.036, 0.036], density: 450, color: [0.09, [0.35, 0.4], [0.38, 0.45]] },
-  torch: { length: [0.85, 0.85], radius: [0.03, 0.03], density: 400, color: [0.06, [0.3, 0.35], [0.12, 0.16]] },
-  spear: { length: [1.75, 1.75], radius: [0.02, 0.02], density: 450, color: [0.1, [0.15, 0.2], [0.42, 0.5]] },
+  stick: { shape: 'prism', length: [0.6, 1.2], radius: [0.018, 0.03], density: 400, color: [0.07, [0.3, 0.45], [0.2, 0.32]] },
+  pole: { shape: 'prism', length: [2.0, 2.0], radius: [0.036, 0.036], density: 450, color: [0.09, [0.35, 0.4], [0.38, 0.45]] },
+  torch: { shape: 'prism', length: [0.85, 0.85], radius: [0.03, 0.03], density: 400, color: [0.06, [0.3, 0.35], [0.12, 0.16]] },
+  spear: { shape: 'prism', length: [1.75, 1.75], radius: [0.02, 0.02], density: 450, color: [0.1, [0.15, 0.2], [0.42, 0.5]] },
+  log: { shape: 'prism', length: [1.1, 1.3], radius: [0.1, 0.13], density: 600, color: [0.07, [0.3, 0.38], [0.2, 0.28]] },
+  axe: { shape: 'prism', length: [0.6, 0.9], radius: [0.022, 0.026], density: 450, color: [0.08, [0.3, 0.4], [0.28, 0.36]] },
+  axe2: { shape: 'prism', length: [0.6, 0.9], radius: [0.022, 0.026], density: 450, color: [0.08, [0.3, 0.4], [0.28, 0.36]] },
+  stone: { shape: 'stone', length: [0.1, 0.15], radius: [0.05, 0.075], density: 1600, color: [0.1, [0.03, 0.08], [0.36, 0.5]] },
+  rope: { shape: 'coil', length: [0.05, 0.05], radius: [0.12, 0.12], density: 300, color: [0.11, [0.35, 0.45], [0.45, 0.55]] },
 };
+
+/** Kinds that are sticks of wood: they rub together to make fire, and so on. */
+export function isWood(kind: PieceKind): boolean {
+  return KINDS[kind].shape === 'prism';
+}
 
 export interface Stick {
   readonly id: number;
   readonly kind: PieceKind;
+  readonly shape: Shape;
   readonly body: RAPIER.RigidBody;
   readonly length: number;
   readonly radius: number;
@@ -38,8 +53,17 @@ export interface Stick {
   drawnHighlighted: boolean;
   /** True while the stick has heavy damping on (resting on the ground, not flying). */
   settling: boolean;
-  /** Stashed in the book: out of the world until it is crafted into something. */
+  /** Out of the world: stashed in the book or used up. */
   hidden: boolean;
+  /** Axes wear out: uses left before it breaks. */
+  durability: number;
+  readonly maxDurability: number;
+  /** How much rope is wound around the head (0 to 1), drawn on an axe. */
+  wrap: number;
+  // Where this piece is in the instanced meshes.
+  slot: number;
+  headSlot: number;
+  wrapSlot: number;
 }
 
 export interface SticksOptions {
@@ -53,11 +77,20 @@ export interface SticksOptions {
   worldHalf: number;
   /** Total sticks. A few are always near the spawn. Default 280. */
   count?: number;
+  /** Loose stones, hand sized. Default 120. */
+  stones?: number;
   seed?: number;
 }
 
-/** Room for crafted pieces on top of the scattered sticks. */
-const CRAFTED_CAPACITY = 48;
+/** What can be asked for when making a piece. */
+export interface PieceOptions {
+  length?: number;
+  durability?: number;
+  wrap?: number;
+}
+
+/** Spare room in each mesh for crafted pieces. */
+const SPARE = 90;
 /** Sticks placed in a fan right in front of the player. */
 const FAN_COUNT = 8;
 /** Sticks placed in the clearing and trees around the spawn. */
@@ -71,9 +104,11 @@ const RESTING_DAMPING = { linear: 0.3, angular: 2.5 };
 /** Slower than this (m/s) a stick counts as resting and gets heavy damping. */
 const SETTLE_BELOW_SPEED = 1.5;
 const HIGHLIGHT = new THREE.Color(0xffd84a);
+/** The torus used for coils has this outer radius. */
+const COIL_OUTER = 0.13;
 
-/** Corners of the stick's six-sided, slightly tapered prism, matching its mesh (see Sticks.mesh). */
-function stickShape(length: number, radius: number): RAPIER.ColliderDesc {
+/** Corners of the stick's six-sided, slightly tapered prism, matching its mesh. */
+function prismShape(length: number, radius: number): RAPIER.ColliderDesc {
   const points = new Float32Array(12 * 3);
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2;
@@ -86,6 +121,31 @@ function stickShape(length: number, radius: number): RAPIER.ColliderDesc {
   return RAPIER.ColliderDesc.convexHull(points) ?? RAPIER.ColliderDesc.capsule(Math.max(0.01, length / 2 - radius), radius);
 }
 
+const DODECA = new THREE.DodecahedronGeometry(1, 0);
+const DODECA_CORNERS = (() => {
+  const pos = DODECA.getAttribute('position');
+  const seen = new Map<string, THREE.Vector3>();
+  for (let i = 0; i < pos.count; i++) {
+    const v = new THREE.Vector3().fromBufferAttribute(pos, i);
+    seen.set(`${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`, v);
+  }
+  return [...seen.values()];
+})();
+
+/** A rounded stone: a squashed dodecahedron, the same shape as drawn. */
+function stoneShape(radius: number, offset: THREE.Vector3Like = { x: 0, y: 0, z: 0 }, scale: [number, number, number] = [1, 0.8, 1]): RAPIER.ColliderDesc {
+  const pts = new Float32Array(DODECA_CORNERS.length * 3);
+  DODECA_CORNERS.forEach((v, i) => {
+    pts[i * 3] = v.x * radius * scale[0] + offset.x;
+    pts[i * 3 + 1] = v.y * radius * scale[1] + offset.y;
+    pts[i * 3 + 2] = v.z * radius * scale[2] + offset.z;
+  });
+  return RAPIER.ColliderDesc.convexHull(pts) ?? RAPIER.ColliderDesc.ball(radius * 0.9);
+}
+
+/** The head of an axe: a flat stone blade lashed across the top of the handle. */
+export const AXE_HEAD = { along: -0.03, scale: [0.085, 0.07, 0.035] as [number, number, number] };
+
 const _m = new THREE.Matrix4();
 const _s = new THREE.Vector3();
 const _a = new THREE.Vector3();
@@ -93,57 +153,60 @@ const _b = new THREE.Vector3();
 const _ab = new THREE.Vector3();
 const _ap = new THREE.Vector3();
 const _color = new THREE.Color();
+const _off = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
+interface Slots {
+  mesh: THREE.InstancedMesh;
+  used: number;
+  free: number[];
+}
+
 /**
- * Everything you can pick up: loose sticks lying around the forest and the things crafted from them.
- * Each is a real physics body, so it can be kicked, dropped, thrown and will tumble and come to rest.
- * Pieces collide with the world and each other, but never block your hands or body.
+ * Everything you can pick up: sticks, stones, rope, logs, and the tools made from them. Each is a real physics
+ * body, so it can be kicked, dropped, thrown and will tumble and come to rest. Pieces collide with the world and
+ * each other, but never block your hands or body.
  */
 export class Sticks {
   readonly list: Stick[] = [];
-  readonly mesh: THREE.InstancedMesh;
+  /** Every instanced mesh that draws pieces (add them to the scene). */
+  readonly meshes: THREE.InstancedMesh[] = [];
   /** How many pieces have fallen out of the world and been put back (should stay 0). */
   respawned = 0;
   private readonly home: THREE.Vector3Like;
   private readonly world: RAPIER.World;
+  private readonly slots: Record<'prism' | 'stone' | 'coil' | 'head' | 'wrap', Slots>;
 
   constructor(scene: THREE.Scene, world: RAPIER.World, private readonly options: SticksOptions) {
     this.world = world;
     this.home = options.spawn;
-    const count = options.count ?? 280;
+    const sticks = options.count ?? 280;
+    const stones = options.stones ?? 120;
     const rand = mulberry32((options.seed ?? 99) + 7);
-    const { surfaceAt } = options;
+    const material = new THREE.MeshLambertMaterial({ flatShading: true });
+    const torus = new THREE.TorusGeometry(0.1, 0.03, 5, 12).rotateX(Math.PI / 2); // lies flat; axis is Y
+    const make = (geometry: THREE.BufferGeometry, capacity: number, mat: THREE.Material = material): Slots => {
+      const mesh = new THREE.InstancedMesh(geometry, mat, capacity);
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      this.meshes.push(mesh);
+      return { mesh, used: 0, free: [] };
+    };
+    this.slots = {
+      prism: make(new THREE.CylinderGeometry(TAPER, 1, 1, 6), sticks + SPARE),
+      stone: make(DODECA, stones + SPARE),
+      coil: make(torus, SPARE),
+      head: make(DODECA, 32),
+      wrap: make(torus, 32, new THREE.MeshLambertMaterial({ color: 0xc9ac6e, flatShading: true })),
+    };
 
-    const geometry = new THREE.CylinderGeometry(TAPER, 1, 1, 6);
-    this.mesh = new THREE.InstancedMesh(geometry, new THREE.MeshLambertMaterial({ flatShading: true }), count + CRAFTED_CAPACITY);
-    this.mesh.frustumCulled = false;
-    this.mesh.count = 0;
-
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < sticks; i++) {
       const tier: Tier = i < FAN_COUNT ? 'fan' : i < FAN_COUNT + NEAR_COUNT ? 'near' : 'far';
-      const spot = this.findSpot(rand, tier);
-      const spec = KINDS.stick;
-      const length = spec.length[0] + rand() * (spec.length[1] - spec.length[0]);
-      const radius = spec.radius[0] + rand() * (spec.radius[1] - spec.radius[0]);
-
-      // Lie along the contour of the slope so both ends touch the ground.
-      const e = 0.5;
-      const gx = surfaceAt(spot.x + e, spot.z) - surfaceAt(spot.x - e, spot.z);
-      const gz = surfaceAt(spot.x, spot.z + e) - surfaceAt(spot.x, spot.z - e);
-      const yaw = rand() * Math.PI * 2;
-      const dir = Math.hypot(gx, gz) > 0.02 ? new THREE.Vector3(-gz, 0, gx).normalize() : new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
-      const q = new THREE.Quaternion().setFromUnitVectors(UP, dir);
-
-      // Start above the highest ground under the stick's whole length, then let it drop the last
-      // few centimetres. Starting even slightly inside the (thin, one-sided) terrain mesh makes the
-      // solver push the stick out through the underside, and it falls out of the world.
-      let ground = -Infinity;
-      for (let k = -2; k <= 2; k++) {
-        const t = (k / 2) * (length / 2 + radius);
-        ground = Math.max(ground, surfaceAt(spot.x + dir.x * t, spot.z + dir.z * t));
-      }
-      this.addPiece('stick', length, radius, new THREE.Vector3(spot.x, ground + radius * 1.05 + 0.04, spot.z), q, rand);
+      this.scatter('stick', this.findSpot(rand, tier), rand);
+    }
+    for (let i = 0; i < stones; i++) {
+      const tier: Tier = i < 6 ? 'near' : 'far';
+      this.scatter('stone', this.findSpot(rand, tier, true), rand);
     }
 
     // Let them all drop and settle (and fall asleep) before the player sees them.
@@ -152,23 +215,29 @@ export class Sticks {
       this.updateDamping();
     }
     this.sync();
-    scene.add(this.mesh);
+    for (const mesh of this.meshes) scene.add(mesh);
   }
 
-  /** Creates a crafted piece in the world and returns it, or null if there is no room left. */
-  craft(kind: PieceKind, position: THREE.Vector3, quaternion: THREE.Quaternion): Stick | null {
-    if (this.list.length >= this.mesh.instanceMatrix.count) return null;
+  /** Creates a crafted piece in the world and returns it. */
+  craft(kind: PieceKind, position: THREE.Vector3, quaternion: THREE.Quaternion, extra: PieceOptions = {}): Stick | null {
     const spec = KINDS[kind];
-    return this.addPiece(kind, spec.length[0], spec.radius[0], position, quaternion, Math.random);
+    const length = extra.length ?? (spec.length[0] + Math.random() * (spec.length[1] - spec.length[0]));
+    const radius = spec.radius[0] + Math.random() * (spec.radius[1] - spec.radius[0]);
+    return this.addPiece(kind, length, radius, position, quaternion, Math.random, extra);
   }
 
-  /** Takes a piece out of the world (into the book). */
+  /** Takes a piece out of the world (into the book, or used up). */
   stash(stick: Stick): void {
+    if (stick.hidden) return;
     stick.hidden = true;
     stick.heldBy = null;
     stick.highlighted = false;
-    stick.body.setGravityScale(1, true);
-    stick.body.setEnabled(false);
+    this.world.removeRigidBody(stick.body);
+    // Free its places in the meshes and hide what is drawn there.
+    this.release(this.slotsFor(stick.shape), stick.slot);
+    if (stick.headSlot >= 0) this.release(this.slots.head, stick.headSlot);
+    if (stick.wrapSlot >= 0) this.release(this.slots.wrap, stick.wrapSlot);
+    stick.headSlot = stick.wrapSlot = -1;
   }
 
   /**
@@ -196,14 +265,15 @@ export class Sticks {
     return Math.max(0, _ap.distanceTo(_ab.multiplyScalar(t)) - stick.radius);
   }
 
+  /** Where the working end of an axe is (the head), in the world. */
+  headPosition(stick: Stick, out: THREE.Vector3): THREE.Vector3 {
+    return out.set(0, stick.length / 2 + AXE_HEAD.along, 0).applyQuaternion(stick.quat).add(stick.pos);
+  }
+
   /** Copies body poses to the meshes. */
   sync(): void {
     for (const stick of this.list) {
-      if (stick.hidden) {
-        _m.makeScale(0, 0, 0);
-        this.mesh.setMatrixAt(stick.id, _m);
-        continue;
-      }
+      if (stick.hidden) continue;
       // Held pieces are real bodies too, so the pose always comes from the physics.
       const t = stick.body.translation();
       const r = stick.body.rotation();
@@ -211,15 +281,79 @@ export class Sticks {
       stick.quat.set(r.x, r.y, r.z, r.w);
       if (t.y < -20) this.respawn(stick); // fell out of the world
       this.updateStickDamping(stick);
-      _m.compose(stick.pos, stick.quat, _s.set(stick.radius, stick.length, stick.radius));
-      this.mesh.setMatrixAt(stick.id, _m);
+
+      const slots = this.slotsFor(stick.shape);
+      if (stick.shape === 'prism') _s.set(stick.radius, stick.length, stick.radius);
+      else if (stick.shape === 'stone') _s.set(stick.radius, stick.radius * 0.8, stick.radius);
+      else _s.setScalar(stick.radius / COIL_OUTER);
+      _m.compose(stick.pos, stick.quat, _s);
+      slots.mesh.setMatrixAt(stick.slot, _m);
       if (stick.highlighted !== stick.drawnHighlighted) {
         stick.drawnHighlighted = stick.highlighted;
-        this.mesh.setColorAt(stick.id, stick.highlighted ? HIGHLIGHT : _color.copy(stick.baseColor));
-        if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+        slots.mesh.setColorAt(stick.slot, stick.highlighted ? HIGHLIGHT : _color.copy(stick.baseColor));
+        if (slots.mesh.instanceColor) slots.mesh.instanceColor.needsUpdate = true;
+      }
+
+      // An axe: a stone head at the top of the handle, and rope wound round it.
+      if (stick.headSlot >= 0) {
+        _off.set(0, stick.length / 2 + AXE_HEAD.along, 0).applyQuaternion(stick.quat).add(stick.pos);
+        _m.compose(_off, stick.quat, _s.set(...AXE_HEAD.scale));
+        this.slots.head.mesh.setMatrixAt(stick.headSlot, _m);
+      }
+      if (stick.wrapSlot >= 0) {
+        _off.set(0, stick.length / 2 + AXE_HEAD.along - 0.045, 0).applyQuaternion(stick.quat).add(stick.pos);
+        _m.compose(_off, stick.quat, _s.setScalar(0.32 * Math.max(0.001, stick.wrap)));
+        this.slots.wrap.mesh.setMatrixAt(stick.wrapSlot, _m);
       }
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
+    for (const mesh of this.meshes) {
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  private slotsFor(shape: Shape): Slots {
+    return this.slots[shape];
+  }
+
+  private allocate(slots: Slots): number {
+    const reused = slots.free.pop();
+    if (reused !== undefined) return reused;
+    const i = slots.used++;
+    slots.mesh.count = slots.used;
+    return i;
+  }
+
+  private release(slots: Slots, index: number): void {
+    slots.mesh.setMatrixAt(index, _m.makeScale(0, 0, 0));
+    slots.mesh.instanceMatrix.needsUpdate = true;
+    slots.free.push(index);
+  }
+
+  /** Puts a loose piece lying on the ground at a spot (x, z). */
+  private scatter(kind: PieceKind, spot: { x: number; z: number }, rand: () => number): void {
+    const { surfaceAt } = this.options;
+    const spec = KINDS[kind];
+    const length = spec.length[0] + rand() * (spec.length[1] - spec.length[0]);
+    const radius = spec.radius[0] + rand() * (spec.radius[1] - spec.radius[0]);
+
+    // Lie along the contour of the slope so both ends touch the ground.
+    const e = 0.5;
+    const gx = surfaceAt(spot.x + e, spot.z) - surfaceAt(spot.x - e, spot.z);
+    const gz = surfaceAt(spot.x, spot.z + e) - surfaceAt(spot.x, spot.z - e);
+    const yaw = rand() * Math.PI * 2;
+    const dir = Math.hypot(gx, gz) > 0.02 ? new THREE.Vector3(-gz, 0, gx).normalize() : new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
+    const q = new THREE.Quaternion().setFromUnitVectors(UP, dir);
+    if (spec.shape !== 'prism') q.setFromEuler(new THREE.Euler(rand() * 6, rand() * 6, rand() * 6)); // stones lie any way up
+
+    // Start above the highest ground under the piece's whole length, then let it drop the last few
+    // centimetres. Starting even slightly inside the (thin, one-sided) terrain mesh makes the solver push
+    // it out through the underside, and it falls out of the world.
+    let ground = -Infinity;
+    for (let k = -2; k <= 2; k++) {
+      const t = (k / 2) * (length / 2 + radius);
+      ground = Math.max(ground, surfaceAt(spot.x + dir.x * t, spot.z + dir.z * t));
+    }
+    this.addPiece(kind, length, radius, new THREE.Vector3(spot.x, ground + radius * 1.1 + 0.04, spot.z), q, rand);
   }
 
   private addPiece(
@@ -229,6 +363,7 @@ export class Sticks {
     position: THREE.Vector3,
     quaternion: THREE.Quaternion,
     rand: () => number,
+    extra: PieceOptions = {},
   ): Stick {
     const spec = KINDS[kind];
     const body = this.world.createRigidBody(
@@ -239,19 +374,33 @@ export class Sticks {
         .setLinearDamping(FLIGHT_DAMPING.linear)
         .setAngularDamping(FLIGHT_DAMPING.angular),
     );
-    this.world.createCollider(
-      stickShape(length, radius).setDensity(spec.density).setFriction(0.7).setRestitution(0).setCollisionGroups(STICK_GROUPS),
-      body,
-    );
+    const shape =
+      spec.shape === 'prism'
+        ? prismShape(length, radius)
+        : spec.shape === 'stone'
+          ? stoneShape(radius)
+          : RAPIER.ColliderDesc.cylinder(length / 2, radius);
+    this.world.createCollider(shape.setDensity(spec.density).setFriction(0.7).setRestitution(0).setCollisionGroups(STICK_GROUPS), body);
+
+    const isAxe = kind === 'axe' || kind === 'axe2';
+    if (isAxe) {
+      // The stone head is part of the same body.
+      const head = stoneShape(1, { x: 0, y: length / 2 + AXE_HEAD.along, z: 0 }, AXE_HEAD.scale);
+      this.world.createCollider(head.setDensity(1600).setFriction(0.7).setRestitution(0).setCollisionGroups(STICK_GROUPS), body);
+    }
+
     const [hue, sat, light] = spec.color;
     const baseColor = new THREE.Color().setHSL(
       hue + (rand() - 0.5) * 0.03,
       sat[0] + rand() * (sat[1] - sat[0]),
       light[0] + rand() * (light[1] - light[0]),
     );
+    const slots = this.slotsFor(spec.shape);
+    const max = extra.durability ?? (kind === 'axe' ? 12 : kind === 'axe2' ? 40 : 0);
     const piece: Stick = {
       id: this.list.length,
       kind,
+      shape: spec.shape,
       body,
       length,
       radius,
@@ -263,9 +412,20 @@ export class Sticks {
       drawnHighlighted: true, // forces the first sync to write the colour
       settling: false,
       hidden: false,
+      durability: max,
+      maxDurability: max,
+      wrap: extra.wrap ?? (kind === 'axe2' ? 1 : 0),
+      slot: this.allocate(slots),
+      headSlot: -1,
+      wrapSlot: -1,
     };
+    if (isAxe) {
+      piece.headSlot = this.allocate(this.slots.head);
+      this.slots.head.mesh.setColorAt(piece.headSlot, _color.setHSL(0.1, 0.05, 0.42));
+      piece.wrapSlot = this.allocate(this.slots.wrap);
+      if (this.slots.head.mesh.instanceColor) this.slots.head.mesh.instanceColor.needsUpdate = true;
+    }
     this.list.push(piece);
-    this.mesh.count = this.list.length;
     return piece;
   }
 
@@ -301,7 +461,7 @@ export class Sticks {
     stick.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
 
-  private findSpot(rand: () => number, tier: Tier): { x: number; z: number } {
+  private findSpot(rand: () => number, tier: Tier, wide = false): { x: number; z: number } {
     const { spawn, isBlocked, surfaceAt, worldHalf } = this.options;
     for (let tries = 0; tries < 300; tries++) {
       let x: number;
@@ -314,7 +474,7 @@ export class Sticks {
         z = spawn.z - Math.cos(a) * d;
       } else if (tier === 'near') {
         const a = rand() * Math.PI * 2;
-        const d = 5.5 + Math.sqrt(rand()) * 11;
+        const d = 5.5 + Math.sqrt(rand()) * (wide ? 16 : 11);
         x = spawn.x + Math.cos(a) * d;
         z = spawn.z + Math.sin(a) * d;
       } else {

@@ -47,6 +47,8 @@ export interface Forest {
    * (unless `ignoreSpawn`, for things that belong in the clearing, like sticks).
    */
   isBlocked(x: number, z: number, pad?: number, ignoreSpawn?: boolean): boolean;
+  /** The tree whose trunk is within `pad` metres of (x, z), or null. */
+  nearestTree(x: number, z: number, pad: number): Tree | null;
   /** Where the player starts, standing on the ground. */
   spawn: THREE.Vector3;
   trees: ReadonlyArray<Tree>;
@@ -328,6 +330,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     x: number;
     z: number;
     radius: number;
+    tree?: Tree;
   }
   const BUCKET = 8;
   const buckets = new Map<number, Obstacle[]>();
@@ -338,7 +341,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     if (list) list.push(o);
     else buckets.set(key, [o]);
   };
-  for (const t of trees) addObstacle(t);
+  for (const t of trees) addObstacle({ x: t.x, z: t.z, radius: t.radius, tree: t });
   const treeNear = (x: number, z: number, pad: number): boolean => {
     const reach = Math.ceil((pad + 3) / BUCKET); // rocks and logs can be a few metres across
     const ix = Math.floor(x / BUCKET);
@@ -350,6 +353,27 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
       }
     }
     return false;
+  };
+
+  const nearestTree = (x: number, z: number, pad: number): Tree | null => {
+    const reach = Math.ceil((pad + 2) / BUCKET);
+    const ix = Math.floor(x / BUCKET);
+    const iz = Math.floor(z / BUCKET);
+    let best: Tree | null = null;
+    let bestD = Infinity;
+    for (let dx = -reach; dx <= reach; dx++) {
+      for (let dz = -reach; dz <= reach; dz++) {
+        for (const o of buckets.get(bucketKey(ix + dx, iz + dz)) ?? []) {
+          if (!o.tree) continue;
+          const d = Math.hypot(o.x - x, o.z - z) - o.radius;
+          if (d < pad && d < bestD) {
+            bestD = d;
+            best = o.tree;
+          }
+        }
+      }
+    }
+    return best;
   };
 
   // --- Rocks ------------------------------------------------------------------
@@ -506,6 +530,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     surfaceAt,
     slopeAt,
     isBlocked: (x, z, pad = 0, ignoreSpawn = false) => blocked(x, z, pad, ignoreSpawn) || treeNear(x, z, pad),
+    nearestTree,
     spawn: new THREE.Vector3(spawn.x, surfaceAt(spawn.x, spawn.z), spawn.z),
     trees,
     ropes,

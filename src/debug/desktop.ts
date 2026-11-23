@@ -13,7 +13,9 @@ import { LOCOMOTION } from '../config';
  *   Space        both hands slam down: jump
  *   Q / E        squeeze left / right grip
  *   T            T-pose arm calibration (both arms out, grips held)
- *   [ / ]        shorter / longer emulated arms (to test arm-span scaling)
+ *   Shift+[ / ]  shorter / longer emulated arms (to test arm-span scaling)
+ *   Z / X        hold the left / right trigger
+ *   [ / ]        thumbstick left / right (flips book pages)
  *   R            respawn
  */
 /**
@@ -50,8 +52,9 @@ export class DesktopEmulator {
       if (e.code === 'Space' && this.jumpTime < 0) this.jumpTime = 0;
       if (e.code === 'Space') e.preventDefault();
       if (e.code === 'KeyT' && this.tPoseTime < 0) this.tPoseTime = 0;
-      if (e.code === 'BracketLeft') this.armScale = Math.max(0.7, +(this.armScale - 0.05).toFixed(2));
-      if (e.code === 'BracketRight') this.armScale = Math.min(1.3, +(this.armScale + 0.05).toFixed(2));
+      // Shift + [ ] change the emulated arm length; plain [ ] flip book pages with the thumbstick.
+      if (e.code === 'BracketLeft' && e.shiftKey) this.armScale = Math.max(0.7, +(this.armScale - 0.05).toFixed(2));
+      if (e.code === 'BracketRight' && e.shiftKey) this.armScale = Math.min(1.3, +(this.armScale + 0.05).toFixed(2));
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
@@ -155,6 +158,8 @@ export class DesktopEmulator {
         c.position.set(pinned[0], pinned[1], pinned[2]);
         setYawPitch(c.quaternion, this.yaw, 0);
         c.updateButtonValue('squeeze', this.keys.has(name === 'left' ? 'KeyQ' : 'KeyE') ? 1 : 0);
+        c.updateButtonValue('trigger', this.keys.has(name === 'left' ? 'KeyZ' : 'KeyX') ? 1 : 0);
+        c.updateAxes('thumbstick', (this.keys.has('BracketRight') ? 1 : 0) - (this.keys.has('BracketLeft') ? 1 : 0), 0);
         continue;
       }
       if (this.tPoseTime >= 0) {
@@ -169,6 +174,8 @@ export class DesktopEmulator {
       c.position.set(head.x + (ax * along + px) * k, head.y - down * BODY_FIT * k, head.z + (az * along + pz) * k);
       setYawPitch(c.quaternion, this.yaw, 0);
       c.updateButtonValue('squeeze', this.keys.has(name === 'left' ? 'KeyQ' : 'KeyE') ? 1 : 0);
+      c.updateButtonValue('trigger', this.keys.has(name === 'left' ? 'KeyZ' : 'KeyX') ? 1 : 0);
+      c.updateAxes('thumbstick', (this.keys.has('BracketRight') ? 1 : 0) - (this.keys.has('BracketLeft') ? 1 : 0), 0);
     }
 
     if (this.tPoseTime >= 0) {

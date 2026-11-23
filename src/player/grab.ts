@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Stick, Sticks } from '../world/sticks';
+import { PULL_TO_TEAR, type TreeRope, type TreeRopes } from '../world/ropes';
 import type { HandContact } from './locomotion';
 import type { Hands } from './hands';
 
@@ -47,6 +48,12 @@ interface HandState {
   readonly lastPos: THREE.Vector3;
   /** How long the held stick has been stuck far from the hand. */
   blockedFor: number;
+  /** Where the hand's orientation was on the latest frame. */
+  readonly lastQuat: THREE.Quaternion;
+  /** A rope this hand is pulling on, and where the hand was when it took hold. */
+  rope: TreeRope | null;
+  ropeStartY: number;
+  ropeBuzz: number;
   /** Where the stick was meant to be on the previous frame, for the target's velocity. */
   readonly lastTarget: THREE.Vector3;
   hasLastTarget: boolean;
@@ -65,12 +72,21 @@ const _drive = new THREE.Vector3();
 const _spin = new THREE.Vector3();
 const _dq = new THREE.Quaternion();
 
+/** A hand this close to a hanging rope can take hold of it (metres). */
+const ROPE_GRAB_RADIUS = 0.15;
+
 /** Optional ways for other systems to join in. */
 export interface GrabHooks {
   /** A held piece was let go at `handPos`. Return true to take it (it is then removed from the world). */
   stash?(stick: Stick, handPos: THREE.Vector3): boolean;
   /** A thrown stick has landed more than FAR_THROW metres from where it left the hand. */
   onFarThrow?(): void;
+  /** Ropes hanging in trees that a hand can take hold of and pull down. */
+  ropes?: TreeRopes;
+  /** A rope was torn off its tree (the new coil is already in the hand). */
+  onRopePulled?(coil: Stick): void;
+  /** Something was picked up. */
+  onGrab?(stick: Stick, side: 'left' | 'right'): void;
 }
 
 /** How far a throw must go to count as a far throw (metres, along the ground). */
@@ -105,9 +121,35 @@ export class Grab {
     return this.states[i].held;
   }
 
+  /** Where hand `i` is and how it is turned, as of the latest frame. */
+  handPose(i: 0 | 1, position: THREE.Vector3, rotation: THREE.Quaternion): void {
+    position.copy(this.states[i].lastPos);
+    rotation.copy(this.states[i].lastQuat);
+  }
+
+  /** How fast hand `i` has been moving over the last tenth of a second (m/s, world frame). */
+  velocity(i: 0 | 1, out: THREE.Vector3): THREE.Vector3 {
+    out.set(0, 0, 0);
+    this.handMotion(this.states[i], out, _ang.set(0, 0, 0));
+    return out;
+  }
+
+  /** Puts `stick` straight into hand `i` (for things made in the hand, such as a new axe). */
+  give(i: 0 | 1, stick: Stick): void {
+    const state = this.states[i];
+    if (state.held?.hidden) state.held = null;
+    if (state.held && state.held !== stick) this.release(i, false);
+    this.hold(i, stick, state.lastPos, state.lastQuat);
+  }
+
   /** Call once per frame after the player and hands have moved. */
   update(dt: number, contacts: [HandContact, HandContact]): void {
     this.trackFlights(dt);
+    // Something in a hand may have been used up (made into a tool, put in the book). Let go of it
+    // without touching it: its body no longer exists.
+    for (const state of this.states) {
+      if (state.held?.hidden) state.held = null;
+    }
     for (let i = 0; i < 2; i++) {
       const hand = this.hands.all[i];
       const state = this.states[i];
@@ -124,12 +166,14 @@ export class Grab {
       _handP.copy(contact.position);
       state.lastPos.copy(_handP);
       _handQ.copy(hand.grip.quaternion); // the rig is never rotated, so this is a world rotation
+      state.lastQuat.copy(_handQ);
       this.record(state, contact.rawPosition, _handQ, dt);
 
       const squeezed = hand.squeezed;
       if (squeezed && !state.wasSqueezed && !state.held) this.tryGrab(i, _handP, _handQ);
       if (!squeezed && state.wasSqueezed && state.held) this.release(i, true);
       state.wasSqueezed = squeezed;
+      if (state.rope) this.pullRope(i, state, squeezed, _handP, dt);
 
       if (state.held) {
         this.follow(i, state, _handP, _handQ, dt);
@@ -143,8 +187,24 @@ export class Grab {
 
   private tryGrab(i: number, handP: THREE.Vector3, handQ: THREE.Quaternion): void {
     const near = this.sticks.nearest(handP, GRAB_RADIUS);
-    if (!near) return;
-    const stick = near.stick;
+    if (!near) {
+      // Nothing to pick up: is there a rope hanging here to pull on?
+      const rope = this.hooks.ropes?.nearest(handP, ROPE_GRAB_RADIUS);
+      if (rope && !rope.held) {
+        const state = this.states[i];
+        state.rope = rope;
+        rope.held = true;
+        state.ropeStartY = handP.y;
+        state.ropeBuzz = 0;
+        this.hands.all[i].pulse(0.4, 40);
+      }
+      return;
+    }
+    this.hold(i, near.stick, handP, handQ);
+  }
+
+  /** Takes hold of `stick` with hand `i`, so that it stays where it is relative to the hand. */
+  private hold(i: number, stick: Stick, handP: THREE.Vector3, handQ: THREE.Quaternion): void {
     const state = this.states[i];
 
     // Taking it from the other hand: that hand just lets go.
@@ -171,6 +231,34 @@ export class Grab {
 
     this.setHover(i, null);
     this.hands.all[i].pulse(0.6, 40);
+    this.hooks.onGrab?.(stick, i === 0 ? 'left' : 'right');
+  }
+
+  /** The hand is pulling on a hanging rope: it stretches, and tears free if pulled down far enough. */
+  private pullRope(i: number, state: HandState, squeezed: boolean, handP: THREE.Vector3, dt: number): void {
+    const rope = state.rope!;
+    if (!squeezed || rope.taken) {
+      rope.held = false;
+      state.rope = null; // let go early: it springs back up
+      return;
+    }
+    rope.pull = Math.min(PULL_TO_TEAR, Math.max(0, state.ropeStartY - handP.y));
+    state.ropeBuzz -= dt;
+    if (state.ropeBuzz <= 0 && rope.pull > 0.02) {
+      state.ropeBuzz = 0.08;
+      this.hands.all[i].pulse(0.2 + 0.6 * (rope.pull / PULL_TO_TEAR), 50); // a growing strain
+    }
+    if (rope.pull >= PULL_TO_TEAR) {
+      this.hooks.ropes!.take(rope);
+      state.rope = null;
+      // It comes away in your hand as a coil.
+      const coil = this.sticks.craft('rope', handP.clone(), new THREE.Quaternion());
+      if (coil) {
+        this.give(i as 0 | 1, coil);
+        this.hooks.onRopePulled?.(coil);
+      }
+      this.hands.all[i].pulse(1, 140);
+    }
   }
 
   /**
@@ -222,6 +310,7 @@ export class Grab {
     if (!stick) return;
     state.held = null;
     stick.heldBy = null;
+    if (stick.hidden) return; // used up already: nothing left to let go of
 
     // Held up to the book: it takes the stick instead.
     if (this.hooks.stash?.(stick, state.lastPos)) {
@@ -323,6 +412,10 @@ function newState(): HandState {
     history: [],
     lastPos: new THREE.Vector3(),
     blockedFor: 0,
+    lastQuat: new THREE.Quaternion(),
+    rope: null,
+    ropeStartY: 0,
+    ropeBuzz: 0,
     lastTarget: new THREE.Vector3(),
     hasLastTarget: false,
   };

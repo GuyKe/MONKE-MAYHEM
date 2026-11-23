@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Fire } from './fire';
-import type { Side, Stick, Sticks } from './sticks';
+import { isWood, type Side, type Stick, type Sticks } from './sticks';
 
 export interface FrictionHooks {
   /** Something to tell the player (shown above the book). */
@@ -304,10 +304,10 @@ export class FrictionFire {
   private findRub(): number {
     let best = 0;
     for (const a of this.sticks.list) {
-      if (a.heldBy === null || a.hidden) continue;
+      if (a.heldBy === null || a.hidden || !isWood(a.kind)) continue;
       this.ends(a, _a0, _a1);
       for (const b of this.sticks.list) {
-        if (b === a || b.hidden || (b.heldBy !== null && b.id < a.id && a.heldBy !== null)) continue; // each held pair once
+        if (b === a || b.hidden || !isWood(b.kind) || (b.heldBy !== null && b.id < a.id && a.heldBy !== null)) continue; // each held pair once
         if (a.pos.distanceToSquared(b.pos) > (a.length + b.length) ** 2 * 0.25 + 0.2) continue;
         this.ends(b, _b0, _b1);
         const gap = closestSegments(_a0, _a1, _b0, _b1, _c1, _c2) - a.radius - b.radius;
@@ -395,7 +395,8 @@ export class FrictionFire {
     }
   }
 
-  private burst(at: THREE.Vector3, n: number): void {
+  /** A puff of sparks at `at` (also used when smashing stones). */
+  burst(at: THREE.Vector3, n: number): void {
     for (let i = 0; i < n; i++) {
       _vel.set((Math.random() - 0.5) * 2.4, 0.8 + Math.random() * 1.6, (Math.random() - 0.5) * 2.4);
       this.sparks.emit(at, _vel, 0.5 + Math.random() * 0.5, 0.03 + Math.random() * 0.03);
