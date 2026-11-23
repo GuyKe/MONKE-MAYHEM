@@ -18,10 +18,33 @@ import { Animals } from './world/animals';
 import { FrictionFire } from './world/friction';
 import { Sticks } from './world/sticks';
 import type { DesktopEmulator } from './debug/desktop';
+import { DAY_SECONDS, FOG_SCALE, Settings, TREE_SPACING_M, VIEW_DISTANCE_M } from './settings';
+import { Menu } from './ui/menu';
+import { Hand } from './player/hands';
 
 async function main(): Promise<void> {
+  const params = new URLSearchParams(location.search);
+  const settings = new Settings();
+
+  // The main menu comes first: it shows while the forest is built, and again whenever you leave VR.
+  // Hooks that need things created later are filled in below.
+  const actions = { play: () => {}, resetArms: () => {}, resetBook: () => {} };
+  const menu = new Menu(settings, {
+    onPlay: () => actions.play(),
+    onNewWorld: () => {
+      const url = new URL(location.href);
+      url.searchParams.delete('seed'); // a new random forest
+      location.href = url.toString();
+    },
+    onResetArms: () => actions.resetArms(),
+    onResetBook: () => actions.resetBook(),
+  });
+  const skipMenu = params.has('play') || params.has('arena');
+  if (skipMenu) menu.hide();
+  await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 30))); // let it paint before the heavy work
+
   // Use the desktop emulator when asked to (?emulate) or when there's no real VR.
-  const forceEmulator = new URLSearchParams(location.search).has('emulate');
+  const forceEmulator = params.has('emulate');
   const hasRealVR = !forceEmulator && (await navigator.xr?.isSessionSupported('immersive-vr').catch(() => false));
   const emulator: DesktopEmulator | null = hasRealVR
     ? null
@@ -48,7 +71,6 @@ async function main(): Promise<void> {
 
   // The forest is the game: a new random one every visit (`?seed=123` repeats one).
   // `?arena` loads the small flat movement test course instead.
-  const params = new URLSearchParams(location.search);
   const seed = params.has('seed') ? Number(params.get('seed')) || 1 : Math.floor(Math.random() * 0x7fffffff);
   const spawn = new THREE.Vector3(SPAWN.x, SPAWN.y, SPAWN.z);
   let worldStats = 'test arena';
@@ -60,13 +82,21 @@ async function main(): Promise<void> {
     // Where you start, and what time of day, are random too (but follow the seed).
     const roll = mulberry32(seed ^ 0x5bd1e995);
     const spawnXZ = { x: (roll() * 2 - 1) * WORLD_HALF * 0.55, z: (roll() * 2 - 1) * WORLD_HALF * 0.55 };
-    const forest = buildForest(scene, world, { seed, spawn: spawnXZ });
+    const forest = buildForest(scene, world, {
+      seed,
+      spawn: spawnXZ,
+      treeSpacing: TREE_SPACING_M[settings.data.treeDensity],
+      viewRadius: VIEW_DISTANCE_M[settings.data.viewDistance],
+      grass: settings.data.grass,
+    });
     forestRef = forest;
     spawn.copy(forest.spawn);
     atmosphere = new Atmosphere(scene, {
       startTime: params.has('time') ? Number(params.get('time')) : 0.27 + roll() * 0.15,
-      cycleSeconds: params.has('cycle') ? Number(params.get('cycle')) || 600 : 600,
+      cycleSeconds: params.has('cycle') ? Number(params.get('cycle')) || 600 : DAY_SECONDS[settings.data.dayLength] || 600,
     });
+    atmosphere.fogScale = FOG_SCALE[settings.data.atmosphere];
+    if (!params.has('cycle') && settings.data.dayLength === 'always-day') atmosphere.frozenAt = 0.42;
     rig.add(atmosphere.sky);
     const s = forest.stats;
     worldStats = `seed ${seed}: ${s.trees} trees, ${forest.ropes.length} ropes, ${s.ponds} ponds`;
@@ -81,6 +111,7 @@ async function main(): Promise<void> {
         isBlocked: forestRef.isBlocked,
         worldHalf: WORLD_HALF,
         trees: forestRef.trees,
+        enabled: settings.data.animals,
       })
     : null;
 
@@ -126,6 +157,40 @@ async function main(): Promise<void> {
   const vrButton = VRButton.createButton(renderer);
   if (emulator) vrButton.textContent = 'ENTER VR (DESKTOP EMULATOR)';
   document.body.appendChild(vrButton);
+
+  // Menu wiring: Play starts the VR session; leaving VR brings the menu back so you can resume.
+  Hand.hapticScale = settings.data.haptics;
+  if (!skipMenu) document.body.classList.add('has-menu'); // the menu's Play button replaces the VR button
+  actions.play = () => vrButton.click();
+  actions.resetArms = () => armSpan.reset();
+  actions.resetBook = () => journal.reset();
+  renderer.xr.addEventListener('sessionstart', () => menu.hide());
+  renderer.xr.addEventListener('sessionend', () => {
+    menu.setResuming(true);
+    menu.show();
+  });
+  menu.setLoading(null);
+  if (!emulator && !navigator.xr) menu.setPlayMessage('This browser has no WebXR. Open the game in your headset browser.');
+
+  // Settings that take effect straight away.
+  const hudEl = document.getElementById('hud')!;
+  const applySetting = () => {
+    Hand.hapticScale = settings.data.haptics;
+    forestRef?.setViewRadius(VIEW_DISTANCE_M[settings.data.viewDistance]);
+    forestRef?.setGrass(settings.data.grass);
+    if (atmosphere) {
+      atmosphere.fogScale = FOG_SCALE[settings.data.atmosphere];
+      const seconds = DAY_SECONDS[settings.data.dayLength];
+      if (seconds === 0) atmosphere.frozenAt = 0.42;
+      else {
+        atmosphere.frozenAt = null;
+        atmosphere.cycleSeconds = seconds;
+      }
+    }
+    hudEl.style.visibility = settings.data.showDebug ? 'visible' : 'hidden';
+  };
+  settings.onChange(applySetting);
+  applySetting();
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;

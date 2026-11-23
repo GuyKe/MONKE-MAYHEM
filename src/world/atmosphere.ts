@@ -108,9 +108,13 @@ export class Atmosphere {
   readonly sky: THREE.Mesh;
   /** Time of day, 0-1 (0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset). */
   time: number;
-  readonly cycleSeconds: number;
+  cycleSeconds: number;
   /** Whole days that have passed since the start. */
   day = 1;
+  /** Multiplies how thick the fog is (a setting). */
+  fogScale = 1;
+  /** When set, the sun stays where it is at this time of day. */
+  frozenAt: number | null = null;
 
   /** 0 in full daylight, 1 in full night. */
   night = 0;
@@ -183,7 +187,8 @@ export class Atmosphere {
   /** Advances the day and updates the sky, light and fog. `viewer` is the player's head position. */
   update(dt: number, viewer: THREE.Vector3): void {
     this.elapsed += dt;
-    this.time += dt / this.cycleSeconds;
+    if (this.frozenAt !== null) this.time = this.frozenAt;
+    else this.time += dt / this.cycleSeconds;
     while (this.time >= 1) {
       this.time -= 1;
       this.day++;
@@ -215,7 +220,7 @@ export class Atmosphere {
     // Fog takes the colour of the horizon, and is heaviest at night and in the morning mist.
     const morning = smoothstep(0.17, 0.25, this.time) * (1 - smoothstep(0.25, 0.36, this.time));
     this.fog.color.copy(horizon).multiplyScalar(0.92);
-    this.fog.density = 0.026 + 0.012 * this.night + 0.004 * twilight + 0.012 * morning;
+    this.fog.density = (0.026 + 0.012 * this.night + 0.004 * twilight + 0.012 * morning) * this.fogScale;
     this.background.copy(this.fog.color);
 
     // Light: warm sun by day, cool moon and a dim blue sky by night.

@@ -127,6 +127,15 @@ export class Journal {
     return recipe;
   }
 
+  /** Forgets everything: unlocked recipes and the stash. */
+  reset(): void {
+    this.unlocked.clear();
+    this.fresh.clear();
+    this.stash = 0;
+    this.version++;
+    this.save();
+  }
+
   markSeen(): void {
     if (this.fresh.size) {
       this.fresh.clear();

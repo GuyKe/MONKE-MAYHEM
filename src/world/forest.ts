@@ -11,6 +11,11 @@ export interface ForestOptions {
   seed: number;
   /** Where the player starts; the ground is flattened into a clearing here. */
   spawn: { x: number; z: number };
+  /** Distance between tree planting points in metres (smaller = denser). Default 4.8. */
+  treeSpacing?: number;
+  /** How far chunks are drawn. Default 78. */
+  viewRadius?: number;
+  grass?: boolean;
 }
 
 export interface Tree {
@@ -49,6 +54,9 @@ export interface Forest {
   ropes: ReadonlyArray<RopeSpot>;
   /** Shows the chunks near `viewer` and hides the rest. Call every frame (it is cheap). */
   update(viewer: THREE.Vector3): void;
+  /** Changes how far chunks are drawn. */
+  setViewRadius(metres: number): void;
+  setGrass(on: boolean): void;
   stats: { trees: number; branches: number; rocks: number; logs: number; ponds: number; puddles: number; colliders: number };
 }
 
@@ -202,7 +210,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     width: number;
   }
   const trees: TreeData[] = [];
-  const SPACING = 4.8;
+  const SPACING = options.treeSpacing ?? 4.8;
   for (let gx = -WORLD_HALF + 2; gx < WORLD_HALF - 1; gx += SPACING) {
     for (let gz = -WORLD_HALF + 2; gz < WORLD_HALF - 1; gz += SPACING) {
       const x = gx + range(-2, 2);
@@ -472,19 +480,21 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     addCollider(RAPIER.ColliderDesc.cuboid(hx, 60, hz).setTranslation(x, 0, z), SURFACES.stone);
   }
 
+  let viewRadius = options.viewRadius ?? VIEW_RADIUS;
+  let grassOn = options.grass ?? true;
   const update = (viewer: THREE.Vector3): void => {
     for (const row of chunks) {
       for (const c of row) {
         const dx = Math.max(c.minX - viewer.x, 0, viewer.x - c.maxX);
         const dz = Math.max(c.minZ - viewer.z, 0, viewer.z - c.maxZ);
         const d = Math.hypot(dx, dz);
-        const shown = d < VIEW_RADIUS;
+        const shown = d < viewRadius;
         const detailed = d < DETAIL_RADIUS;
         c.terrain.high.visible = detailed;
         c.terrain.low.visible = shown && !detailed;
         if (c.propsMesh) c.propsMesh.visible = detailed;
         if (c.propsLowMesh) c.propsLowMesh.visible = shown && !detailed;
-        if (c.tuftsMesh) c.tuftsMesh.visible = d < GRASS_RADIUS;
+        if (c.tuftsMesh) c.tuftsMesh.visible = grassOn && d < GRASS_RADIUS;
       }
     }
   };
@@ -500,6 +510,8 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     trees,
     ropes,
     update,
+    setViewRadius: (metres) => void (viewRadius = metres),
+    setGrass: (on) => void (grassOn = on),
     stats: { trees: trees.length, branches, rocks: rockCount, logs: logCount, ponds, puddles, colliders },
   };
 }

@@ -64,7 +64,12 @@ export class Hand {
     this.ghost.visible = visualPos.distanceToSquared(rawWorldPos) > 0.03 * 0.03;
   }
 
+  /** Scales every buzz (the "controller buzz" setting). 0 is off. */
+  static hapticScale = 1;
+
   pulse(intensity: number, durationMs: number): void {
+    intensity *= Hand.hapticScale;
+    if (intensity <= 0.01) return;
     const actuator = this.source?.gamepad?.hapticActuators?.[0] as
       | { pulse?: (value: number, duration: number) => Promise<boolean> }
       | undefined;
