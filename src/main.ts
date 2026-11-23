@@ -14,6 +14,7 @@ import { Grab } from './player/grab';
 import { Journal, RECIPES } from './player/journal';
 import { Book, type HandView } from './player/book';
 import { Fire } from './world/fire';
+import { Animals } from './world/animals';
 import { FrictionFire } from './world/friction';
 import { Sticks } from './world/sticks';
 import type { DesktopEmulator } from './debug/desktop';
@@ -68,9 +69,20 @@ async function main(): Promise<void> {
     });
     rig.add(atmosphere.sky);
     const s = forest.stats;
-    worldStats = `seed ${seed}: ${s.trees} trees, ${s.rocks} rocks, ${s.ponds} ponds, ${s.colliders} colliders`;
+    worldStats = `seed ${seed}: ${s.trees} trees, ${forest.ropes.length} ropes, ${s.ponds} ponds`;
   }
   world.step(); // populate the broad phase so queries see the static scenery
+
+  // Wildlife: rabbits, deer and birds (forest only).
+  const animals = forestRef
+    ? new Animals(scene, {
+        seed,
+        surfaceAt: forestRef.surfaceAt,
+        isBlocked: forestRef.isBlocked,
+        worldHalf: WORLD_HALF,
+        trees: forestRef.trees,
+      })
+    : null;
 
   const sticks = new Sticks(scene, world, {
     surfaceAt: forestRef ? forestRef.surfaceAt : () => 0,
@@ -199,6 +211,7 @@ async function main(): Promise<void> {
     const viewer = locomotion.headWorld(_viewer);
     forestRef?.update(viewer);
     atmosphere?.update(dt, viewer);
+    animals?.update(dt, viewer, atmosphere?.night ?? 0);
     fire.update(dt, viewer, atmosphere?.night ?? 0);
     friction.update(dt);
 
@@ -224,7 +237,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals } });
 }
 
 function hudText(

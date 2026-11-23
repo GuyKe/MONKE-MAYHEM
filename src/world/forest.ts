@@ -20,6 +20,16 @@ export interface Tree {
   radius: number;
 }
 
+/** A rope hanging down a tree trunk, within reach of the ground, that can be pulled down. */
+export interface RopeSpot {
+  /** Where the rope hangs (against the trunk). */
+  x: number;
+  z: number;
+  /** Heights of the top (tied up in the tree) and the bottom end. */
+  top: number;
+  bottom: number;
+}
+
 export interface Forest {
   seed: number;
   /** The smooth ground height. */
@@ -35,6 +45,8 @@ export interface Forest {
   /** Where the player starts, standing on the ground. */
   spawn: THREE.Vector3;
   trees: ReadonlyArray<Tree>;
+  /** Ropes hanging in trees. */
+  ropes: ReadonlyArray<RopeSpot>;
   /** Shows the chunks near `viewer` and hides the rest. Call every frame (it is cheap). */
   update(viewer: THREE.Vector3): void;
   stats: { trees: number; branches: number; rocks: number; logs: number; ponds: number; puddles: number; colliders: number };
@@ -43,7 +55,7 @@ export interface Forest {
 /** Chunks nearer than this (metres, to their nearest edge) are drawn. Fog hides the cut-off. */
 export const VIEW_RADIUS = 78;
 /** Chunks nearer than this get full detail; farther ones get a cheaper version. */
-const DETAIL_RADIUS = 45;
+const DETAIL_RADIUS = 34;
 /** Grass tufts are only drawn this close. */
 const GRASS_RADIUS = 42;
 
@@ -190,7 +202,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     width: number;
   }
   const trees: TreeData[] = [];
-  const SPACING = 6.2;
+  const SPACING = 4.8;
   for (let gx = -WORLD_HALF + 2; gx < WORLD_HALF - 1; gx += SPACING) {
     for (let gz = -WORLD_HALF + 2; gz < WORLD_HALF - 1; gz += SPACING) {
       const x = gx + range(-2, 2);
@@ -202,13 +214,15 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
       const chance = edge > WORLD_HALF - 22 ? 0.95 : 0.3 + 0.6 * density;
       if (rand() > chance) continue;
       const pine = rand() < 0.6;
-      const height = pine ? range(8, 14) : range(6, 10);
+      // Tall and thick, with the odd giant.
+      const giant = rand() < 0.06;
+      const height = (pine ? range(15, 27) : range(10, 17)) * (giant ? 1.3 : 1);
       trees.push({
         x,
         z,
         y: surfaceAt(x, z) - 0.35,
         height,
-        radius: 0.2 + (height - 6) * 0.022 + range(0, 0.06),
+        radius: (0.3 + height * 0.022 + range(0, 0.18)) * (giant ? 1.5 : 1),
         pine,
         width: range(0.85, 1.25),
       });
@@ -221,7 +235,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     new THREE.ConeGeometry(0.16, 0.4, 6).translate(0, 0.62, 0),
     new THREE.ConeGeometry(0.11, 0.35, 6).translate(0, 0.82, 0),
   ])!;
-  const leafGeo = new THREE.IcosahedronGeometry(1, 1);
+  const leafGeo = new THREE.SphereGeometry(1, 6, 4);
   // Far-away versions: one cone for a pine, a plain 20-sided blob for a broadleaf.
   const pineLowGeo = new THREE.ConeGeometry(0.2, 0.75, 5).translate(0, 0.55, 0);
   const leafLowGeo = new THREE.IcosahedronGeometry(1, 0);
@@ -236,13 +250,13 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     addCollider(RAPIER.ColliderDesc.cylinder(trunkH / 2, t.radius * 0.86).setTranslation(t.x, t.y + trunkH / 2, t.z), SURFACES.bark);
 
     if (t.pine) {
-      const w = t.height * t.width;
+      const w = t.height * t.width * 0.75;
       _m.compose(_p.set(t.x, t.y + 0.35, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(w, t.height, w));
       const needles = _c.setHSL(0.36 + range(-0.02, 0.02), 0.45, range(0.16, 0.25));
       chunk.props.add(pineGeo, _m, needles);
       chunk.propsLow.add(pineLowGeo, _m, needles);
     } else {
-      const w = t.height * 0.27 * t.width;
+      const w = t.height * 0.24 * t.width;
       _m.compose(_p.set(t.x, t.y + 0.35 + t.height * 0.78, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(w, w * 0.8, w));
       const foliage = _c.setHSL(0.27 + range(-0.03, 0.03), 0.5, range(0.26, 0.36));
       chunk.props.add(leafGeo, _m, foliage);
@@ -254,7 +268,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
   let branches = 0;
   for (const t of trees) {
-    if (rand() > 0.6) continue;
+    if (rand() > 0.55) continue;
     const count = 1 + Math.floor(rand() * 2);
     for (let b = 0; b < count; b++) {
       const angle = rand() * Math.PI * 2;
@@ -264,7 +278,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
         .multiply(_qa.setFromAxisAngle(X_AXIS, -range(0.1, 0.35))); // outer end rises
       const reach = t.radius * 0.5 + len / 2;
       const px = t.x + Math.cos(angle) * reach;
-      const py = t.y + 0.35 + range(0.9, 2.4);
+      const py = t.y + 0.35 + range(0.9, 5.5); // the higher ones you climb up to
       const pz = t.z + Math.sin(angle) * reach;
       _m.compose(_p.set(px, py, pz), quat, _s.set(0.11, 0.11, len));
       chunkAt(px, pz).props.add(boxGeo, _m, _c.set(SURFACES.wood.color));
@@ -275,6 +289,28 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
         SURFACES.wood,
       );
       branches++;
+    }
+  }
+
+  // Ropes hanging down some of the bigger trunks, ending within reach of the ground.
+  const ropes: RopeSpot[] = [];
+  const addRope = (t: TreeData) => {
+    const angle = rand() * Math.PI * 2;
+    const x = t.x + Math.cos(angle) * (t.radius + 0.05);
+    const z = t.z + Math.sin(angle) * (t.radius + 0.05);
+    const ground = surfaceAt(x, z);
+    ropes.push({ x, z, top: ground + Math.min(t.height * 0.5, 9), bottom: ground + range(1.15, 1.4) });
+  };
+  for (const t of trees) if (t.radius > 0.55 && rand() < 0.07) addRope(t);
+  // Always a few close to where you start.
+  const byDistance = [...trees].sort((p, q) => Math.hypot(p.x - spawn.x, p.z - spawn.z) - Math.hypot(q.x - spawn.x, q.z - spawn.z));
+  let nearRopes = ropes.filter((r) => Math.hypot(r.x - spawn.x, r.z - spawn.z) < 45).length;
+  for (const t of byDistance) {
+    if (nearRopes >= 4) break;
+    const d = Math.hypot(t.x - spawn.x, t.z - spawn.z);
+    if (d > 12 && d < 40 && t.radius > 0.45) {
+      addRope(t);
+      nearRopes++;
     }
   }
 
@@ -462,6 +498,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     isBlocked: (x, z, pad = 0, ignoreSpawn = false) => blocked(x, z, pad, ignoreSpawn) || treeNear(x, z, pad),
     spawn: new THREE.Vector3(spawn.x, surfaceAt(spawn.x, spawn.z), spawn.z),
     trees,
+    ropes,
     update,
     stats: { trees: trees.length, branches, rocks: rockCount, logs: logCount, ponds, puddles, colliders },
   };
