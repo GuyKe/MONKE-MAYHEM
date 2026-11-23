@@ -5,6 +5,7 @@ import { createPhysicsWorld } from './physics';
 import { buildTestArena } from './world/testArena';
 import { Hands } from './player/hands';
 import { Locomotion } from './player/locomotion';
+import { ArmSpan } from './player/armSpan';
 import type { DesktopEmulator } from './debug/desktop';
 
 async function main(): Promise<void> {
@@ -39,6 +40,8 @@ async function main(): Promise<void> {
 
   const hands = new Hands(renderer, rig, scene);
   const locomotion = new Locomotion(world, rig);
+  const armSpan = new ArmSpan();
+  let calibrationTick = 0;
   const spawn = new THREE.Vector3(SPAWN.x, SPAWN.y, SPAWN.z);
   locomotion.respawn(spawn);
 
@@ -78,7 +81,27 @@ async function main(): Promise<void> {
         headLocal.set(p.x, p.y, p.z);
       }
       const [left, right] = hands.all;
-      locomotion.update(dt, headLocal, [left.localPosition(handLocals[0]), right.localPosition(handLocals[1])]);
+      const leftPos = left.localPosition(handLocals[0]);
+      const rightPos = right.localPosition(handLocals[1]);
+
+      // Arm span: estimate from height at the start, refine with the T-pose gesture.
+      armSpan.estimateFromHeight(headLocal.y);
+      const cal = armSpan.update(dt, headLocal, leftPos, rightPos, left.squeezed, right.squeezed);
+      if (cal.finished) {
+        hands.all.forEach((h) => h.pulse(1, 250));
+        calibrationTick = 0;
+      } else if (cal.progress > 0) {
+        const tick = Math.floor(cal.progress * 10);
+        if (tick !== calibrationTick) {
+          calibrationTick = tick;
+          hands.all.forEach((h) => h.pulse(0.1 + 0.4 * cal.progress, 40));
+        }
+      } else {
+        calibrationTick = 0;
+      }
+      locomotion.reachScale = armSpan.scale;
+
+      locomotion.update(dt, headLocal, [leftPos, rightPos]);
 
       hands.all.forEach((hand, i) => {
         const contact = locomotion.hands[i];
@@ -98,16 +121,16 @@ async function main(): Promise<void> {
       fpsFrames = 0;
       fpsTime = 0;
     }
-    hud.textContent = hudText(renderer, locomotion, fps, emulator !== null);
+    hud.textContent = hudText(renderer, locomotion, armSpan, fps, emulator !== null);
 
     renderer.render(scene, camera);
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan } });
 }
 
-function hudText(renderer: THREE.WebGLRenderer, loco: Locomotion, fps: number, emulated: boolean): string {
+function hudText(renderer: THREE.WebGLRenderer, loco: Locomotion, arms: ArmSpan, fps: number, emulated: boolean): string {
   if (!renderer.xr.isPresenting) {
     return emulated
       ? 'No VR headset found: using the desktop emulator.\nPress ENTER VR below to start.'
@@ -119,6 +142,8 @@ function hudText(renderer: THREE.WebGLRenderer, loco: Locomotion, fps: number, e
     `speed    ${Math.hypot(v.x, v.z).toFixed(2)} m/s  (vy ${v.y.toFixed(2)})`,
     `hands    L ${loco.hands[0].touching ? '●' : '○'}  R ${loco.hands[1].touching ? '●' : '○'}`,
     `grounded ${loco.grounded ? 'yes' : 'no'}`,
+    `surface  L ${surfaceLabel(loco, 0)}  R ${surfaceLabel(loco, 1)}`,
+    `reach    x${arms.scale.toFixed(2)}  (arm span ${arms.span.toFixed(2)} m, ${arms.calibrated ? 'calibrated' : 'estimated'})`,
   ];
   if (emulated) {
     lines.push(
@@ -127,10 +152,17 @@ function hudText(renderer: THREE.WebGLRenderer, loco: Locomotion, fps: number, e
       'W A S D knuckle-walk',
       'shift   faster strokes',
       'space   jump',
+      'T       T-pose arm calibration',
+      '[ ]     shorter / longer emulated arms',
       'R       respawn',
     );
   }
   return lines.join('\n');
+}
+
+function surfaceLabel(loco: Locomotion, i: 0 | 1): string {
+  const hand = loco.hands[i];
+  return hand.touching ? `${hand.surface.name} ${Math.round(hand.surface.slip * 100)}%` : '-';
 }
 
 main().catch((err) => {

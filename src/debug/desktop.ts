@@ -11,6 +11,8 @@ import { XRDevice, metaQuest3 } from 'iwer';
  *   Shift        faster strokes (builds speed so releasing launches you)
  *   Space        both hands slam down: jump
  *   Q / E        squeeze left / right grip
+ *   T            T-pose arm calibration (both arms out, grips held)
+ *   [ / ]        shorter / longer emulated arms (to test arm-span scaling)
  *   R            respawn
  */
 /**
@@ -18,6 +20,7 @@ import { XRDevice, metaQuest3 } from 'iwer';
  * meets the ground about 0.85 m below the head, so this pushes slightly into it.
  */
 const PLANT_DEPTH = 0.95;
+const EMULATED_ARM_SPAN = 1.71;
 
 export class DesktopEmulator {
   readonly device: XRDevice;
@@ -26,6 +29,9 @@ export class DesktopEmulator {
   private readonly keys = new Set<string>();
   private phase = 0;
   private jumpTime = -1;
+  private tPoseTime = -1;
+  /** Multiplies the emulated arms' reach. 1 is an average adult (1.7 m span). */
+  armScale = 1;
   private readonly headHeight = 1.6;
 
   constructor() {
@@ -38,6 +44,9 @@ export class DesktopEmulator {
       this.keys.add(e.code);
       if (e.code === 'Space' && this.jumpTime < 0) this.jumpTime = 0;
       if (e.code === 'Space') e.preventDefault();
+      if (e.code === 'KeyT' && this.tPoseTime < 0) this.tPoseTime = 0;
+      if (e.code === 'BracketLeft') this.armScale = Math.max(0.7, +(this.armScale - 0.05).toFixed(2));
+      if (e.code === 'BracketRight') this.armScale = Math.min(1.3, +(this.armScale + 0.05).toFixed(2));
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
@@ -136,11 +145,24 @@ export class DesktopEmulator {
 
       const c = d.controllers[name];
       if (!c) continue;
-      c.position.set(head.x + ax * along + px, head.y - down, head.z + az * along + pz);
+      if (this.tPoseTime >= 0) {
+        // T-pose: arms straight out to the sides at head height, grips held.
+        const half = EMULATED_ARM_SPAN * this.armScale * 0.5;
+        c.position.set(head.x + right.x * side * half, head.y, head.z + right.z * side * half);
+        setYawPitch(c.quaternion, this.yaw, 0);
+        c.updateButtonValue('squeeze', 1);
+        continue;
+      }
+      const k = this.armScale;
+      c.position.set(head.x + (ax * along + px) * k, head.y - down * k, head.z + (az * along + pz) * k);
       setYawPitch(c.quaternion, this.yaw, 0);
       c.updateButtonValue('squeeze', this.keys.has(name === 'left' ? 'KeyQ' : 'KeyE') ? 1 : 0);
     }
 
+    if (this.tPoseTime >= 0) {
+      this.tPoseTime += dt;
+      if (this.tPoseTime > 2.2) this.tPoseTime = -1;
+    }
     if (this.jumpTime >= 0) {
       this.jumpTime += dt;
       if (this.jumpTime > 0.45) this.jumpTime = this.keys.has('Space') ? 0 : -1;

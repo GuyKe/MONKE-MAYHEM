@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RAPIER, WORLD_GROUPS } from '../physics';
+import { SURFACES, setSurface, type SurfaceMaterial } from './materials';
 
 /**
  * Milestone 2 movement test course: flat ground plus boxes, trunks, a ramp,
@@ -21,12 +22,19 @@ export function buildTestArena(scene: THREE.Scene, world: RAPIER.World): void {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(groundSize, groundSize), groundMat);
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
-  addCollider(world, RAPIER.ColliderDesc.cuboid(groundSize / 2, 0.5, groundSize / 2).setTranslation(0, -0.5, 0));
+  setSurface(
+    addCollider(world, RAPIER.ColliderDesc.cuboid(groundSize / 2, 0.5, groundSize / 2).setTranslation(0, -0.5, 0)),
+    SURFACES.moss,
+  );
 
-  const wood = new THREE.MeshLambertMaterial({ color: 0x8a5a33 });
-  const bark = new THREE.MeshLambertMaterial({ color: 0x5b3d26 });
-  const stone = new THREE.MeshLambertMaterial({ color: 0x8b8f86 });
-  const moss = new THREE.MeshLambertMaterial({ color: 0x5f7f3a });
+  // Slip test pads, flat on the ground: ice (very slippery) and mud (a bit slippery).
+  pad(scene, world, SURFACES.ice, 6, 6, 9, 6);
+  pad(scene, world, SURFACES.mud, 6, 6, 3, 9);
+
+  const wood = SURFACES.wood;
+  const bark = SURFACES.bark;
+  const stone = SURFACES.stone;
+  const moss = SURFACES.moss;
 
   // Crates of increasing height to hop onto.
   [0.4, 0.8, 1.3, 1.9].forEach((h, i) => box(scene, world, wood, 1.2, h, 1.2, -4 + i * 1.6, h / 2, -4));
@@ -49,6 +57,15 @@ export function buildTestArena(scene: THREE.Scene, world: RAPIER.World): void {
   box(scene, world, wood, 0.25, 1.4, 0.25, -4, 0.7, 8);
 }
 
+/** A thin square slab lying on the ground. */
+function pad(scene: THREE.Scene, world: RAPIER.World, surface: SurfaceMaterial, w: number, d: number, x: number, z: number): void {
+  const h = 0.012;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: surface.color }));
+  mesh.position.set(x, h / 2, z);
+  scene.add(mesh);
+  setSurface(addCollider(world, RAPIER.ColliderDesc.cuboid(w / 2, h / 2, d / 2).setTranslation(x, h / 2, z)), surface);
+}
+
 function addCollider(world: RAPIER.World, desc: RAPIER.ColliderDesc): RAPIER.Collider {
   desc.setCollisionGroups(WORLD_GROUPS).setFriction(0.9);
   return world.createCollider(desc);
@@ -57,19 +74,22 @@ function addCollider(world: RAPIER.World, desc: RAPIER.ColliderDesc): RAPIER.Col
 function box(
   scene: THREE.Scene,
   world: RAPIER.World,
-  material: THREE.Material,
+  surface: SurfaceMaterial,
   w: number, h: number, d: number,
   x: number, y: number, z: number,
   rotation = new THREE.Euler(),
 ): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: surface.color }));
   mesh.position.set(x, y, z);
   mesh.rotation.copy(rotation);
   scene.add(mesh);
   const q = new THREE.Quaternion().setFromEuler(rotation);
-  addCollider(
-    world,
-    RAPIER.ColliderDesc.cuboid(w / 2, h / 2, d / 2).setTranslation(x, y, z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }),
+  setSurface(
+    addCollider(
+      world,
+      RAPIER.ColliderDesc.cuboid(w / 2, h / 2, d / 2).setTranslation(x, y, z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }),
+    ),
+    surface,
   );
   return mesh;
 }
@@ -77,14 +97,17 @@ function box(
 function cylinder(
   scene: THREE.Scene,
   world: RAPIER.World,
-  material: THREE.Material,
+  surface: SurfaceMaterial,
   radius: number, height: number,
   x: number, y: number, z: number,
 ): void {
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.85, radius, height, 10), material);
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius * 0.85, radius, height, 10),
+    new THREE.MeshLambertMaterial({ color: surface.color }),
+  );
   mesh.position.set(x, y, z);
   scene.add(mesh);
-  addCollider(world, RAPIER.ColliderDesc.cylinder(height / 2, radius).setTranslation(x, y, z));
+  setSurface(addCollider(world, RAPIER.ColliderDesc.cylinder(height / 2, radius).setTranslation(x, y, z)), surface);
 }
 
 /** Grass-coloured 1 m grid so movement speed is easy to read. */

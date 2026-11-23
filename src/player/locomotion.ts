@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { LOCOMOTION as C } from '../config';
 import { PLAYER_GROUPS, QUERY_WORLD, RAPIER } from '../physics';
+import { DEFAULT_SURFACE, surfaceOf, type SurfaceMaterial } from '../world/materials';
 
 /** Per-hand contact state. */
 export interface HandContact {
@@ -13,6 +14,8 @@ export interface HandContact {
   /** True on the frame the hand first touched a surface (for haptics / sounds). */
   justTouched: boolean;
   initialized: boolean;
+  /** Material of the surface the hand is touching (last one touched when not touching). */
+  surface: SurfaceMaterial;
 }
 
 const _v = new THREE.Vector3();
@@ -20,6 +23,9 @@ const _travel = new THREE.Vector3();
 const _hit = new THREE.Vector3();
 const _corr = new THREE.Vector3();
 const _rigStart = new THREE.Vector3();
+const _normal = new THREE.Vector3();
+const _tangent = new THREE.Vector3();
+const _pinned = new THREE.Vector3();
 const IDENTITY_ROT = { x: 0, y: 0, z: 0, w: 1 };
 
 /**
@@ -41,6 +47,10 @@ export class Locomotion {
   readonly velocity = new THREE.Vector3();
   readonly hands: [HandContact, HandContact];
   grounded = false;
+  /** Multiplies every hand offset from the head. Set from the player's arm span. */
+  reachScale = 1;
+  /** Material under the body when standing or sliding on the ground. */
+  groundSurface: SurfaceMaterial = DEFAULT_SURFACE;
 
   private readonly headLocal = new THREE.Vector3(0, 1.6, 0);
   private readonly bodyCollider: RAPIER.Collider;
@@ -74,6 +84,7 @@ export class Locomotion {
       wasTouching: false,
       justTouched: false,
       initialized: false,
+      surface: DEFAULT_SURFACE,
     });
     this.hands = [newHand(), newHand()];
     for (let i = 0; i < C.velocityHistorySize; i++) this.history.push(new THREE.Vector3());
@@ -138,10 +149,25 @@ export class Locomotion {
 
       _travel.subVectors(current, hand.position);
       _travel.y -= probe;
-      if (this.sweep(hand.position, _travel, _hit)) {
+      const hit = this.sweep(hand.position, _travel, _hit, _normal);
+      if (hit) {
+        hand.surface = surfaceOf(hit.collider);
         // A hand already in contact stays exactly where it was. A hand that
         // just arrived stops at the surface.
-        _corr.subVectors(hand.wasTouching ? hand.position : _hit, current);
+        _pinned.copy(hand.wasTouching ? hand.position : _hit);
+        _corr.subVectors(_pinned, current);
+
+        // Slip: part of the sideways motion along the surface is lost. The
+        // hand slides along with the controller by that part, and only the
+        // rest moves the body. Pushing straight into the surface is unaffected.
+        const slip = hand.surface.slip;
+        if (slip > 0) {
+          _tangent.copy(_corr).addScaledVector(_normal, -_corr.dot(_normal));
+          _corr.addScaledVector(_tangent, -slip);
+          _pinned.addScaledVector(_tangent, -slip);
+        }
+        hand.position.copy(_pinned);
+
         movement.add(_corr);
         touchingCount++;
         hand.touching = true;
@@ -170,15 +196,22 @@ export class Locomotion {
 
     if (touchingCount === 0) {
       // Remove velocity going into whatever we bumped.
+      let groundSlip = 0;
       for (let i = 0; i < this.controller.numComputedCollisions(); i++) {
-        const n = this.controller.computedCollision(i)?.normal2;
-        if (!n) continue;
+        const collision = this.controller.computedCollision(i);
+        if (!collision) continue;
+        const n = collision.normal1; // outward surface normal, points against the motion
         const into = this.velocity.x * n.x + this.velocity.y * n.y + this.velocity.z * n.z;
         if (into < 0) this.velocity.addScaledVector(_v.set(n.x, n.y, n.z), -into);
+        if (n.y > 0.5) {
+          this.groundSurface = surfaceOf(collision.collider);
+          groundSlip = this.groundSurface.slip;
+        }
       }
       if (this.grounded) {
         if (this.velocity.y < 0) this.velocity.y = 0;
-        const keep = Math.max(0, 1 - C.groundFriction * dt);
+        // Slippery ground keeps you sliding: friction shrinks as slip grows.
+        const keep = Math.max(0, 1 - C.groundFriction * (1 - groundSlip) * dt);
         this.velocity.x *= keep;
         this.velocity.z *= keep;
       }
@@ -225,13 +258,18 @@ export class Locomotion {
 
   /** Arm-length-clamped world position for a hand at tracking-space `local`. */
   private handWorld(local: THREE.Vector3, headWorld: THREE.Vector3, target: THREE.Vector3): THREE.Vector3 {
-    target.subVectors(local, this.headLocal).clampLength(0, C.maxArmLength);
+    target.subVectors(local, this.headLocal).multiplyScalar(this.reachScale).clampLength(0, C.maxArmLength);
     return target.add(headWorld);
   }
 
   /** Sweeps the hand sphere from `from` along `travel`; writes the stop point to `out`. */
-  private sweep(from: THREE.Vector3, travel: THREE.Vector3, out: THREE.Vector3): boolean {
-    if (travel.lengthSq() < 1e-12) return false;
+  private sweep(
+    from: THREE.Vector3,
+    travel: THREE.Vector3,
+    out: THREE.Vector3,
+    outNormal?: THREE.Vector3,
+  ): RAPIER.ColliderShapeCastHit | null {
+    if (travel.lengthSq() < 1e-12) return null;
     const hit = this.world.castShape(
       from,
       IDENTITY_ROT,
@@ -244,9 +282,11 @@ export class Locomotion {
       QUERY_WORLD,
       this.bodyCollider,
     );
-    if (!hit) return false;
+    if (!hit) return null;
     out.copy(from).addScaledVector(travel, hit.time_of_impact);
-    return true;
+    // Hit normals from World.castShape are outward on the hit collider, in world space.
+    outNormal?.set(hit.normal1.x, hit.normal1.y, hit.normal1.z);
+    return hit;
   }
 
   /** Head position implied by the body collider's current placement. */

@@ -35,14 +35,42 @@ fake controllers from the keyboard:
 | W A S D | Knuckle-walk (scripted arm strokes) |
 | Shift | Faster strokes |
 | Space | Push both hands down to jump |
+| T | T-pose arm calibration |
+| [ and ] | Shorter / longer emulated arms (to test arm-span scaling) |
 | R | Respawn |
 
 ## How the movement works
 
-See `src/player/locomotion.ts`. Each frame, each hand sphere sweeps from where it was to
+Movement comes entirely from your hands. The avatar has no legs and there is no thumbstick walking.
+
+**Hand-contact propulsion** (`src/player/locomotion.ts`). Each frame, each hand sphere sweeps from where it was to
 where the controller now is. If it hits a surface, the hand stays where it touched, and the gap
 between hand and controller moves the whole player in reverse. Pushing down lifts you and pulling
 back moves you forward. When you let go, you keep the average velocity of the last few frames.
+
+**Surface friction and slip** (`src/world/materials.ts`). Every collider has a material with a slip
+percentage: the share of a hand's sideways motion along the surface that is lost to sliding.
+The hand slides along with the controller by that share, and only the rest moves you. Pushing straight
+into a surface is never reduced. Slippery ground also keeps your body sliding for longer.
+
+| Material | Slip |
+|---|---|
+| bark | 0% |
+| wood | 5% |
+| moss | 10% |
+| dirt | 20% |
+| stone | 30% |
+| mud | 55% |
+| ice | 90% |
+
+**Arm-span scaling** (`src/player/armSpan.ts`). Hand offsets from the head are scaled by
+`reference arm length / your arm length`, so a fully stretched arm reaches the same virtual distance and one swing
+gives the same push whether you are short or tall. The arm span comes from:
+1. A saved calibration from an earlier visit.
+2. Otherwise an estimate from your standing eye height at the start.
+3. A new calibration any time you want: **hold both grips with your arms stretched out to the sides at head height for
+   about 1.5 seconds.** The controllers buzz with growing strength, then once strongly when it is saved.
+
 All of the feel settings are in `src/config.ts`.
 
 ## Deploying

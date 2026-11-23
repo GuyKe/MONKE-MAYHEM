@@ -39,6 +39,11 @@ export class Hand {
     return this.grip !== null && this.source !== null;
   }
 
+  /** True while the grip button is held. */
+  get squeezed(): boolean {
+    return this.source?.gamepad?.buttons[1]?.pressed ?? false;
+  }
+
   /** Controller position in tracking space, or null if not tracked. */
   localPosition(target: THREE.Vector3): THREE.Vector3 | null {
     return this.tracked ? target.copy(this.grip!.position) : null;
