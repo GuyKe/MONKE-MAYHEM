@@ -1,4 +1,5 @@
 import { XRDevice, metaQuest3 } from 'iwer';
+import { LOCOMOTION } from '../config';
 
 /**
  * Desktop test mode. Installs Meta's IWER WebXR emulator and drives the fake
@@ -20,6 +21,8 @@ import { XRDevice, metaQuest3 } from 'iwer';
  * meets the ground about 0.85 m below the head, so this pushes slightly into it.
  */
 const PLANT_DEPTH = 0.95;
+/** The emulated strokes were authored for a body 0.9 m tall; scale them to the current one. */
+const BODY_FIT = LOCOMOTION.headAboveGround / 0.9;
 const EMULATED_ARM_SPAN = 1.71;
 
 export class DesktopEmulator {
@@ -154,7 +157,7 @@ export class DesktopEmulator {
         continue;
       }
       const k = this.armScale;
-      c.position.set(head.x + (ax * along + px) * k, head.y - down * k, head.z + (az * along + pz) * k);
+      c.position.set(head.x + (ax * along + px) * k, head.y - down * BODY_FIT * k, head.z + (az * along + pz) * k);
       setYawPitch(c.quaternion, this.yaw, 0);
       c.updateButtonValue('squeeze', this.keys.has(name === 'left' ? 'KeyQ' : 'KeyE') ? 1 : 0);
     }
