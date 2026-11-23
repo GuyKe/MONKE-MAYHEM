@@ -3,6 +3,7 @@ import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
 import { LOCOMOTION, SPAWN } from './config';
 import { createPhysicsWorld } from './physics';
 import { buildTestArena } from './world/testArena';
+import { buildForest } from './world/forest';
 import { Hands } from './player/hands';
 import { Locomotion } from './player/locomotion';
 import { ArmSpan } from './player/armSpan';
@@ -27,7 +28,7 @@ async function main(): Promise<void> {
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 200);
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 250);
   camera.position.set(0, 1.6, 0);
 
   // The rig is the tracking-space origin; the head and controllers move inside it.
@@ -35,14 +36,26 @@ async function main(): Promise<void> {
   rig.add(camera);
   scene.add(rig);
 
-  buildTestArena(scene, world);
+  // The forest is the game. `?arena` loads the flat movement test course instead.
+  const spawn = new THREE.Vector3(SPAWN.x, SPAWN.y, SPAWN.z);
+  let worldStats = 'test arena';
+  let forestRef: ReturnType<typeof buildForest> | null = null;
+  if (new URLSearchParams(location.search).has('arena')) {
+    buildTestArena(scene, world);
+  } else {
+    const forest = buildForest(scene, world);
+    forestRef = forest;
+    rig.add(forest.sky);
+    spawn.copy(forest.spawn);
+    const s = forest.stats;
+    worldStats = `forest: ${s.trees} trees, ${s.rocks} rocks, ${s.logs} logs, ${s.colliders} colliders`;
+  }
   world.step(); // populate the broad phase so queries see the static scenery
 
   const hands = new Hands(renderer, rig, scene);
   const locomotion = new Locomotion(world, rig);
   const armSpan = new ArmSpan();
   let calibrationTick = 0;
-  const spawn = new THREE.Vector3(SPAWN.x, SPAWN.y, SPAWN.z);
   locomotion.respawn(spawn);
 
   const vrButton = VRButton.createButton(renderer);
@@ -67,7 +80,8 @@ async function main(): Promise<void> {
   let fps = 0;
 
   renderer.setAnimationLoop((_time, frame?: XRFrame) => {
-    let dt = clock.getDelta();
+    const frameDt = clock.getDelta(); // real frame time, for the fps counter
+    let dt = frameDt;
     if (emulator) {
       dt = Math.min(dt, 1 / 30); // keep emulator and simulation in step on slow machines
       emulator.update(dt);
@@ -115,22 +129,29 @@ async function main(): Promise<void> {
     world.step();
 
     fpsFrames++;
-    fpsTime += dt;
+    fpsTime += frameDt;
     if (fpsTime >= 0.5) {
       fps = Math.round(fpsFrames / fpsTime);
       fpsFrames = 0;
       fpsTime = 0;
     }
-    hud.textContent = hudText(renderer, locomotion, armSpan, fps, emulator !== null);
+    hud.textContent = hudText(renderer, locomotion, armSpan, fps, emulator !== null, worldStats);
 
     renderer.render(scene, camera);
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef } });
 }
 
-function hudText(renderer: THREE.WebGLRenderer, loco: Locomotion, arms: ArmSpan, fps: number, emulated: boolean): string {
+function hudText(
+  renderer: THREE.WebGLRenderer,
+  loco: Locomotion,
+  arms: ArmSpan,
+  fps: number,
+  emulated: boolean,
+  worldStats: string,
+): string {
   if (!renderer.xr.isPresenting) {
     return emulated
       ? 'No VR headset found: using the desktop emulator.\nPress ENTER VR below to start.'
@@ -138,7 +159,7 @@ function hudText(renderer: THREE.WebGLRenderer, loco: Locomotion, arms: ArmSpan,
   }
   const v = loco.velocity;
   const lines = [
-    `fps      ${fps}`,
+    `fps      ${fps}  (${worldStats})`,
     `speed    ${Math.hypot(v.x, v.z).toFixed(2)} m/s  (vy ${v.y.toFixed(2)})`,
     `hands    L ${loco.hands[0].touching ? '●' : '○'}  R ${loco.hands[1].touching ? '●' : '○'}`,
     `grounded ${loco.grounded ? 'yes' : 'no'}`,

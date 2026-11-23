@@ -8,7 +8,7 @@ Built with Three.js (WebXR), Rapier physics, Vite and TypeScript.
 
 - [x] **Milestone 1: Scaffold.** Vite + Three.js + Rapier, Enter VR, tracked hands, Pages deploy workflow.
 - [x] **Milestone 2: Hand locomotion.** Pushing off surfaces, launching, gravity, body collision, on a test course.
-- [ ] Milestone 3: Forest (terrain, trees, rocks, fog).
+- [x] **Milestone 3: Forest.** Rolling terrain, about 325 climbable trees, rocks, logs, grass, a frozen pond and mud puddles, sky and fog.
 - [ ] Milestone 4: Grabbable, throwable sticks.
 - [ ] Milestone 5: Sounds, particles, comfort options, performance pass.
 
@@ -20,6 +20,9 @@ npm run dev          # http://localhost:5173 on desktop (uses the emulator)
 npm run dev:lan      # https://<your-ip>:5173 for a headset on the same Wi-Fi
 npm run build        # static build in dist/
 ```
+
+Add `?arena` to the address (for example `http://localhost:5173/?arena`) to load the old flat movement test course
+(crates, ramp, wall, ice and mud pads) in place of the forest.
 
 With `dev:lan`, accept the self-signed certificate warning in the Quest browser. WebXR only works over HTTPS.
 
@@ -38,6 +41,18 @@ fake controllers from the keyboard:
 | T | T-pose arm calibration |
 | [ and ] | Shorter / longer emulated arms (to test arm-span scaling) |
 | R | Respawn |
+
+## The forest
+
+`src/world/forest.ts`, `terrain.ts`, `materials.ts`. It is built from a fixed seed, so it is the same every visit.
+
+- **Terrain:** rolling hills from noise, dead flat in the spawn clearing, with a ring of tall hills hiding the edge of the 140 m map
+  (plus invisible walls behind them). The collider is the same triangle mesh you see.
+- **Trees:** pines and broadleaf trees. Every trunk is solid bark you can push off, and about 60% have low wooden branches to grab.
+- **Rocks and logs:** stone and bark colliders to climb and launch from.
+- **Slip spots:** a frozen pond far out, plus a frozen puddle (left) and a mud patch (right) a few metres from the spawn, and more mud puddles
+  further out. The rest of the ground is moss (10% slip).
+- **Cost:** everything repeated is instanced, so the whole forest is about 28 draw calls.
 
 ## How the movement works
 
