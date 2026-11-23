@@ -132,7 +132,7 @@ function placeSegment(mesh: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3):
  */
 export class Body {
   readonly root = new THREE.Group();
-  private readonly head: THREE.Mesh;
+  readonly head: THREE.Mesh;
   private readonly torso: THREE.Mesh;
   private readonly upper: [THREE.Mesh, THREE.Mesh];
   private readonly fore: [THREE.Mesh, THREE.Mesh];

@@ -110,6 +110,9 @@ export interface Forest {
   bushes: ReadonlyArray<Bush>;
   /** Chops a tree down (it falls away from `fromX, fromZ`); `done` is called once it has landed. */
   fellTree(tree: Tree, fromX: number, fromZ: number, done: (landed: FellInfo) => void): boolean;
+  /** Indices (into `trees`) of the felled trees, for the save. */
+  felledIndices(): number[];
+  restoreFelled(list: number[]): void;
   seed: number;
   /** Old buildings and stone circles scattered through the forest, to look around and find. */
   pois: ReadonlyArray<PoiInfo>;
@@ -143,9 +146,9 @@ export interface Forest {
 /** Chunks nearer than this (metres, to their nearest edge) are drawn. Fog hides the cut-off. */
 export const VIEW_RADIUS = 78;
 /** Chunks nearer than this get full detail; farther ones get a cheaper version. */
-const DETAIL_RADIUS = 34;
+const DETAIL_RADIUS = 30;
 /** Grass tufts are only drawn this close. */
-const GRASS_RADIUS = 42;
+const GRASS_RADIUS = 34;
 
 /** A circle trees, rocks and grass keep out of. */
 interface Keepout {
@@ -866,15 +869,33 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     info: FellInfo;
   }
   const falling: Falling[] = [];
-  const fellTree = (tree: Tree, fromX: number, fromZ: number, done: (landed: FellInfo) => void): boolean => {
-    const t = tree as TreeData;
-    if (!trees.includes(t) || t.felled) return false;
+  /** Takes the tree out of the world, leaving a stump. */
+  const applyFelled = (t: TreeData): void => {
     t.felled = true;
     world.removeCollider(t.collider, true);
     for (const b of t.branches) world.removeCollider(b.collider, true);
     t.branches.length = 0;
     t.collider = addCollider(RAPIER.ColliderDesc.cylinder(0.225, t.radius * 0.86).setTranslation(t.x, t.y + 0.225, t.z), SURFACES.bark);
     bakeTrees(chunkAt(t.x, t.z));
+  };
+  const restoreFelled = (list: number[]): void => {
+    const touched = new Set<Chunk>();
+    for (const i of list) {
+      const t = trees[i];
+      if (!t || t.felled) continue;
+      t.felled = true;
+      world.removeCollider(t.collider, true);
+      for (const b of t.branches) world.removeCollider(b.collider, true);
+      t.branches.length = 0;
+      t.collider = addCollider(RAPIER.ColliderDesc.cylinder(0.225, t.radius * 0.86).setTranslation(t.x, t.y + 0.225, t.z), SURFACES.bark);
+      touched.add(chunkAt(t.x, t.z));
+    }
+    for (const c of touched) bakeTrees(c);
+  };
+  const fellTree = (tree: Tree, fromX: number, fromZ: number, done: (landed: FellInfo) => void): boolean => {
+    const t = tree as TreeData;
+    if (!trees.includes(t) || t.felled) return false;
+    applyFelled(t);
 
     // It falls away from you.
     let dx = t.x - fromX;
@@ -976,6 +997,8 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     waterLevelAt,
     bushes,
     fellTree,
+    felledIndices: () => trees.flatMap((t, i) => (t.felled ? [i] : [])),
+    restoreFelled,
     update,
     setViewRadius: (metres) => void (viewRadius = metres),
     setGrass: (on) => void (grassOn = on),

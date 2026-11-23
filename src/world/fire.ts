@@ -59,6 +59,15 @@ export class Fire {
     }
   }
 
+  /** Campfires as saved: where and how big. */
+  exportCampfires(): Array<[number, number, number]> {
+    return this.campfires.map((c) => [Math.round(c.pos.x * 100) / 100, Math.round(c.pos.z * 100) / 100, c.scale]);
+  }
+
+  restoreCampfires(list: Array<[number, number, number]>): void {
+    for (const [x, z, scale] of list) this.addCampfire(x, z, scale);
+  }
+
   get campfireCount(): number {
     return this.campfires.length;
   }

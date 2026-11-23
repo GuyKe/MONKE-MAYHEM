@@ -37,6 +37,15 @@ export class Pois {
     }
   }
 
+  /** Which places have been found (for the save). */
+  export(): number[] {
+    return this.markers.flatMap((m, i) => (m.discovered ? [i] : []));
+  }
+
+  restore(found: number[]): void {
+    for (const i of found) if (this.markers[i]) this.markers[i].discovered = true;
+  }
+
   get found(): number {
     return this.markers.filter((m) => m.discovered).length;
   }

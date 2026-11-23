@@ -9,6 +9,10 @@ export interface MenuHooks {
   onResetArms(): void;
   /** Forget the unlocked recipes and blueprints. */
   onResetBook(): void;
+  /** Writes the game now. Returns false if it could not be stored. */
+  onSave(): boolean;
+  /** Throws the saved game away. */
+  onDeleteSave(): void;
 }
 
 type Screen = 'home' | 'settings' | 'controls';
@@ -62,6 +66,9 @@ const CONTROLS_VR: Array<[string, string]> = [
   ['Stash a stick', 'Hold a stick to the book and let go.'],
   ['Make fire', 'Rub two sticks together over a pile of five or more.'],
   ['Ropes', 'Some trees have a rope hanging down. Grab it and pull down hard to take it.'],
+  ['Swim', 'In deep water pull your hands back through it like a stroke. Watch for leeches, and crocodiles.'],
+  ['Eat', 'Raise fruit or meat to your mouth. Meat left out for a day is roasted; two days and it is rotten.'],
+  ['Fight', 'Swing a weapon hard at animals. Heavier weapons hit harder.'],
   ['Calibrate', 'Hold both grips with your arms out wide for a second and a half to measure your reach.'],
 ];
 
@@ -120,6 +127,10 @@ export class Menu {
   private loadingText: string | null = 'Growing the forest…';
   private playMessage = '';
   private resuming = false;
+  /** A line about the saved game, or null if there is none. */
+  private saveInfo: string | null = null;
+  private saveStatus = '';
+  private confirmNew = false;
 
   constructor(
     private readonly settings: Settings,
@@ -138,6 +149,7 @@ export class Menu {
 
   show(): void {
     this.screen = 'home';
+    this.confirmNew = false;
     this.root.hidden = false;
     document.body.classList.add('menu-open');
     this.render();
@@ -157,6 +169,12 @@ export class Menu {
   /** What to say under the Play button (for example when VR is not available). */
   setPlayMessage(text: string): void {
     this.playMessage = text;
+    this.render();
+  }
+
+  /** Describes the saved game (or null when there is none) so the menu can offer to continue it. */
+  setSaveInfo(text: string | null): void {
+    this.saveInfo = text;
     this.render();
   }
 
@@ -195,7 +213,7 @@ export class Menu {
 
   private renderHome(): void {
     this.panel.append(this.el('h1', 'NATURE MONKE'), this.el('p', 'Swing, climb and build your way through the forest.', 'tag'));
-    const play = this.button(this.resuming ? 'RESUME' : 'PLAY', () => this.hooks.onPlay(), 'big primary');
+    const play = this.button(this.resuming ? 'RESUME' : this.saveInfo ? 'CONTINUE' : 'PLAY', () => this.hooks.onPlay(), 'big primary');
     play.id = 'menuPlay';
     play.disabled = this.loadingText !== null;
     if (this.loadingText) play.textContent = this.loadingText;
@@ -204,10 +222,29 @@ export class Menu {
       this.button('SETTINGS', () => this.go('settings'), 'big'),
       this.button('CONTROLS', () => this.go('controls'), 'big'),
     );
+    if (this.saveInfo) this.panel.append(this.el('p', this.saveInfo, 'status'));
     const status = this.el('p', this.playMessage, 'status');
     this.panel.append(status);
     const footer = this.el('div', '', 'footer');
-    footer.append(this.button('New forest', () => this.hooks.onNewWorld()));
+    const save = this.button(this.saveStatus || 'SAVE GAME', () => {
+      this.saveStatus = this.hooks.onSave() ? 'Saved ✓' : 'Could not save';
+      this.render();
+    });
+    save.id = 'menuSave';
+    save.disabled = this.loadingText !== null;
+    footer.append(save);
+    // Starting over throws the saved game away, so it asks twice.
+    const fresh = this.button(this.confirmNew ? 'Really? Delete the save' : this.saveInfo ? 'New forest (deletes save)' : 'New forest', () => {
+      if (this.saveInfo && !this.confirmNew) {
+        this.confirmNew = true;
+        this.render();
+        return;
+      }
+      this.hooks.onDeleteSave();
+      this.hooks.onNewWorld();
+    }, this.confirmNew ? 'on' : '');
+    fresh.id = 'menuNew';
+    footer.append(fresh);
     this.panel.append(footer);
   }
 
@@ -256,7 +293,10 @@ export class Menu {
     );
     this.panel.append(reset);
     const footer = this.el('div', '', 'footer');
-    footer.append(this.button('Back', () => this.go('home')), this.button('New forest (applies world settings)', () => this.hooks.onNewWorld()));
+    footer.append(this.button('Back', () => this.go('home')), this.button('New forest (applies world settings)', () => {
+      this.hooks.onDeleteSave();
+      this.hooks.onNewWorld();
+    }));
     this.panel.append(footer);
   }
 

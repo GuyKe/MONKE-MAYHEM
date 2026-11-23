@@ -312,11 +312,11 @@ function structures(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null, s
   }
   if (start === 0) para(c, 'Choose a plan. It is placed in the world where you point, then you gather what it needs and put it together.', 100, 19, SOFT);
   bp.list.slice(start, start + 3).forEach((plan, i) => {
-    const top = (start === 0 ? 188 : 100) + i * 150;
+    const top = (start === 0 ? 168 : 100) + i * 144;
     const id = `bp:select:${plan.id}`;
     const chosen = bp.active?.id === plan.id;
     c.fillStyle = plan.locked ? '#cdbf9f' : hover === id ? '#f6ecd0' : '#f1e6c8';
-    roundRect(c, 22, top, FACE_W - 44, 138, 14);
+    roundRect(c, 22, top, FACE_W - 44, 134, 14);
     c.fill();
     c.strokeStyle = chosen ? GOLD : '#a99468';
     c.lineWidth = chosen ? 5 : 2;

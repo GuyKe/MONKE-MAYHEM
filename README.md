@@ -13,6 +13,8 @@ Built with Three.js (WebXR), Rapier physics, Vite and TypeScript.
 - [x] **Beyond the plan:** day-night cycle and heavy atmosphere, and a field journal for crafting with recipes you unlock as you play.
 - [x] **Second round:** main menu with settings, animals, taller and thicker trees, a physical book with a map, stone and lashed axes, rope on trees,
   blueprints you place and build, and ruins to find.
+- [x] **Third round:** lakes and hills, swimming, leeches and crocodiles, hunting and food, felling trees, more weapons and plans, shelters
+  you wake up in, saving, a mirror, and a gorilla body in leaf pants.
 - [ ] Milestone 5: Sounds, particles, comfort options, performance pass.
 
 ## Running it
@@ -28,7 +30,8 @@ Options you can add to the address:
 
 | Option | Effect |
 |---|---|
-| `?seed=123` | Load the same forest again. Without it, every visit is a new random forest and spawn. |
+| `?seed=123` | Load that forest fresh. Without it you continue your saved game, or get a new random forest if there is no save. |
+| `?continue` | With `?seed`: load the save too, if it is that forest. `?fresh` ignores the save. |
 | `?time=0.7` | Start at a time of day (0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset). |
 | `?cycle=120` | Seconds for a whole day (default 600). |
 | `?resetbook` | Forget the recipes the journal has unlocked. |
@@ -49,7 +52,7 @@ fake controllers from the keyboard:
 | W A S D | Knuckle-walk (scripted arm strokes) |
 | Shift | Faster strokes |
 | Space | Push both hands down to jump |
-| Q / E | Squeeze the left / right grip (grab and throw sticks) |
+| Q / E | Squeeze the left / right grip (grab, throw, pick berries) |
 | Z / X | Squeeze the left / right trigger (smash, lash, tie) |
 | B | Take out or put away the book |
 | [ and ] | Flip pages (book open); Shift+[ / ] changes arm length |
@@ -151,6 +154,46 @@ into its slot, then tie the joints with rope. Finished structures are solid and 
 up to one discovers it and marks it on the map. The lookout's platform can be climbed.
 
 For performance, sticks, stones and ropes further than 100 m are not drawn.
+
+## Third round: survival
+
+**Hills and lakes.** The ground is hillier, and about nine lakes are dug into it: deep bowls with sandy banks and muddy floors. The nearest is a short walk
+from the start. Rocks, trees and sticks keep out of the water.
+
+**Swimming.** Where the water is deeper than your feet can find, you swim: pull your hands back through the water like a stroke and you glide forward (recover
+your hands above the surface, or you pull yourself back). Under the surface the view goes blue.
+
+**Leeches.** Wading or swimming for a while can put a leech on a hand. It drains your health until you close your other hand on it and pull it off.
+**Crocodiles.** Each lake has a one in ten chance of one (decided by the forest's seed). It lurks with its eyes above the water; if you are in the lake, or near
+its edge, it comes for you, fast in water and slower on land, and it will not follow you far from the shore. It bites hard. Kill it for meat.
+
+**Health.** A gauge on your left forearm shows health, poison and leeches. Health mends slowly when nothing is hurting you. The screen flashes red when you are
+hit. If you die you wake at the last shelter you rested in (a lean-to, stick hut or sleeping platform: stand inside for three seconds), or at the start.
+
+**Food.** Berry bushes grow all over; close your grip on a berry to pick it (it grows back in a day or two). Raise fruit or meat to your mouth to eat it.
+Rabbits and deer drop meat when killed (a crocodile drops more). Meat left lying out for **one day** is roasted and feeds you well; at **two days** it is rotten
+and poisons you. A drying rack makes it go twice as fast. (A day is the length set in Settings.)
+
+**Weapons.** Anything you swing hard enough hurts animals: sticks a little, then knife (quick), spear (also thrown), axe, club (hits hardest). Bare hands do a little.
+The knife, club and mirror are recipes in the book, unlocked by making an axe, chopping a log, and swimming.
+
+**Axes and trees.** Hold a stick and squeeze its trigger: an outline of a stone appears on the tip. Smash a stone into it three times for an axe. Swinging an axe
+into a trunk takes chips off it; thick trunks need more blows, and a lashed axe fewer. Eventually the tree falls away from you, leaving a stump, and logs
+and sticks lie along it. Birds leave a felled tree, and any rope hanging on it comes down.
+
+**More plans.** Stick Hut and Sleeping Platform (shelters), Drying Rack and Log Fence, each unlocked by finishing another. Structures are saved.
+
+**Mirror.** Craft one, hold it up, and you see yourself: a gorilla with a leaf crown and feathers. The reflection is drawn only while a mirror is near.
+
+**Your body.** Gorilla arms with elbows, long fingers, leaf bands on the wrists, a chest with a tooth necklace and a skirt of leaves.
+
+**Saving.** The game saves every 40 seconds while you play, and when you leave VR or close the tab. The main menu then offers **Continue** (with how far you
+got), **Save Game**, and **New forest**, which asks twice before deleting the save. What is saved: where you are, health, the time, every piece lying in the world,
+structures, felled trees, taken ropes and berries, campfires, the map and the places found, shelters and the crocodiles you killed. Opening the page with
+`?seed=123` gives that forest fresh without touching your save (add `&continue` to load the save if it matches); `?fresh` ignores the save.
+
+**Leaves.** Fallen leaves lie under the trees, drift down through the air near you, and the broadleaf trees are fuller, some hung with vines. Ferns and flowers
+grow among the grass.
 
 ## How the movement works
 

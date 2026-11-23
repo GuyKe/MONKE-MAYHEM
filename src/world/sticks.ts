@@ -107,6 +107,7 @@ export interface SticksOptions {
 /** What can be asked for when making a piece. */
 export interface PieceOptions {
   length?: number;
+  radius?: number;
   durability?: number;
   wrap?: number;
   color?: THREE.ColorRepresentation;
@@ -251,7 +252,7 @@ export class Sticks {
   craft(kind: PieceKind, position: THREE.Vector3, quaternion: THREE.Quaternion, extra: PieceOptions = {}): Stick | null {
     const spec = KINDS[kind];
     const length = extra.length ?? (spec.length[0] + Math.random() * (spec.length[1] - spec.length[0]));
-    const radius = spec.radius[0] + Math.random() * (spec.radius[1] - spec.radius[0]);
+    const radius = extra.radius ?? spec.radius[0] + Math.random() * (spec.radius[1] - spec.radius[0]);
     return this.addPiece(kind, length, radius, position, quaternion, Math.random, extra);
   }
 

@@ -102,13 +102,30 @@ export class Crocs {
   private readonly bodyGeo = bodyGeometry();
   private readonly jawGeo = jawGeometry();
   private time = 0;
+  /** Lakes whose crocodile has been killed (by index), for the save. */
+  killed: number[] = [];
+  private readonly lakes: ReadonlyArray<ForestLake>;
 
   constructor(
     private readonly scene: THREE.Scene,
     lakes: ReadonlyArray<ForestLake>,
     private readonly o: CrocOptions,
   ) {
+    this.lakes = lakes;
     for (const lake of lakes) if (lake.croc) this.spawn(lake);
+  }
+
+  /** Removes the crocodiles of lakes where one was killed before. */
+  restore(killed: number[]): void {
+    this.killed = [...killed];
+    for (const i of killed) {
+      const lake = this.lakes[i];
+      const c = this.list.find((k) => k.lake === lake);
+      if (c) {
+        this.scene.remove(c.group);
+        this.list.splice(this.list.indexOf(c), 1);
+      }
+    }
   }
 
   private spawn(lake: ForestLake): void {
@@ -158,6 +175,7 @@ export class Crocs {
     }
     this.scene.remove(c.group);
     this.list.splice(this.list.indexOf(c), 1);
+    this.killed.push(this.lakes.indexOf(c.lake));
     this.o.onKill(new THREE.Vector3(c.x, c.y + 0.2, c.z));
     return true;
   }

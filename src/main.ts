@@ -26,8 +26,11 @@ import { Body } from './player/body';
 import { Vitals, VitalsView } from './player/vitals';
 import { Survival } from './player/survival';
 import { Combat } from './player/combat';
+import { MirrorView } from './player/mirror';
 import { Crocs } from './world/crocs';
 import { Fruits } from './world/fruit';
+import { FallingLeaves } from './world/leaves';
+import { SaveStore, type SaveData } from './save';
 import type { DesktopEmulator } from './debug/desktop';
 import { DAY_SECONDS, FOG_SCALE, Settings, TREE_SPACING_M, VIEW_DISTANCE_M } from './settings';
 import { Menu } from './ui/menu';
@@ -39,7 +42,9 @@ async function main(): Promise<void> {
 
   // The main menu comes first: it shows while the forest is built, and again whenever you leave VR.
   // Hooks that need things created later are filled in below.
-  const actions = { play: () => {}, resetArms: () => {}, resetBook: () => {} };
+  const actions = { play: () => {}, resetArms: () => {}, resetBook: () => {}, save: () => false as boolean };
+  // A saved game is carried on whenever the page is opened without asking for a particular forest.
+  const saved = SaveStore.load();
   const menu = new Menu(settings, {
     onPlay: () => actions.play(),
     onNewWorld: () => {
@@ -49,6 +54,8 @@ async function main(): Promise<void> {
     },
     onResetArms: () => actions.resetArms(),
     onResetBook: () => actions.resetBook(),
+    onSave: () => actions.save(),
+    onDeleteSave: () => SaveStore.clear(),
   });
   const skipMenu = params.has('play') || params.has('arena');
   if (skipMenu) menu.hide();
@@ -82,7 +89,10 @@ async function main(): Promise<void> {
 
   // The forest is the game: a new random one every visit (`?seed=123` repeats one).
   // `?arena` loads the small flat movement test course instead.
-  const seed = params.has('seed') ? Number(params.get('seed')) || 1 : Math.floor(Math.random() * 0x7fffffff);
+  const seed = params.has('seed') ? Number(params.get('seed')) || 1 : saved ? saved.seed : Math.floor(Math.random() * 0x7fffffff);
+  // Pick up the saved game if this is its forest, unless a particular forest was asked for without `continue`.
+  const useSave = !!saved && saved.seed === seed && !params.has('arena') && !params.has('fresh') && (params.has('continue') || !params.has('seed'));
+  if (useSave) menu.setSaveInfo(SaveStore.describe(saved!));
   const spawn = new THREE.Vector3(SPAWN.x, SPAWN.y, SPAWN.z);
   let worldStats = 'test arena';
   let forestRef: ReturnType<typeof buildForest> | null = null;
@@ -141,6 +151,7 @@ async function main(): Promise<void> {
 
   const hands = new Hands(renderer, rig, scene);
   const body = new Body(scene);
+  const mirror = new MirrorView(scene, body);
 
   // The field journal on your hip: stash sticks in it, craft from it, unlock recipes as you go.
   const journal = new Journal(params.has('resetbook'));
@@ -202,6 +213,7 @@ async function main(): Promise<void> {
   // Ropes hanging in trees: grab one and pull down to tear it free.
   const treeRopes = forestRef ? new TreeRopes(scene, forestRef.ropes) : null;
   const fruits = forestRef ? new Fruits(scene, forestRef.bushes) : null;
+  const leaves = forestRef ? new FallingLeaves(scene, seed, forestRef.surfaceAt) : null;
   const grab = new Grab(sticks, hands, {
     pick: (handPos) => {
       const f = fruits?.nearest(handPos, 0.2);
@@ -303,6 +315,93 @@ async function main(): Promise<void> {
   let calibrationTick = 0;
   locomotion.respawn(spawn);
 
+  // --- Saving: the forest comes back from its seed, and this puts back what changed in it ---------------
+  const V3 = THREE.Vector3;
+  const collect = (): SaveData => {
+    const head = locomotion.headWorld(new V3());
+    const ground = forestRef ? forestRef.surfaceAt(head.x, head.z) : 0;
+    return {
+      v: 1,
+      seed,
+      at: Date.now(),
+      player: [Math.round(head.x * 100) / 100, Math.round(ground * 100) / 100, Math.round(head.z * 100) / 100],
+      health: vitals.health,
+      poison: vitals.poison,
+      days: survival.days,
+      time: atmosphere?.time ?? 0.3,
+      day: atmosphere?.day ?? 1,
+      respawn: survival.respawnAt,
+      stash: journal.stash,
+      pieces: sticks.list
+        .filter((s) => !s.hidden)
+        .map((s) => ({
+          k: s.kind,
+          p: [Math.round(s.pos.x * 1000) / 1000, Math.round(s.pos.y * 1000) / 1000, Math.round(s.pos.z * 1000) / 1000] as [number, number, number],
+          q: [Math.round(s.quat.x * 1000) / 1000, Math.round(s.quat.y * 1000) / 1000, Math.round(s.quat.z * 1000) / 1000, Math.round(s.quat.w * 1000) / 1000] as [number, number, number, number],
+          l: Math.round(s.length * 1000) / 1000,
+          r: Math.round(s.radius * 10000) / 10000,
+          d: s.durability,
+          w: Math.round(s.wrap * 100) / 100,
+          s: s.state,
+          a: Math.round(s.age * 1000) / 1000,
+          c: s.baseColor.getHex(),
+        })),
+      sites: building.export(),
+      ropes: treeRopes ? treeRopes.ropes.flatMap((r, i) => (r.taken ? [i] : [])) : [],
+      fruits: fruits ? fruits.export() : [],
+      felled: forestRef ? forestRef.felledIndices() : [],
+      fires: fire.exportCampfires(),
+      explored: mapView ? mapView.exportExplored() : '',
+      found: poisRef.current ? poisRef.current.export() : [],
+      crocsDead: crocs ? crocs.killed : [],
+    };
+  };
+  const applySave = (data: SaveData): void => {
+    // Everything lying about is replaced by what was lying about when you saved.
+    for (const s of sticks.list) if (!s.hidden) sticks.stash(s);
+    for (const p of data.pieces) {
+      const piece = sticks.craft(p.k, new V3(...p.p), new THREE.Quaternion(...p.q), { length: p.l, radius: p.r, wrap: p.w, state: p.s, age: p.a, color: p.c });
+      if (piece) piece.durability = p.d;
+    }
+    building.restore(data.sites);
+    for (const i of data.ropes) if (treeRopes?.ropes[i]) treeRopes.ropes[i].taken = true;
+    fruits?.restore(data.fruits);
+    forestRef?.restoreFelled(data.felled);
+    fire.restoreCampfires(data.fires);
+    if (data.explored) mapView?.restoreExplored(data.explored);
+    poisRef.current?.restore(data.found);
+    crocs?.restore(data.crocsDead);
+    journal.stash = data.stash;
+    journal.version++;
+    survival.days = data.days;
+    survival.respawnAt = data.respawn;
+    if (atmosphere) {
+      atmosphere.time = data.time;
+      atmosphere.day = data.day;
+    }
+    locomotion.respawn({ x: data.player[0], y: data.player[1], z: data.player[2] });
+    vitals.health = Math.max(5, data.health);
+    vitals.poison = data.poison;
+  };
+  if (useSave) applySave(saved!);
+  // Asking for another forest by seed does not quietly overwrite your saved game; only Save Game does.
+  const autosaveOn = !saved || useSave;
+  const saveNow = (): boolean => {
+    if (!vitals.alive || params.has('arena')) return false;
+    const data = collect();
+    const ok = SaveStore.write(data);
+    if (ok) menu.setSaveInfo(SaveStore.describe(data));
+    return ok;
+  };
+  actions.save = saveNow;
+  let autosave = 0;
+  window.addEventListener('pagehide', () => {
+    if (renderer.xr.isPresenting && autosaveOn) saveNow();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && renderer.xr.isPresenting && autosaveOn) saveNow();
+  });
+
   const vrButton = VRButton.createButton(renderer);
   if (emulator) vrButton.textContent = 'ENTER VR (DESKTOP EMULATOR)';
   document.body.appendChild(vrButton);
@@ -315,6 +414,7 @@ async function main(): Promise<void> {
   actions.resetBook = () => journal.reset();
   renderer.xr.addEventListener('sessionstart', () => menu.hide());
   renderer.xr.addEventListener('sessionend', () => {
+    if (autosaveOn) saveNow();
     menu.setResuming(true);
     menu.show();
   });
@@ -436,6 +536,12 @@ async function main(): Promise<void> {
         hands.right.tracked ? locomotion.hands[1].position : null,
       ]);
       survival.update(dt, headNow, _hq);
+      mirror.update(sticks, headNow);
+      autosave += dt;
+      if (autosave > 40 && autosaveOn) {
+        autosave = 0;
+        saveNow();
+      }
       crocs?.update(dt, headNow, locomotion.inWater);
       vitalsView.update(dt, hands.left.tracked ? body.forearm[0] : null, headNow, locomotion.headUnderwater);
       swimTime = locomotion.swimming ? swimTime + dt : 0;
@@ -456,6 +562,7 @@ async function main(): Promise<void> {
     poisRef.current?.update(viewer);
     treeRopes?.update(dt, viewer);
     fruits?.update(dt, viewer, survival.days);
+    leaves?.update(dt, viewer, atmosphere?.night ?? 0);
     fire.update(dt, viewer, atmosphere?.night ?? 0);
     friction.update(dt);
 
@@ -481,7 +588,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
+  Object.assign(window, { __monke: { mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(

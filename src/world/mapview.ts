@@ -73,6 +73,37 @@ export class MapView {
     }
   }
 
+  /** The explored cells as text, for the save. */
+  exportExplored(): string {
+    let s = '';
+    for (let i = 0; i < this.explored.length; i++) s += this.explored[i] ? '1' : '0';
+    // Run-length: "0x123,1x45,..." keeps it small.
+    const runs: string[] = [];
+    let last = s[0];
+    let n = 0;
+    for (const ch of s) {
+      if (ch === last) n++;
+      else {
+        runs.push(`${last}${n}`);
+        last = ch;
+        n = 1;
+      }
+    }
+    runs.push(`${last}${n}`);
+    return runs.join(',');
+  }
+
+  restoreExplored(text: string): void {
+    let at = 0;
+    for (const run of text.split(',')) {
+      const value = run[0] === '1' ? 1 : 0;
+      const n = Number(run.slice(1));
+      for (let k = 0; k < n && at < this.explored.length; k++) this.explored[at++] = value;
+    }
+    this.maskDirty = true;
+    this.version++;
+  }
+
   /** Reveals the ground around (x, z). Call every frame; it only does work when you have moved. */
   explore(x: number, z: number): void {
     if (Math.hypot(x - this.lastX, z - this.lastZ) < 4) return;

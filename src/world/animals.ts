@@ -420,14 +420,14 @@ export class Animals {
     }
     if (b.state === 'perched') {
       // Startled when you come close, but at night they stay put.
-      if (night < 0.55 && Math.hypot(b.x - viewer.x, b.z - viewer.z) < 14) {
+      if (this.o.trees[b.treeIndex].felled || (night < 0.55 && Math.hypot(b.x - viewer.x, b.z - viewer.z) < 14)) {
         const here = this.o.trees[b.treeIndex];
         let best = b.treeIndex;
         for (let i = 0; i < 12; i++) {
           const k = Math.floor(this.rand() * this.o.trees.length);
           const t = this.o.trees[k];
           const d = Math.hypot(t.x - here.x, t.z - here.z);
-          if (t.height > 14 && d > 35 && d < 100) {
+          if (t.height > 14 && !t.felled && d > 35 && d < 100) {
             best = k;
             break;
           }

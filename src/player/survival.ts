@@ -51,7 +51,7 @@ export class Survival {
   readonly leeches: Leech[] = [];
   private wet = 0;
   private told = { leech: false, roast: false, rotten: false };
-  private dying = 0;
+  dying = 0;
   private rest = 0;
   private agingTimer = 0;
   private readonly leechGeo = new THREE.CapsuleGeometry(0.012, 0.045, 3, 6);
