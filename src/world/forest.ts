@@ -1,32 +1,74 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { SPAWN } from '../config';
 import { RAPIER, WORLD_GROUPS } from '../physics';
+import { Baker } from './baker';
 import { SURFACES, setSurface, type SurfaceMaterial } from './materials';
-import { Noise2D, mulberry32, smoothstep } from './noise';
-import { WORLD_HALF, createTerrain } from './terrain';
+import { Noise2D, mulberry32 } from './noise';
+import { CHUNKS, CHUNK_SIZE, WORLD_HALF, createTerrain } from './terrain';
 
-export interface Forest {
-  heightAt(x: number, z: number): number;
-  /** Sky dome. Parent it to the player rig so it always surrounds the player. */
-  sky: THREE.Object3D;
-  /** Where the player starts, standing on the ground. */
-  spawn: THREE.Vector3;
-  /** True if (x, z) is within `pad` metres of a tree, pond, puddle or the spawn. */
-  isBlocked(x: number, z: number, pad?: number): boolean;
-  /** Every tree trunk: ground position, height and radius. */
-  trees: ReadonlyArray<{ x: number; z: number; height: number; radius: number }>;
-  stats: { trees: number; branches: number; rocks: number; logs: number; colliders: number };
+export interface ForestOptions {
+  /** The same seed always gives the same forest. */
+  seed: number;
+  /** Where the player starts; the ground is flattened into a clearing here. */
+  spawn: { x: number; z: number };
 }
 
-const HORIZON = 0xcfe3d8;
-const FOG_DENSITY = 0.017;
+export interface Tree {
+  x: number;
+  z: number;
+  height: number;
+  radius: number;
+}
+
+export interface Forest {
+  seed: number;
+  /** The smooth ground height. */
+  heightAt(x: number, z: number): number;
+  /** The exact ground height of the mesh and collider. */
+  surfaceAt(x: number, z: number): number;
+  slopeAt(x: number, z: number): number;
+  /**
+   * True if (x, z) is within `pad` metres of a tree, pond or puddle, or of the spawn clearing
+   * (unless `ignoreSpawn`, for things that belong in the clearing, like sticks).
+   */
+  isBlocked(x: number, z: number, pad?: number, ignoreSpawn?: boolean): boolean;
+  /** Where the player starts, standing on the ground. */
+  spawn: THREE.Vector3;
+  trees: ReadonlyArray<Tree>;
+  /** Shows the chunks near `viewer` and hides the rest. Call every frame (it is cheap). */
+  update(viewer: THREE.Vector3): void;
+  stats: { trees: number; branches: number; rocks: number; logs: number; ponds: number; puddles: number; colliders: number };
+}
+
+/** Chunks nearer than this (metres, to their nearest edge) are drawn. Fog hides the cut-off. */
+export const VIEW_RADIUS = 78;
+/** Chunks nearer than this get full detail; farther ones get a cheaper version. */
+const DETAIL_RADIUS = 45;
+/** Grass tufts are only drawn this close. */
+const GRASS_RADIUS = 42;
 
 /** A circle trees, rocks and grass keep out of. */
 interface Keepout {
   x: number;
   z: number;
   r: number;
+  /** The spawn clearing, which some things may ignore. */
+  spawn?: boolean;
+}
+
+interface Chunk {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  terrain: { high: THREE.Mesh; low: THREE.Mesh };
+  props: Baker;
+  /** The same chunk with cheaper trees, drawn when it is far away. */
+  propsLow: Baker;
+  tufts: Baker;
+  propsMesh?: THREE.Mesh;
+  propsLowMesh?: THREE.Mesh;
+  tuftsMesh?: THREE.Mesh;
 }
 
 const _m = new THREE.Matrix4();
@@ -35,89 +77,126 @@ const _qa = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _c = new THREE.Color();
+const _e = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 /**
- * Builds the forest: terrain, trees, rocks, logs, grass, an ice pond and mud
- * puddles, with sky and fog. Everything repeating is instanced, so the whole
- * forest is about ten draw calls. The same seed always gives the same forest.
+ * Builds a large random forest: terrain, trees, rocks, logs, grass, frozen ponds and mud puddles.
+ *
+ * The map is cut into 60 m chunks. Everything in a chunk that doesn't move is baked into one mesh,
+ * and only the chunks near the player are drawn, so a 420 m map costs about as much to render as a
+ * small one. Colliders are all created up front.
  */
-export function buildForest(scene: THREE.Scene, world: RAPIER.World, seed = 1337): Forest {
+export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: ForestOptions): Forest {
+  const { seed, spawn } = options;
   const noise = new Noise2D(seed);
   const rand = mulberry32(seed + 1);
   const range = (a: number, b: number) => a + rand() * (b - a);
-  const terrain = createTerrain(noise);
-  const keepouts: Keepout[] = [{ x: SPAWN.x, z: SPAWN.z, r: 9 }];
+  const terrain = createTerrain(noise, spawn);
+  const keepouts: Keepout[] = [{ x: spawn.x, z: spawn.z, r: 9, spawn: true }];
   let colliders = 0;
 
   const addCollider = (desc: RAPIER.ColliderDesc, surface: SurfaceMaterial): void => {
     setSurface(world.createCollider(desc.setCollisionGroups(WORLD_GROUPS).setFriction(0.9)), surface);
     colliders++;
   };
+  const blocked = (x: number, z: number, pad = 0, ignoreSpawn = false): boolean =>
+    keepouts.some((k) => !(ignoreSpawn && k.spawn) && Math.hypot(x - k.x, z - k.z) < k.r + pad);
+  const inside = (x: number, z: number, margin: number) => Math.abs(x) < WORLD_HALF - margin && Math.abs(z) < WORLD_HALF - margin;
 
   // --- Slippery spots ---------------------------------------------------------
-  // Flat discs lying on flat ground: a frozen pond and mud puddles. Two small
-  // ones sit by the spawn so the slip is easy to try straight away.
+  // Flat discs lying on flat ground: frozen ponds and mud puddles. A frozen puddle and a mud patch
+  // sit by the spawn so the slip is easy to try straight away.
   const pads: Array<{ x: number; z: number; r: number; surface: SurfaceMaterial; level: number }> = [];
-  const addPad = (x: number, z: number, r: number, surface: SurfaceMaterial, inner = r + 0.8, outer = r + 3) => {
+  let ponds = 0;
+  let puddles = 0;
+  const addPad = (x: number, z: number, r: number, surface: SurfaceMaterial, inner: number, outer: number) => {
     const spot = terrain.addFlatSpot({ x, z, inner, outer });
     pads.push({ x, z, r, surface, level: spot.level });
     keepouts.push({ x, z, r: outer });
   };
-  addPad(-27, -23, 5.5, SURFACES.ice, 7, 13); // frozen pond
-  addPad(-5.5, 9, 2.3, SURFACES.ice, 3.2, 4.5); // frozen puddle by the spawn
-  addPad(5.5, 9.5, 2.2, SURFACES.mud, 3, 4.5); // mud by the spawn
-  for (let tries = 0, made = 0; made < 7 && tries < 200; tries++) {
-    const a = rand() * Math.PI * 2;
-    const d = range(16, 48);
-    const x = SPAWN.x + Math.cos(a) * d;
-    const z = SPAWN.z + Math.sin(a) * d;
-    if (Math.abs(x) > WORLD_HALF - 24 || Math.abs(z) > WORLD_HALF - 24) continue;
-    if (terrain.slopeAt(x, z) > 0.25) continue;
-    if (keepouts.some((k) => Math.hypot(x - k.x, z - k.z) < k.r + 6)) continue;
-    addPad(x, z, range(1.4, 2.4), SURFACES.mud, 3, 4.5);
-    made++;
-  }
+  addPad(spawn.x - 5.5, spawn.z + 7, 2.3, SURFACES.ice, 3.2, 4.5);
+  addPad(spawn.x + 5.5, spawn.z + 7.5, 2.2, SURFACES.mud, 3, 4.5);
+  const farFromOthers = (x: number, z: number, gap: number) => !keepouts.some((k) => Math.hypot(x - k.x, z - k.z) < k.r + gap);
+  const place = (want: number, tryLimit: number, ok: (x: number, z: number) => boolean, make: (x: number, z: number) => void) => {
+    for (let tries = 0, made = 0; made < want && tries < tryLimit; tries++) {
+      const x = range(-WORLD_HALF + 50, WORLD_HALF - 50);
+      const z = range(-WORLD_HALF + 50, WORLD_HALF - 50);
+      if (ok(x, z)) {
+        make(x, z);
+        made++;
+      }
+    }
+  };
+  place(
+    6,
+    400,
+    (x, z) => Math.hypot(x - spawn.x, z - spawn.z) > 45 && terrain.slopeAt(x, z) < 0.12 && farFromOthers(x, z, 10),
+    (x, z) => {
+      const r = range(4, 7);
+      addPad(x, z, r, SURFACES.ice, r + 1.5, r + 7);
+      ponds++;
+    },
+  );
+  place(
+    45,
+    900,
+    (x, z) => Math.hypot(x - spawn.x, z - spawn.z) > 14 && terrain.slopeAt(x, z) < 0.25 && farFromOthers(x, z, 5),
+    (x, z) => {
+      addPad(x, z, range(1.4, 2.6), SURFACES.mud, 3, 4.5);
+      puddles++;
+    },
+  );
 
-  terrain.build(scene, world);
-  const heightAt = terrain.heightAt;
+  const terrainMeshes = terrain.build(scene, world);
+  const { heightAt, surfaceAt, slopeAt } = terrain;
+
+  const chunks: Chunk[][] = [];
+  for (let cz = 0; cz < CHUNKS; cz++) {
+    const row: Chunk[] = [];
+    for (let cx = 0; cx < CHUNKS; cx++) {
+      row.push({
+        minX: -WORLD_HALF + cx * CHUNK_SIZE,
+        maxX: -WORLD_HALF + (cx + 1) * CHUNK_SIZE,
+        minZ: -WORLD_HALF + cz * CHUNK_SIZE,
+        maxZ: -WORLD_HALF + (cz + 1) * CHUNK_SIZE,
+        terrain: terrainMeshes[cz][cx],
+        props: new Baker(),
+        propsLow: new Baker(),
+        tufts: new Baker(),
+      });
+    }
+    chunks.push(row);
+  }
+  const idx = (v: number) => Math.min(CHUNKS - 1, Math.max(0, Math.floor((v + WORLD_HALF) / CHUNK_SIZE)));
+  const chunkAt = (x: number, z: number) => chunks[idx(z)][idx(x)];
 
   for (const pad of pads) {
     const h = 0.03;
-    const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(pad.r, pad.r, h, 32),
-      pad.surface === SURFACES.ice
-        ? new THREE.MeshPhongMaterial({ color: pad.surface.color, specular: 0xffffff, shininess: 90 })
-        : new THREE.MeshLambertMaterial({ color: pad.surface.color }),
-    );
-    mesh.position.set(pad.x, pad.level + h / 2, pad.z);
-    scene.add(mesh);
+    const geo = new THREE.CylinderGeometry(pad.r, pad.r, h, 24);
+    _m.compose(_p.set(pad.x, pad.level + h / 2, pad.z), _q.identity(), _s.set(1, 1, 1));
+    const padChunk = chunkAt(pad.x, pad.z);
+    padChunk.props.add(geo, _m, _c.set(pad.surface.color));
+    padChunk.propsLow.add(geo, _m, _c.set(pad.surface.color));
     addCollider(RAPIER.ColliderDesc.cylinder(h / 2, pad.r).setTranslation(pad.x, pad.level + h / 2, pad.z), pad.surface);
   }
 
-  const blocked = (x: number, z: number, pad = 0): boolean =>
-    keepouts.some((k) => Math.hypot(x - k.x, z - k.z) < k.r + pad);
-
   // --- Trees ------------------------------------------------------------------
-  interface Tree {
-    x: number;
-    z: number;
+  interface TreeData extends Tree {
     y: number;
-    height: number;
-    radius: number;
     pine: boolean;
     width: number;
   }
-  const trees: Tree[] = [];
-  const SPACING = 5.5;
+  const trees: TreeData[] = [];
+  const SPACING = 6.2;
   for (let gx = -WORLD_HALF + 2; gx < WORLD_HALF - 1; gx += SPACING) {
     for (let gz = -WORLD_HALF + 2; gz < WORLD_HALF - 1; gz += SPACING) {
       const x = gx + range(-2, 2);
       const z = gz + range(-2, 2);
-      if (Math.abs(x) > WORLD_HALF - 3 || Math.abs(z) > WORLD_HALF - 3) continue;
-      if (blocked(x, z, 1.2) || terrain.slopeAt(x, z) > 0.6) continue;
+      if (!inside(x, z, 3)) continue;
+      if (blocked(x, z, 1.2) || slopeAt(x, z) > 0.6) continue;
       const density = 0.5 + 0.5 * noise.fbm(x * 0.03 + 5, z * 0.03 - 9, 2);
       const edge = Math.max(Math.abs(x), Math.abs(z));
       const chance = edge > WORLD_HALF - 22 ? 0.95 : 0.3 + 0.6 * density;
@@ -127,7 +206,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, seed = 1337
       trees.push({
         x,
         z,
-        y: heightAt(x, z) - 0.35,
+        y: surfaceAt(x, z) - 0.35,
         height,
         radius: 0.2 + (height - 6) * 0.022 + range(0, 0.06),
         pine,
@@ -136,115 +215,135 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, seed = 1337
     }
   }
 
-  const trunkGeo = new THREE.CylinderGeometry(0.72, 1, 1, 6).translate(0, 0.5, 0);
-  const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshLambertMaterial({ flatShading: true }), trees.length);
-
+  const trunkGeo = new THREE.CylinderGeometry(0.72, 1, 1, 6, 1, true).translate(0, 0.5, 0); // open ended: both ends are hidden
   const pineGeo = mergeGeometries([
     new THREE.ConeGeometry(0.2, 0.45, 6).translate(0, 0.4, 0),
     new THREE.ConeGeometry(0.16, 0.4, 6).translate(0, 0.62, 0),
     new THREE.ConeGeometry(0.11, 0.35, 6).translate(0, 0.82, 0),
   ])!;
   const leafGeo = new THREE.IcosahedronGeometry(1, 1);
-  const pines = trees.filter((t) => t.pine);
-  const broads = trees.filter((t) => !t.pine);
-  const pineMesh = new THREE.InstancedMesh(pineGeo, new THREE.MeshLambertMaterial({ flatShading: true }), pines.length);
-  const leafMesh = new THREE.InstancedMesh(leafGeo, new THREE.MeshLambertMaterial({ flatShading: true }), broads.length);
+  // Far-away versions: one cone for a pine, a plain 20-sided blob for a broadleaf.
+  const pineLowGeo = new THREE.ConeGeometry(0.2, 0.75, 5).translate(0, 0.55, 0);
+  const leafLowGeo = new THREE.IcosahedronGeometry(1, 0);
 
-  trees.forEach((t, i) => {
-    _m.compose(_p.set(t.x, t.y, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(t.radius, t.height + 0.35, t.radius));
-    trunks.setMatrixAt(i, _m);
-    trunks.setColorAt(i, _c.setHSL(0.07 + range(-0.01, 0.015), 0.35, range(0.2, 0.3)));
-    addCollider(
-      RAPIER.ColliderDesc.cylinder((t.height + 0.35) / 2, t.radius * 0.86).setTranslation(t.x, t.y + (t.height + 0.35) / 2, t.z),
-      SURFACES.bark,
-    );
-  });
-  pines.forEach((t, i) => {
-    const w = t.height * t.width;
-    _m.compose(_p.set(t.x, t.y + 0.35, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(w, t.height, w));
-    pineMesh.setMatrixAt(i, _m);
-    pineMesh.setColorAt(i, _c.setHSL(0.36 + range(-0.02, 0.02), 0.45, range(0.16, 0.25)));
-  });
-  broads.forEach((t, i) => {
-    const w = t.height * 0.27 * t.width;
-    _m.compose(
-      _p.set(t.x, t.y + 0.35 + t.height * 0.78, t.z),
-      _q.setFromAxisAngle(UP, rand() * 6.28),
-      _s.set(w, w * 0.8, w),
-    );
-    leafMesh.setMatrixAt(i, _m);
-    leafMesh.setColorAt(i, _c.setHSL(0.27 + range(-0.03, 0.03), 0.5, range(0.26, 0.36)));
-  });
+  for (const t of trees) {
+    const chunk = chunkAt(t.x, t.z);
+    const trunkH = t.height + 0.35;
+    _m.compose(_p.set(t.x, t.y, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(t.radius, trunkH, t.radius));
+    const barkColor = _c.setHSL(0.07 + range(-0.01, 0.015), 0.35, range(0.2, 0.3));
+    chunk.props.add(trunkGeo, _m, barkColor);
+    if (!t.pine) chunk.propsLow.add(trunkGeo, _m, barkColor);
+    addCollider(RAPIER.ColliderDesc.cylinder(trunkH / 2, t.radius * 0.86).setTranslation(t.x, t.y + trunkH / 2, t.z), SURFACES.bark);
+
+    if (t.pine) {
+      const w = t.height * t.width;
+      _m.compose(_p.set(t.x, t.y + 0.35, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(w, t.height, w));
+      const needles = _c.setHSL(0.36 + range(-0.02, 0.02), 0.45, range(0.16, 0.25));
+      chunk.props.add(pineGeo, _m, needles);
+      chunk.propsLow.add(pineLowGeo, _m, needles);
+    } else {
+      const w = t.height * 0.27 * t.width;
+      _m.compose(_p.set(t.x, t.y + 0.35 + t.height * 0.78, t.z), _q.setFromAxisAngle(UP, rand() * 6.28), _s.set(w, w * 0.8, w));
+      const foliage = _c.setHSL(0.27 + range(-0.03, 0.03), 0.5, range(0.26, 0.36));
+      chunk.props.add(leafGeo, _m, foliage);
+      chunk.propsLow.add(leafLowGeo, _m, foliage);
+    }
+  }
 
   // Low branches to grab and climb on.
-  const branchData: Array<{ pos: THREE.Vector3; quat: THREE.Quaternion; len: number }> = [];
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  let branches = 0;
   for (const t of trees) {
     if (rand() > 0.6) continue;
     const count = 1 + Math.floor(rand() * 2);
     for (let b = 0; b < count; b++) {
       const angle = rand() * Math.PI * 2;
       const len = range(0.9, 1.6);
-      const yawQ = new THREE.Quaternion().setFromAxisAngle(UP, Math.atan2(Math.cos(angle), Math.sin(angle)));
-      const tilt = new THREE.Quaternion().setFromAxisAngle(X_AXIS, -range(0.1, 0.35)); // outer end rises
+      const quat = new THREE.Quaternion()
+        .setFromAxisAngle(UP, Math.atan2(Math.cos(angle), Math.sin(angle)))
+        .multiply(_qa.setFromAxisAngle(X_AXIS, -range(0.1, 0.35))); // outer end rises
       const reach = t.radius * 0.5 + len / 2;
-      branchData.push({
-        pos: new THREE.Vector3(
-          t.x + Math.cos(angle) * reach,
-          t.y + 0.35 + range(0.9, 2.4),
-          t.z + Math.sin(angle) * reach,
-        ),
-        quat: yawQ.multiply(tilt),
-        len,
-      });
+      const px = t.x + Math.cos(angle) * reach;
+      const py = t.y + 0.35 + range(0.9, 2.4);
+      const pz = t.z + Math.sin(angle) * reach;
+      _m.compose(_p.set(px, py, pz), quat, _s.set(0.11, 0.11, len));
+      chunkAt(px, pz).props.add(boxGeo, _m, _c.set(SURFACES.wood.color));
+      addCollider(
+        RAPIER.ColliderDesc.cuboid(0.07, 0.07, len / 2)
+          .setTranslation(px, py, pz)
+          .setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w }),
+        SURFACES.wood,
+      );
+      branches++;
     }
   }
-  const branches = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshLambertMaterial({ color: SURFACES.wood.color, flatShading: true }),
-    branchData.length,
-  );
-  branchData.forEach((b, i) => {
-    _m.compose(b.pos, b.quat, _s.set(0.11, 0.11, b.len));
-    branches.setMatrixAt(i, _m);
-    addCollider(
-      RAPIER.ColliderDesc.cuboid(0.07, 0.07, b.len / 2)
-        .setTranslation(b.pos.x, b.pos.y, b.pos.z)
-        .setRotation({ x: b.quat.x, y: b.quat.y, z: b.quat.z, w: b.quat.w }),
-      SURFACES.wood,
-    );
-  });
+
+  // Spatial lookup so isBlocked stays fast with thousands of trees.
+  // Trees, and later rocks and logs, go in a grid of buckets.
+  interface Obstacle {
+    x: number;
+    z: number;
+    radius: number;
+  }
+  const BUCKET = 8;
+  const buckets = new Map<number, Obstacle[]>();
+  const bucketKey = (ix: number, iz: number) => ix * 100003 + iz;
+  const addObstacle = (o: Obstacle) => {
+    const key = bucketKey(Math.floor(o.x / BUCKET), Math.floor(o.z / BUCKET));
+    const list = buckets.get(key);
+    if (list) list.push(o);
+    else buckets.set(key, [o]);
+  };
+  for (const t of trees) addObstacle(t);
+  const treeNear = (x: number, z: number, pad: number): boolean => {
+    const reach = Math.ceil((pad + 3) / BUCKET); // rocks and logs can be a few metres across
+    const ix = Math.floor(x / BUCKET);
+    const iz = Math.floor(z / BUCKET);
+    for (let dx = -reach; dx <= reach; dx++) {
+      for (let dz = -reach; dz <= reach; dz++) {
+        const list = buckets.get(bucketKey(ix + dx, iz + dz));
+        if (list && list.some((o) => Math.hypot(o.x - x, o.z - z) < o.radius + pad)) return true;
+      }
+    }
+    return false;
+  };
 
   // --- Rocks ------------------------------------------------------------------
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
   const rockCorners = uniqueVertices(rockGeo);
   const rockSpots: Array<{ x: number; z: number }> = [];
-  for (let tries = 0; rockSpots.length < 70 && tries < 1500; tries++) {
-    const x = range(-WORLD_HALF + 4, WORLD_HALF - 4);
-    const z = range(-WORLD_HALF + 4, WORLD_HALF - 4);
-    const nearSpawn = rockSpots.length < 5;
-    if (nearSpawn) {
+  for (let i = 0; i < 6; i++) {
+    // A few close to the spawn so there is something to climb straight away.
+    for (let tries = 0; tries < 20; tries++) {
       const a = rand() * 6.28;
-      const d = range(11, 15);
-      const nx = SPAWN.x + Math.cos(a) * d;
-      const nz = SPAWN.z + Math.sin(a) * d;
-      if (!blocked(nx, nz, 1)) rockSpots.push({ x: nx, z: nz });
-      continue;
+      const d = range(11, 16);
+      const nx = spawn.x + Math.cos(a) * d;
+      const nz = spawn.z + Math.sin(a) * d;
+      if (!blocked(nx, nz, 1) && !treeNear(nx, nz, 1)) {
+        rockSpots.push({ x: nx, z: nz });
+        break;
+      }
     }
-    if (blocked(x, z, 1) || terrain.slopeAt(x, z) > 0.8) continue;
+  }
+  for (let tries = 0; rockSpots.length < 420 && tries < 4000; tries++) {
+    const x = range(-WORLD_HALF + 6, WORLD_HALF - 6);
+    const z = range(-WORLD_HALF + 6, WORLD_HALF - 6);
+    if (blocked(x, z, 1) || slopeAt(x, z) > 0.8) continue;
     rockSpots.push({ x, z });
   }
-  const rocks = new THREE.InstancedMesh(rockGeo, new THREE.MeshLambertMaterial({ flatShading: true }), rockSpots.length);
   let rockCount = 0;
-  rockSpots.forEach((spot, i) => {
+  for (const spot of rockSpots) {
     const s = 0.5 + rand() * rand() * 2;
     const sx = s * range(0.8, 1.3);
     const sy = s * range(0.55, 0.85);
     const sz = s * range(0.8, 1.3);
-    const y = heightAt(spot.x, spot.z) + sy * 0.3;
-    _q.setFromEuler(new THREE.Euler(range(-0.2, 0.2), rand() * 6.28, range(-0.2, 0.2)));
+    const y = surfaceAt(spot.x, spot.z) + sy * 0.3;
+    _q.setFromEuler(_e.set(range(-0.2, 0.2), rand() * 6.28, range(-0.2, 0.2)));
     _m.compose(_p.set(spot.x, y, spot.z), _q, _s.set(sx, sy, sz));
-    rocks.setMatrixAt(i, _m);
-    rocks.setColorAt(i, _c.setHSL(0.1, 0.05, range(0.35, 0.5)));
+    const rockChunk = chunkAt(spot.x, spot.z);
+    const rockColor = _c.setHSL(0.1, 0.05, range(0.35, 0.5));
+    rockChunk.props.add(rockGeo, _m, rockColor);
+    if (s > 1) rockChunk.propsLow.add(rockGeo, _m, rockColor); // only the big ones show from afar
     const hull = new Float32Array(rockCorners.length * 3);
     rockCorners.forEach((v, k) => {
       _p.copy(v).applyMatrix4(_m);
@@ -255,63 +354,75 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, seed = 1337
     const desc = RAPIER.ColliderDesc.convexHull(hull);
     if (desc) {
       addCollider(desc, SURFACES.stone);
+      addObstacle({ x: spot.x, z: spot.z, radius: Math.max(sx, sz) * 1.05 });
       rockCount++;
     }
-  });
+  }
 
   // --- Fallen logs ------------------------------------------------------------
-  const logSpots: Array<{ x: number; z: number; len: number; r: number; yaw: number }> = [];
-  for (let tries = 0; logSpots.length < 16 && tries < 600; tries++) {
+  const logGeo = new THREE.CylinderGeometry(1, 1, 1, 10);
+  let logCount = 0;
+  for (let tries = 0; logCount < 90 && tries < 3000; tries++) {
     const x = range(-WORLD_HALF + 8, WORLD_HALF - 8);
     const z = range(-WORLD_HALF + 8, WORLD_HALF - 8);
-    if (blocked(x, z, 2) || terrain.slopeAt(x, z) > 0.18) continue;
-    if (trees.some((t) => Math.hypot(t.x - x, t.z - z) < 3.2)) continue;
-    logSpots.push({ x, z, len: range(2.5, 5.5), r: range(0.22, 0.4), yaw: rand() * 6.28 });
-  }
-  const logGeo = new THREE.CylinderGeometry(1, 1, 1, 10);
-  const logs = new THREE.InstancedMesh(logGeo, new THREE.MeshLambertMaterial({ flatShading: true }), logSpots.length);
-  logSpots.forEach((l, i) => {
+    if (blocked(x, z, 2) || slopeAt(x, z) > 0.18 || treeNear(x, z, 3.2)) continue;
+    const len = range(2.5, 5.5);
+    const r = range(0.22, 0.4);
+    const yaw = rand() * 6.28;
     // The cylinder's axis is Y; lay it along X, then turn it.
-    _q.setFromAxisAngle(UP, l.yaw).multiply(_qa.setFromAxisAngle(Z_AXIS, Math.PI / 2));
-    const y = heightAt(l.x, l.z) + l.r * 0.7;
-    _m.compose(_p.set(l.x, y, l.z), _q, _s.set(l.r, l.len, l.r));
-    logs.setMatrixAt(i, _m);
-    logs.setColorAt(i, _c.setHSL(0.07, 0.3, range(0.17, 0.26)));
+    _q.setFromAxisAngle(UP, yaw).multiply(_qa.setFromAxisAngle(Z_AXIS, Math.PI / 2));
+    const y = surfaceAt(x, z) + r * 0.7;
+    _m.compose(_p.set(x, y, z), _q, _s.set(r, len, r));
+    chunkAt(x, z).props.add(logGeo, _m, _c.setHSL(0.07, 0.3, range(0.17, 0.26)));
     addCollider(
-      RAPIER.ColliderDesc.cylinder(l.len / 2, l.r)
-        .setTranslation(l.x, y, l.z)
-        .setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w }),
+      RAPIER.ColliderDesc.cylinder(len / 2, r).setTranslation(x, y, z).setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w }),
       SURFACES.bark,
     );
-  });
+    addObstacle({ x, z, radius: len / 2 + r });
+    logCount++;
+  }
 
   // --- Grass tufts (visual only) ----------------------------------------------
   const tuftGeo = new THREE.ConeGeometry(0.05, 0.4, 3, 1, true).translate(0, 0.2, 0);
-  const TUFTS = 5000;
-  const tufts = new THREE.InstancedMesh(tuftGeo, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), TUFTS);
-  let tuftCount = 0;
-  for (let tries = 0; tuftCount < TUFTS && tries < TUFTS * 3; tries++) {
-    const a = rand() * Math.PI * 2;
-    const d = Math.sqrt(rand()) * 55;
-    const x = SPAWN.x + Math.cos(a) * d;
-    const z = SPAWN.z + Math.sin(a) * d;
-    if (Math.abs(x) > WORLD_HALF - 6 || Math.abs(z) > WORLD_HALF - 6) continue;
-    if (pads.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 0.3)) continue;
-    if (terrain.slopeAt(x, z) > 0.7 || trees.some((t) => Math.hypot(t.x - x, t.z - z) < t.radius + 0.1)) continue;
-    const s = range(0.6, 1.5);
-    _q.setFromEuler(new THREE.Euler(range(-0.2, 0.2), rand() * 6.28, range(-0.2, 0.2)));
-    _m.compose(_p.set(x, heightAt(x, z) - 0.02, z), _q, _s.set(s, s * range(0.8, 1.4), s));
-    tufts.setMatrixAt(tuftCount, _m);
-    tufts.setColorAt(tuftCount, _c.setHSL(0.25 + range(-0.04, 0.04), 0.5, range(0.3, 0.45)));
-    tuftCount++;
+  for (const row of chunks) {
+    for (const chunk of row) {
+      for (let tries = 0, made = 0; made < 650 && tries < 1000; tries++) {
+        const x = range(chunk.minX, chunk.maxX);
+        const z = range(chunk.minZ, chunk.maxZ);
+        if (!inside(x, z, 6)) continue;
+        if (pads.some((p) => Math.hypot(x - p.x, z - p.z) < p.r + 0.3)) continue;
+        if (slopeAt(x, z) > 0.7 || treeNear(x, z, 0.1)) continue;
+        const s = range(0.6, 1.5);
+        _q.setFromEuler(_e.set(range(-0.2, 0.2), rand() * 6.28, range(-0.2, 0.2)));
+        _m.compose(_p.set(x, surfaceAt(x, z) - 0.02, z), _q, _s.set(s, s * range(0.8, 1.4), s));
+        chunk.tufts.add(tuftGeo, _m, _c.setHSL(0.25 + range(-0.04, 0.04), 0.5, range(0.3, 0.45)));
+        made++;
+      }
+    }
   }
-  tufts.count = tuftCount;
 
-  for (const mesh of [trunks, pineMesh, leafMesh, branches, rocks, logs, tufts]) {
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.frustumCulled = false; // instances are spread over the whole map
-    scene.add(mesh);
+  // --- One mesh per chunk for everything baked ---------------------------------
+  const propsMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const tuftMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  for (const row of chunks) {
+    for (const chunk of row) {
+      if (!chunk.props.isEmpty) {
+        chunk.propsMesh = new THREE.Mesh(chunk.props.build(), propsMaterial);
+        chunk.propsMesh.frustumCulled = false;
+        scene.add(chunk.propsMesh);
+      }
+      if (!chunk.propsLow.isEmpty) {
+        chunk.propsLowMesh = new THREE.Mesh(chunk.propsLow.build(), propsMaterial);
+        chunk.propsLowMesh.frustumCulled = false;
+        chunk.propsLowMesh.visible = false;
+        scene.add(chunk.propsLowMesh);
+      }
+      if (!chunk.tufts.isEmpty) {
+        chunk.tuftsMesh = new THREE.Mesh(chunk.tufts.build(), tuftMaterial);
+        chunk.tuftsMesh.frustumCulled = false;
+        scene.add(chunk.tuftsMesh);
+      }
+    }
   }
 
   // --- Edge of the world: invisible walls behind the hills ----------------------
@@ -322,49 +433,38 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, seed = 1337
     [wall, 0, 0.5, WORLD_HALF + 1],
     [-wall, 0, 0.5, WORLD_HALF + 1],
   ]) {
-    addCollider(RAPIER.ColliderDesc.cuboid(hx, 40, hz).setTranslation(x, 0, z), SURFACES.stone);
+    addCollider(RAPIER.ColliderDesc.cuboid(hx, 60, hz).setTranslation(x, 0, z), SURFACES.stone);
   }
 
-  // --- Sky, fog, light --------------------------------------------------------
-  scene.background = new THREE.Color(HORIZON);
-  scene.fog = new THREE.FogExp2(HORIZON, FOG_DENSITY);
-  scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x4a5a32, 1.5));
-  const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
-  sun.position.set(30, 50, 20);
-  scene.add(sun);
+  const update = (viewer: THREE.Vector3): void => {
+    for (const row of chunks) {
+      for (const c of row) {
+        const dx = Math.max(c.minX - viewer.x, 0, viewer.x - c.maxX);
+        const dz = Math.max(c.minZ - viewer.z, 0, viewer.z - c.maxZ);
+        const d = Math.hypot(dx, dz);
+        const shown = d < VIEW_RADIUS;
+        const detailed = d < DETAIL_RADIUS;
+        c.terrain.high.visible = detailed;
+        c.terrain.low.visible = shown && !detailed;
+        if (c.propsMesh) c.propsMesh.visible = detailed;
+        if (c.propsLowMesh) c.propsLowMesh.visible = shown && !detailed;
+        if (c.tuftsMesh) c.tuftsMesh.visible = d < GRASS_RADIUS;
+      }
+    }
+  };
+  update(new THREE.Vector3(spawn.x, 0, spawn.z));
 
   return {
+    seed,
     heightAt,
-    isBlocked: (x, z, pad = 0) => blocked(x, z, pad) || trees.some((t) => Math.hypot(t.x - x, t.z - z) < t.radius + pad),
-    sky: createSky(),
-    spawn: new THREE.Vector3(SPAWN.x, heightAt(SPAWN.x, SPAWN.z), SPAWN.z),
+    surfaceAt,
+    slopeAt,
+    isBlocked: (x, z, pad = 0, ignoreSpawn = false) => blocked(x, z, pad, ignoreSpawn) || treeNear(x, z, pad),
+    spawn: new THREE.Vector3(spawn.x, surfaceAt(spawn.x, spawn.z), spawn.z),
     trees,
-    stats: { trees: trees.length, branches: branchData.length, rocks: rockCount, logs: logSpots.length, colliders },
+    update,
+    stats: { trees: trees.length, branches, rocks: rockCount, logs: logCount, ponds, puddles, colliders },
   };
-}
-
-/** A gradient dome: pale at the horizon, blue overhead. */
-function createSky(): THREE.Mesh {
-  const geometry = new THREE.SphereGeometry(150, 24, 14);
-  const pos = geometry.getAttribute('position');
-  const colors = new Float32Array(pos.count * 3);
-  const horizon = new THREE.Color(HORIZON);
-  const mid = new THREE.Color(0x9cc7e0);
-  const zenith = new THREE.Color(0x5b9bd0);
-  const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const h = Math.max(0, pos.getY(i) / 150);
-    c.copy(horizon).lerp(mid, smoothstep(0, 0.35, h)).lerp(zenith, smoothstep(0.35, 1, h));
-    colors.set([c.r, c.g, c.b], i * 3);
-  }
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const sky = new THREE.Mesh(
-    geometry,
-    new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }),
-  );
-  sky.renderOrder = -1;
-  sky.frustumCulled = false;
-  return sky;
 }
 
 /** The distinct corner points of a (non-indexed) polyhedron geometry. */

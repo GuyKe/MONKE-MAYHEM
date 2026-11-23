@@ -4,6 +4,9 @@ import { LOCOMOTION, SPAWN } from './config';
 import { RAPIER, createPhysicsWorld } from './physics';
 import { buildTestArena } from './world/testArena';
 import { buildForest } from './world/forest';
+import { Atmosphere } from './world/atmosphere';
+import { WORLD_HALF } from './world/terrain';
+import { mulberry32 } from './world/noise';
 import { Hands } from './player/hands';
 import { Locomotion } from './player/locomotion';
 import { ArmSpan } from './player/armSpan';
@@ -38,26 +41,40 @@ async function main(): Promise<void> {
   rig.add(camera);
   scene.add(rig);
 
-  // The forest is the game. `?arena` loads the flat movement test course instead.
+  // The forest is the game: a new random one every visit (`?seed=123` repeats one).
+  // `?arena` loads the small flat movement test course instead.
+  const params = new URLSearchParams(location.search);
+  const seed = params.has('seed') ? Number(params.get('seed')) || 1 : Math.floor(Math.random() * 0x7fffffff);
   const spawn = new THREE.Vector3(SPAWN.x, SPAWN.y, SPAWN.z);
   let worldStats = 'test arena';
   let forestRef: ReturnType<typeof buildForest> | null = null;
-  if (new URLSearchParams(location.search).has('arena')) {
+  let atmosphere: Atmosphere | null = null;
+  if (params.has('arena')) {
     buildTestArena(scene, world);
   } else {
-    const forest = buildForest(scene, world);
+    // Where you start, and what time of day, are random too (but follow the seed).
+    const roll = mulberry32(seed ^ 0x5bd1e995);
+    const spawnXZ = { x: (roll() * 2 - 1) * WORLD_HALF * 0.55, z: (roll() * 2 - 1) * WORLD_HALF * 0.55 };
+    const forest = buildForest(scene, world, { seed, spawn: spawnXZ });
     forestRef = forest;
-    rig.add(forest.sky);
     spawn.copy(forest.spawn);
+    atmosphere = new Atmosphere(scene, {
+      startTime: params.has('time') ? Number(params.get('time')) : 0.27 + roll() * 0.15,
+      cycleSeconds: params.has('cycle') ? Number(params.get('cycle')) || 600 : 600,
+    });
+    rig.add(atmosphere.sky);
     const s = forest.stats;
-    worldStats = `forest: ${s.trees} trees, ${s.rocks} rocks, ${s.logs} logs, ${s.colliders} colliders`;
+    worldStats = `seed ${seed}: ${s.trees} trees, ${s.rocks} rocks, ${s.ponds} ponds, ${s.colliders} colliders`;
   }
   world.step(); // populate the broad phase so queries see the static scenery
 
   const sticks = new Sticks(scene, world, {
-    heightAt: forestRef ? forestRef.heightAt : () => 0,
+    surfaceAt: forestRef ? forestRef.surfaceAt : () => 0,
     isBlocked: forestRef ? forestRef.isBlocked : () => false,
     spawn,
+    worldHalf: forestRef ? WORLD_HALF : 25,
+    count: forestRef ? 280 : 40,
+    seed,
   });
 
   const hands = new Hands(renderer, rig, scene);
@@ -81,6 +98,7 @@ async function main(): Promise<void> {
   });
 
   const hud = document.getElementById('hud')!;
+  const _viewer = new THREE.Vector3();
   const headLocal = new THREE.Vector3(0, 1.6, 0);
   const handLocals: [THREE.Vector3, THREE.Vector3] = [new THREE.Vector3(), new THREE.Vector3()];
   const clock = new THREE.Clock();
@@ -137,6 +155,11 @@ async function main(): Promise<void> {
       if (rig.position.y < LOCOMOTION.killY) locomotion.respawn(spawn);
     }
 
+    // The world around the player: which chunks are drawn, and the time of day.
+    const viewer = locomotion.headWorld(_viewer);
+    forestRef?.update(viewer);
+    atmosphere?.update(dt, viewer);
+
     // Step physics by the real frame time so sticks fall at the right speed whatever
     // the refresh rate, in steps of at most 1/60 s so slow frames don't make the
     // contacts mushy.
@@ -153,13 +176,13 @@ async function main(): Promise<void> {
       fpsFrames = 0;
       fpsTime = 0;
     }
-    hud.textContent = hudText(renderer, locomotion, armSpan, grab, fps, emulator !== null, worldStats);
+    hud.textContent = hudText(renderer, locomotion, armSpan, grab, fps, emulator !== null, worldStats, atmosphere);
 
     renderer.render(scene, camera);
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere } });
 }
 
 function hudText(
@@ -170,6 +193,7 @@ function hudText(
   fps: number,
   emulated: boolean,
   worldStats: string,
+  atmosphere: Atmosphere | null,
 ): string {
   if (!renderer.xr.isPresenting) {
     return emulated
@@ -179,6 +203,7 @@ function hudText(
   const v = loco.velocity;
   const lines = [
     `fps      ${fps}  (${worldStats})`,
+    atmosphere ? `time     ${atmosphere.clock}  ${atmosphere.phase}  day ${atmosphere.day}` : 'time     -',
     `speed    ${Math.hypot(v.x, v.z).toFixed(2)} m/s  (vy ${v.y.toFixed(2)})`,
     `hands    L ${loco.hands[0].touching ? '●' : '○'}  R ${loco.hands[1].touching ? '●' : '○'}`,
     `grounded ${loco.grounded ? 'yes' : 'no'}`,

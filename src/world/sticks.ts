@@ -22,15 +22,23 @@ export interface Stick {
 }
 
 export interface SticksOptions {
-  /** Ground height at (x, z). */
-  heightAt(x: number, z: number): number;
+  /** Exact ground height at (x, z). */
+  surfaceAt(x: number, z: number): number;
   /** True where sticks should not be dropped (trees, water, spawn clearing furniture). */
-  isBlocked(x: number, z: number, pad?: number): boolean;
-  /** The player's spawn, on the ground. A few sticks are placed right in front of it. */
+  isBlocked(x: number, z: number, pad?: number, ignoreSpawn?: boolean): boolean;
+  /** The player's spawn, on the ground. Sticks are placed close around it. */
   spawn: THREE.Vector3Like;
+  /** Half the width of the playable square; far sticks are scattered inside it. */
+  worldHalf: number;
+  /** Total sticks. A few are always near the spawn. Default 280. */
   count?: number;
   seed?: number;
 }
+
+/** Sticks placed in a fan right in front of the player. */
+const FAN_COUNT = 8;
+/** Sticks placed in the clearing and trees around the spawn. */
+const NEAR_COUNT = 14;
 
 /** Corners of the stick's six-sided, slightly tapered prism, matching its mesh (see Sticks.mesh). */
 function stickShape(length: number, radius: number): RAPIER.ColliderDesc {
@@ -48,6 +56,7 @@ function stickShape(length: number, radius: number): RAPIER.ColliderDesc {
 
 const HIGHLIGHT = new THREE.Color(0xffd84a);
 const TAPER = 0.8;
+type Tier = 'fan' | 'near' | 'far';
 const FLIGHT_DAMPING = { linear: 0.05, angular: 0.3 };
 const RESTING_DAMPING = { linear: 0.3, angular: 2.5 };
 /** Slower than this (m/s) a stick counts as resting and gets heavy damping. */
@@ -67,33 +76,49 @@ const _color = new THREE.Color();
  */
 export class Sticks {
   readonly list: Stick[] = [];
+  /** How many sticks have fallen out of the world and been put back (should stay 0). */
+  respawned = 0;
   readonly mesh: THREE.InstancedMesh;
   private readonly home: THREE.Vector3Like;
 
   constructor(scene: THREE.Scene, world: RAPIER.World, private readonly options: SticksOptions) {
     this.home = options.spawn;
-    const count = options.count ?? 40;
+    const count = options.count ?? 280;
     const rand = mulberry32((options.seed ?? 99) + 7);
     const range = (a: number, b: number) => a + rand() * (b - a);
+    const { surfaceAt } = options;
 
     const geometry = new THREE.CylinderGeometry(TAPER, 1, 1, 6);
     this.mesh = new THREE.InstancedMesh(geometry, new THREE.MeshLambertMaterial({ flatShading: true }), count);
     this.mesh.frustumCulled = false;
 
+    const up = new THREE.Vector3(0, 1, 0);
     for (let i = 0; i < count; i++) {
-      // The first few sit just ahead of the spawn so there is something to grab straight away.
-      const near = i < 6;
-      const spot = this.findSpot(rand, near);
+      const tier: Tier = i < FAN_COUNT ? 'fan' : i < FAN_COUNT + NEAR_COUNT ? 'near' : 'far';
+      const spot = this.findSpot(rand, tier);
       const length = range(0.6, 1.2);
       const radius = range(0.018, 0.03);
-      const yaw = rand() * Math.PI * 2;
-      const q = new THREE.Quaternion()
-        .setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
-        .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2)); // lie flat
 
+      // Lie along the contour of the slope so both ends touch the ground.
+      const e = 0.5;
+      const gx = surfaceAt(spot.x + e, spot.z) - surfaceAt(spot.x - e, spot.z);
+      const gz = surfaceAt(spot.x, spot.z + e) - surfaceAt(spot.x, spot.z - e);
+      const along = Math.hypot(gx, gz) > 0.02 ? new THREE.Vector3(-gz, 0, gx).normalize() : null;
+      const yaw = rand() * Math.PI * 2;
+      const dir = along ?? new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
+      const q = new THREE.Quaternion().setFromUnitVectors(up, dir);
+
+      // Start above the highest ground under the stick's whole length, then let it drop the last
+      // few centimetres. Starting even slightly inside the (thin, one-sided) terrain mesh makes the
+      // solver push the stick out through the underside, and it falls out of the world.
+      let ground = -Infinity;
+      for (let k = -2; k <= 2; k++) {
+        const t = (k / 2) * (length / 2 + radius);
+        ground = Math.max(ground, surfaceAt(spot.x + dir.x * t, spot.z + dir.z * t));
+      }
       const body = world.createRigidBody(
         RAPIER.RigidBodyDesc.dynamic()
-          .setTranslation(spot.x, options.heightAt(spot.x, spot.z) + radius + 0.15, spot.z)
+          .setTranslation(spot.x, ground + radius * 1.05 + 0.04, spot.z)
           .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
           .setCcdEnabled(true) // thin and fast: don't let a throw tunnel through the ground
           .setLinearDamping(FLIGHT_DAMPING.linear)
@@ -124,8 +149,8 @@ export class Sticks {
       });
     }
 
-    // Let them drop and settle before the player sees them.
-    for (let i = 0; i < 240; i++) {
+    // Let them all drop and settle (and fall asleep) before the player sees them.
+    for (let i = 0; i < 300; i++) {
       world.step();
       this.updateDamping();
     }
@@ -201,33 +226,37 @@ export class Sticks {
 
   /** Drops a stray stick back near the spawn. */
   private respawn(stick: Stick): void {
+    this.respawned++;
     const home = this.home;
     const x = home.x + (Math.random() - 0.5) * 6;
     const z = home.z - 3 - Math.random() * 3;
-    stick.body.setTranslation({ x, y: this.options.heightAt(x, z) + 1, z }, true);
+    stick.body.setTranslation({ x, y: this.options.surfaceAt(x, z) + 1, z }, true);
     stick.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     stick.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
 
-  private findSpot(rand: () => number, near: boolean): { x: number; z: number } {
-    const { spawn, isBlocked, heightAt } = this.options;
-    for (let tries = 0; tries < 200; tries++) {
+  private findSpot(rand: () => number, tier: Tier): { x: number; z: number } {
+    const { spawn, isBlocked, surfaceAt, worldHalf } = this.options;
+    for (let tries = 0; tries < 300; tries++) {
       let x: number;
       let z: number;
-      if (near) {
+      if (tier === 'fan') {
         // A fan in front of the player (forward is -z), 2.5-5 m out.
         const a = (rand() - 0.5) * 2 * (Math.PI / 3);
         const d = 2.5 + rand() * 2.5;
         x = spawn.x + Math.sin(a) * d;
         z = spawn.z - Math.cos(a) * d;
-      } else {
+      } else if (tier === 'near') {
         const a = rand() * Math.PI * 2;
-        const d = 5 + Math.sqrt(rand()) * 28;
+        const d = 5.5 + Math.sqrt(rand()) * 11;
         x = spawn.x + Math.cos(a) * d;
         z = spawn.z + Math.sin(a) * d;
+      } else {
+        x = (rand() * 2 - 1) * (worldHalf - 10);
+        z = (rand() * 2 - 1) * (worldHalf - 10);
       }
-      const slope = Math.abs(heightAt(x + 1, z) - heightAt(x, z)) + Math.abs(heightAt(x, z + 1) - heightAt(x, z));
-      if (slope < 0.6 && !isBlocked(x, z, near ? 0.2 : 0.4)) return { x, z };
+      const slope = Math.abs(surfaceAt(x + 1, z) - surfaceAt(x, z)) + Math.abs(surfaceAt(x, z + 1) - surfaceAt(x, z));
+      if (slope < 0.6 && !isBlocked(x, z, tier === 'far' ? 0.4 : 0.2, true)) return { x, z };
     }
     return { x: spawn.x, z: spawn.z - 3 };
   }
