@@ -14,6 +14,7 @@ import { Grab } from './player/grab';
 import { Journal, RECIPES } from './player/journal';
 import { Book, type HandView } from './player/book';
 import { Fire } from './world/fire';
+import { FrictionFire } from './world/friction';
 import { Sticks } from './world/sticks';
 import type { DesktopEmulator } from './debug/desktop';
 
@@ -88,6 +89,11 @@ async function main(): Promise<void> {
   const book = new Book(scene, camera, journal, sticks, {
     makePiece: (kind, position, quaternion) => void sticks.craft(kind, position, quaternion),
     buildCampfire: (x, z) => void fire.addCampfire(x, z),
+  });
+  // Rub two sticks together to make fire; over a pile of sticks it becomes a campfire.
+  const friction = new FrictionFire(scene, sticks, fire, forestRef ? forestRef.surfaceAt : () => 0, {
+    onMessage: (text) => book.say(text),
+    pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
   });
   const grab = new Grab(sticks, hands, {
     stash: (stick, handPos) => book.acceptStash(stick, handPos),
@@ -194,6 +200,7 @@ async function main(): Promise<void> {
     forestRef?.update(viewer);
     atmosphere?.update(dt, viewer);
     fire.update(dt, viewer, atmosphere?.night ?? 0);
+    friction.update(dt);
 
     // Step physics by the real frame time so sticks fall at the right speed whatever
     // the refresh rate, in steps of at most 1/60 s so slow frames don't make the
@@ -211,13 +218,13 @@ async function main(): Promise<void> {
       fpsFrames = 0;
       fpsTime = 0;
     }
-    hud.textContent = hudText(renderer, locomotion, armSpan, grab, journal, fps, emulator !== null, worldStats, atmosphere);
+    hud.textContent = hudText(renderer, locomotion, armSpan, grab, journal, friction.heat, fps, emulator !== null, worldStats, atmosphere);
 
     renderer.render(scene, camera);
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction } });
 }
 
 function hudText(
@@ -226,6 +233,7 @@ function hudText(
   arms: ArmSpan,
   grab: Grab,
   journal: Journal,
+  heat: number,
   fps: number,
   emulated: boolean,
   worldStats: string,
@@ -246,6 +254,7 @@ function hudText(
     `surface  L ${surfaceLabel(loco, 0)}  R ${surfaceLabel(loco, 1)}`,
     `holding  L ${grab.held(0)?.kind ?? '-'}  R ${grab.held(1)?.kind ?? '-'}`,
     `book     ${journal.stash} sticks, ${journal.unlocked.size}/${RECIPES.length} recipes`,
+    heat > 0.02 ? `heat     ${'#'.repeat(Math.round(heat * 10)).padEnd(10, '.')} rub sticks together` : 'heat     -',
     `reach    x${arms.scale.toFixed(2)}  (arm span ${arms.span.toFixed(2)} m, ${arms.calibrated ? 'calibrated' : 'estimated'})`,
   ];
   if (emulated) {

@@ -21,7 +21,9 @@ const _p = new THREE.Vector3();
  */
 export class Fire {
   private readonly torchFlames = new Map<Stick, THREE.Group>();
-  private readonly campfires: Array<{ pos: THREE.Vector3; group: THREE.Group; seed: number }> = [];
+  private readonly campfires: Array<{ pos: THREE.Vector3; group: THREE.Group; seed: number; scale: number }> = [];
+  /** Small short-lived flames, such as a spark from rubbing sticks that had nothing to catch. */
+  private readonly tinders: Array<{ pos: THREE.Vector3; group: THREE.Group; life: number; maxLife: number; seed: number }> = [];
   private readonly lights: THREE.PointLight[] = [];
   private readonly flameGeometry = new THREE.ConeGeometry(0.06, 0.24, 6, 1, true).translate(0, 0.12, 0);
   private readonly flameMaterial = new THREE.MeshBasicMaterial({
@@ -61,11 +63,28 @@ export class Fire {
     return this.campfires.length;
   }
 
-  /** Builds a campfire on the ground at (x, z) and returns where it is. */
-  addCampfire(x: number, z: number): THREE.Vector3 {
+  /** A small flame that burns for `seconds` and dies, with a little light. */
+  addTinder(position: THREE.Vector3, seconds: number, scale = 0.7): void {
+    const group = new THREE.Group();
+    group.position.copy(position);
+    const outer = new THREE.Mesh(this.flameGeometry, this.flameMaterial);
+    const core = new THREE.Mesh(this.flameGeometry, this.coreMaterial);
+    outer.scale.setScalar(2 * scale);
+    core.scale.setScalar(1.2 * scale);
+    group.add(outer, core);
+    this.scene.add(group);
+    this.tinders.push({ pos: position.clone(), group, life: seconds, maxLife: seconds, seed: Math.random() * 10 });
+  }
+
+  /**
+   * Builds a campfire on the ground at (x, z) and returns where it is. `scale` makes it bigger or smaller;
+   * a campfire made from a bigger pile of sticks is a bigger fire.
+   */
+  addCampfire(x: number, z: number, scale = 1): THREE.Vector3 {
     const y = this.surfaceAt(x, z);
     const group = new THREE.Group();
     group.position.set(x, y, z);
+    group.scale.setScalar(scale);
 
     const stone = new THREE.MeshLambertMaterial({ color: SURFACES.stone.color, flatShading: true });
     const stoneGeo = new THREE.DodecahedronGeometry(0.11, 0);
@@ -103,13 +122,13 @@ export class Fire {
     // The ring of stones is solid.
     setSurface(
       this.world.createCollider(
-        RAPIER.ColliderDesc.cylinder(0.08, 0.5).setTranslation(x, y + 0.08, z).setCollisionGroups(WORLD_GROUPS).setFriction(0.9),
+        RAPIER.ColliderDesc.cylinder(0.08 * scale, 0.5 * scale).setTranslation(x, y + 0.08 * scale, z).setCollisionGroups(WORLD_GROUPS).setFriction(0.9),
       ),
       SURFACES.stone,
     );
 
-    const pos = new THREE.Vector3(x, y + 0.5, z);
-    this.campfires.push({ pos, group, seed: Math.random() * 10 });
+    const pos = new THREE.Vector3(x, y + 0.5 * scale, z);
+    this.campfires.push({ pos, group, seed: Math.random() * 10, scale });
     return pos;
   }
 
@@ -149,7 +168,22 @@ export class Fire {
         child.scale.y = (i % 2 ? 2.2 : 1.7) * f;
         child.rotation.y += dt * 2;
       });
-      this.emitters.push({ pos: fire.pos, power: 2 });
+      this.emitters.push({ pos: fire.pos, power: 2 * fire.scale });
+    }
+
+    // Tinder flames: flicker, shrink as they die, then go out.
+    for (let i = this.tinders.length - 1; i >= 0; i--) {
+      const t = this.tinders[i];
+      t.life -= dt;
+      if (t.life <= 0) {
+        this.scene.remove(t.group);
+        this.tinders.splice(i, 1);
+        continue;
+      }
+      const fade = Math.min(1, t.life / (t.maxLife * 0.35)); // dies down over the last third
+      const flicker = 1 + 0.2 * Math.sin(this.time * 19 + t.seed) + 0.12 * Math.sin(this.time * 31 + t.seed * 2);
+      t.group.scale.set(fade / Math.sqrt(flicker), fade * flicker, fade / Math.sqrt(flicker));
+      this.emitters.push({ pos: t.pos.clone().setY(t.pos.y + 0.1), power: 0.6 * fade });
     }
 
     // Give the two nearest fires a real light.

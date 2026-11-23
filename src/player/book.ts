@@ -200,6 +200,11 @@ export class Book {
     return this.panel.localToWorld(new THREE.Vector3((px / PX - 0.5) * PANEL_W, (0.5 - py / PY) * PANEL_H, depth));
   }
 
+  /** Shows a short message above the book (the same place new recipes are announced). */
+  say(text: string): void {
+    this.showToast(text);
+  }
+
   /** Pokes recipe row `index` as if with a hand (for the desktop emulator and tests). */
   pressRow(index: number): void {
     if (!this.open) this.setOpen(true);
@@ -360,9 +365,10 @@ export class Book {
     RECIPES.forEach((recipe, i) => this.drawRow(c, recipe, ROW_TOP[i], this.hover === i));
 
     c.fillStyle = '#6b5236';
-    c.font = 'italic 19px Georgia, serif';
+    c.font = 'italic 17px Georgia, serif';
     c.textAlign = 'left';
-    c.fillText('Hold a stick to the book and let go to put it in.', 24, 424);
+    c.fillText('Hold a stick to the book and let go to put it in.', 24, 418);
+    c.fillText('Rub two sticks together over a pile of 5 to light a fire.', 24, 438);
     this.texture.needsUpdate = true;
   }
 

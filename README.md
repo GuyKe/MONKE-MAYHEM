@@ -92,6 +92,20 @@ Torches and campfires give real light, which is how you see after dark.
   ground, trees, rocks and each other, but never block your hands or body. A stick that falls out of the world comes back near the spawn.
 - Physics runs in steps no longer than 1/60 s whatever the refresh rate.
 
+## Fire from rubbing sticks
+
+`src/world/friction.ts`. Hold two sticks together and rub them, one sliding along the other. The faster and steadier you rub, the hotter they get:
+you feel a scraping rumble in your hands that grows stronger, then see an ember glow where they touch, then smoke and sparks. About 2.5 seconds of
+steady rubbing lights it.
+
+- **Over a pile:** with 5 or more loose sticks lying together under the rubbing (within about 70 cm, and the rubbing no higher than a metre above the
+  ground), the pile catches and becomes a campfire. The pile is used up, and a bigger pile makes a bigger fire (up to 14 sticks).
+- **No pile:** you get a small flame that burns for 10 seconds, and a message tells you how many sticks a pile needs.
+- **What counts as rubbing:** the sticks must touch and slide along each other, and at least one must be in a hand. Holding them still against each
+  other, or sliding them apart, makes no heat. Heat drains away when you stop.
+
+The journal's Campfire recipe still works too. Rubbing is the way to make one without spending sticks from the book.
+
 ## The field journal
 
 `src/player/book.ts`, `journal.ts`, `src/world/fire.ts`. A leather book hangs on your left hip and follows the way your body faces.
