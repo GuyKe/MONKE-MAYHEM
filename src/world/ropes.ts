@@ -13,6 +13,8 @@ export interface TreeRope {
 
 /** You tear a rope off its tree by pulling it down this far. */
 export const PULL_TO_TEAR = 0.5;
+/** Ropes further than this from the player are not drawn. */
+const DRAW_DISTANCE = 100;
 /** Only the lower part of a rope can be grabbed. */
 const GRAB_LENGTH = 1.6;
 
@@ -77,20 +79,19 @@ export class TreeRopes {
     this.layout();
   }
 
-  update(dt: number): void {
+  update(dt: number, viewer?: THREE.Vector3): void {
     this.time += dt;
     for (const r of this.ropes) if (!r.held && r.pull > 0) r.pull = Math.max(0, r.pull - dt * 2.5); // springs back
-    this.layout();
+    this.layout(viewer);
   }
 
-  private layout(): void {
-    this.ropes.forEach((r, i) => {
-      if (r.taken) {
-        _m.makeScale(0, 0, 0);
-        this.lineMesh.setMatrixAt(i, _m);
-        this.knotMesh.setMatrixAt(i, _m);
-        return;
-      }
+  /** Writes the ropes near `viewer` (all of them if none is given) into the front of the meshes. */
+  private layout(viewer?: THREE.Vector3): void {
+    let n = 0;
+    for (const r of this.ropes) {
+      if (r.taken) continue;
+      if (viewer && (Math.abs(r.spot.x - viewer.x) > DRAW_DISTANCE || Math.abs(r.spot.z - viewer.z) > DRAW_DISTANCE)) continue;
+      const i = n++;
       const top = _p.set(r.spot.x, r.spot.top, r.spot.z);
       const length = r.spot.top - (r.spot.bottom - r.pull);
       // A gentle sway about the top, less when it is held.
@@ -102,7 +103,8 @@ export class TreeRopes {
       const end = _b.set(0, -length, 0).applyQuaternion(_q).add(top);
       _m.compose(end, _q.identity(), _s.set(0.055, 0.055, 0.055));
       this.knotMesh.setMatrixAt(i, _m);
-    });
+    }
+    this.lineMesh.count = this.knotMesh.count = n;
     this.lineMesh.instanceMatrix.needsUpdate = true;
     this.knotMesh.instanceMatrix.needsUpdate = true;
   }

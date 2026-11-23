@@ -11,6 +11,8 @@ Built with Three.js (WebXR), Rapier physics, Vite and TypeScript.
 - [x] **Milestone 3: Forest.** Large random forest: hills, about 2,600 climbable trees, rocks, logs, grass, frozen ponds and mud puddles.
 - [x] **Milestone 4: Sticks.** Grab with the grip, carry, throw. Solid sticks that collide with each other and the world.
 - [x] **Beyond the plan:** day-night cycle and heavy atmosphere, and a field journal for crafting with recipes you unlock as you play.
+- [x] **Second round:** main menu with settings, animals, taller and thicker trees, a physical book with a map, stone and lashed axes, rope on trees,
+  blueprints you place and build, and ruins to find.
 - [ ] Milestone 5: Sounds, particles, comfort options, performance pass.
 
 ## Running it
@@ -48,10 +50,11 @@ fake controllers from the keyboard:
 | Shift | Faster strokes |
 | Space | Push both hands down to jump |
 | Q / E | Squeeze the left / right grip (grab and throw sticks) |
-| B | Open or close the journal |
-| 1 to 4 | Craft a recipe (journal open) |
+| Z / X | Squeeze the left / right trigger (smash, lash, tie) |
+| B | Take out or put away the book |
+| [ and ] | Flip pages (book open); Shift+[ / ] changes arm length |
+| 1 to 4 | Craft a recipe (book open) |
 | T | T-pose arm calibration |
-| [ and ] | Shorter / longer emulated arms (to test arm-span scaling) |
 | R | Respawn |
 
 ## The forest
@@ -125,6 +128,29 @@ The journal's Campfire recipe still works too. Rubbing is the way to make one wi
 
 Unlocked recipes are remembered in your browser between visits. A glowing book and a message above it tell you when something new unlocks.
 Torches and campfires are real lights, but only the two nearest fires get one, to keep it fast on a headset.
+
+## Second round: what is in the world now
+
+**Menu.** The page opens on a main menu: Play (Resume after you leave VR), Settings and Controls. Settings (fog, day length, view distance, grass,
+haptics, comfort) are saved in your browser and are also on a page of the book. `?play` skips the menu.
+
+**Animals.** Rabbits bolt when you get within 8 m, deer watch you (alert at 24 m) and run, birds perch in trees and take off or circle. Only animals near you are simulated.
+
+**Trees** are taller and thicker, with a few giants. **Ropes** hang from some trees: grab one low down and pull; it stretches, and if you keep pulling it comes free.
+
+**Stone axe.** Grab a rock in one hand and a stick in the other, hold both triggers and smash them together five times. The axe breaks after enough chopping.
+Hold a rope, put it round the axe head and circle your hand with the trigger held to lash it: a stronger axe. Swing an axe at a tree trunk to chop sticks and logs.
+
+**The book** is a real object: take it from your hip, hold it, flip pages by poking or swiping the edges (or the thumbstick). It faces you while held. Pages cover
+recipes, blueprints, settings, controls and a **map** that fills in as you explore and marks places you have found.
+
+**Blueprints.** Open a blueprint page and press it to select it, then place the hologram where you want it. Bring the pieces (logs, poles, sticks, rope), fit each
+into its slot, then tie the joints with rope. Finished structures are solid and remembered between visits.
+
+**Ruins** (cabin, standing stones, abandoned camp, fallen lookout) are scattered across the map, with loot such as ropes, stones and sometimes an axe. Walking
+up to one discovers it and marks it on the map. The lookout's platform can be climbed.
+
+For performance, sticks, stones and ropes further than 100 m are not drawn.
 
 ## How the movement works
 

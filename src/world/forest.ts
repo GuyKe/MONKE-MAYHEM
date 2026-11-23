@@ -3,6 +3,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { RAPIER, WORLD_GROUPS } from '../physics';
 import { Baker } from './baker';
 import { SURFACES, setSurface, type SurfaceMaterial } from './materials';
+import { axisQuaternion, designRuin, type Ruin, type RuinType } from './ruins';
+import type { PieceKind } from './sticks';
 import { Noise2D, mulberry32 } from './noise';
 import { CHUNKS, CHUNK_SIZE, WORLD_HALF, createTerrain } from './terrain';
 
@@ -35,8 +37,24 @@ export interface RopeSpot {
   bottom: number;
 }
 
+/** A ruin to find: where it is and what is lying inside it. */
+export interface PoiInfo {
+  id: string;
+  type: RuinType;
+  label: string;
+  x: number;
+  z: number;
+  yaw: number;
+  /** Ground height at its centre. */
+  baseY: number;
+  footprint: number;
+  loot: Array<{ kind: PieceKind; x: number; y: number; z: number }>;
+}
+
 export interface Forest {
   seed: number;
+  /** Old buildings and stone circles scattered through the forest, to look around and find. */
+  pois: ReadonlyArray<PoiInfo>;
   /** The smooth ground height. */
   heightAt(x: number, z: number): number;
   /** The exact ground height of the mesh and collider. */
@@ -173,6 +191,35 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
       puddles++;
     },
   );
+
+  // --- Places to find ----------------------------------------------------------
+  // Chosen now so the ground can be levelled and trees kept away. The first is a short walk from the start.
+  const plans: Array<{ ruin: Ruin; x: number; z: number; yaw: number }> = [];
+  const ruinTypes: RuinType[] = ['camp', 'cabin', 'stones', 'tower', 'cabin', 'camp', 'stones', 'tower', 'cabin', 'camp', 'tower', 'stones'];
+  ruinTypes.forEach((type, k) => {
+    const ruin = designRuin(type, rand);
+    for (let tries = 0; tries < 500; tries++) {
+      let x: number;
+      let z: number;
+      if (k === 0) {
+        const a = rand() * Math.PI * 2;
+        const d = 48 + rand() * 30;
+        x = spawn.x + Math.cos(a) * d;
+        z = spawn.z + Math.sin(a) * d;
+      } else {
+        x = range(-WORLD_HALF + 45, WORLD_HALF - 45);
+        z = range(-WORLD_HALF + 45, WORLD_HALF - 45);
+        if (Math.hypot(x - spawn.x, z - spawn.z) < 40) continue;
+      }
+      if (!inside(x, z, 45) || terrain.slopeAt(x, z) > 0.14) continue;
+      if (plans.some((p) => Math.hypot(p.x - x, p.z - z) < 70)) continue;
+      if (keepouts.some((kp) => Math.hypot(x - kp.x, z - kp.z) < kp.r + ruin.footprint + 4)) continue;
+      terrain.addFlatSpot({ x, z, inner: ruin.footprint + 1.5, outer: ruin.footprint + 9 });
+      keepouts.push({ x, z, r: ruin.footprint + 3 });
+      plans.push({ ruin, x, z, yaw: rand() * Math.PI * 2 });
+      return;
+    }
+  });
 
   const terrainMeshes = terrain.build(scene, world);
   const { heightAt, surfaceAt, slopeAt } = terrain;
@@ -452,6 +499,69 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     logCount++;
   }
 
+  // --- The ruins themselves -----------------------------------------------------
+  const pois: PoiInfo[] = [];
+  const _yq = new THREE.Quaternion();
+  plans.forEach((plan, index) => {
+    const base = surfaceAt(plan.x, plan.z);
+    _yq.setFromAxisAngle(UP, plan.yaw);
+    const toWorld = (l: [number, number, number]) => new THREE.Vector3(...l).applyAxisAngle(UP, plan.yaw).add(new THREE.Vector3(plan.x, base, plan.z));
+    for (const part of plan.ruin.parts) {
+      const p = toWorld(part.pos);
+      const chunk = chunkAt(p.x, p.z);
+      let geometry: THREE.BufferGeometry;
+      let quat: THREE.Quaternion;
+      let scale: THREE.Vector3;
+      if (part.shape === 'log') {
+        geometry = logGeo;
+        quat = _yq.clone().multiply(axisQuaternion(part.axis));
+        scale = new THREE.Vector3(part.radius, part.length, part.radius);
+      } else if (part.shape === 'box') {
+        geometry = boxGeo;
+        quat = _yq.clone().multiply(new THREE.Quaternion().setFromAxisAngle(UP, part.yaw));
+        scale = new THREE.Vector3(...part.size);
+      } else {
+        geometry = rockGeo;
+        quat = _yq.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...part.euler)));
+        scale = new THREE.Vector3(...part.scale);
+      }
+      _m.compose(p, quat, scale);
+      chunk.props.add(geometry, _m, _c.set(part.color));
+      chunk.propsLow.add(geometry, _m, _c.set(part.color));
+
+      const rotation = { x: quat.x, y: quat.y, z: quat.z, w: quat.w };
+      if (part.shape === 'log') {
+        addCollider(RAPIER.ColliderDesc.cylinder(part.length / 2, part.radius).setTranslation(p.x, p.y, p.z).setRotation(rotation), part.surface === 'bark' ? SURFACES.bark : SURFACES.wood);
+      } else if (part.shape === 'box') {
+        if (part.collide) addCollider(RAPIER.ColliderDesc.cuboid(part.size[0] / 2, part.size[1] / 2, part.size[2] / 2).setTranslation(p.x, p.y, p.z).setRotation(rotation), SURFACES.wood);
+      } else {
+        const hull = new Float32Array(rockCorners.length * 3);
+        rockCorners.forEach((v, k) => {
+          _p.copy(v).applyMatrix4(_m);
+          hull[k * 3] = _p.x;
+          hull[k * 3 + 1] = _p.y;
+          hull[k * 3 + 2] = _p.z;
+        });
+        const desc = RAPIER.ColliderDesc.convexHull(hull);
+        if (desc) addCollider(desc, SURFACES.stone);
+      }
+    }
+    pois.push({
+      id: `poi-${index}`,
+      type: plan.ruin.type,
+      label: plan.ruin.label,
+      x: plan.x,
+      z: plan.z,
+      yaw: plan.yaw,
+      baseY: base,
+      footprint: plan.ruin.footprint,
+      loot: plan.ruin.loot.map((l) => {
+        const w = toWorld(l.pos);
+        return { kind: l.kind, x: w.x, y: w.y, z: w.z };
+      }),
+    });
+  });
+
   // --- Grass tufts (visual only) ----------------------------------------------
   const tuftGeo = new THREE.ConeGeometry(0.05, 0.4, 3, 1, true).translate(0, 0.2, 0);
   for (const row of chunks) {
@@ -528,6 +638,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
 
   return {
     seed,
+    pois,
     heightAt,
     surfaceAt,
     slopeAt,

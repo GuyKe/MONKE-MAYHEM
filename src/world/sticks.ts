@@ -60,10 +60,8 @@ export interface Stick {
   readonly maxDurability: number;
   /** How much rope is wound around the head (0 to 1), drawn on an axe. */
   wrap: number;
-  // Where this piece is in the instanced meshes.
-  slot: number;
-  headSlot: number;
-  wrapSlot: number;
+  /** Axes carry a stone head, and a lashed one has rope wound round it. */
+  hasHead: boolean;
 }
 
 export interface SticksOptions {
@@ -89,8 +87,10 @@ export interface PieceOptions {
   wrap?: number;
 }
 
-/** Spare room in each mesh for crafted pieces. */
-const SPARE = 90;
+/** Room in each mesh beyond the pieces scattered at the start, for crafted ones and loot. */
+const SPARE = 300;
+/** Pieces further than this from the player are not drawn (the fog hides them anyway). */
+const DRAW_DISTANCE = 100;
 /** Sticks placed in a fan right in front of the player. */
 const FAN_COUNT = 8;
 /** Sticks placed in the clearing and trees around the spawn. */
@@ -158,8 +158,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 interface Slots {
   mesh: THREE.InstancedMesh;
+  /** How many instances were written this frame. */
   used: number;
-  free: number[];
 }
 
 /**
@@ -173,6 +173,7 @@ export class Sticks {
   readonly meshes: THREE.InstancedMesh[] = [];
   /** How many pieces have fallen out of the world and been put back (should stay 0). */
   respawned = 0;
+  private frame = 0;
   private readonly home: THREE.Vector3Like;
   private readonly world: RAPIER.World;
   private readonly slots: Record<'prism' | 'stone' | 'coil' | 'head' | 'wrap', Slots>;
@@ -190,14 +191,14 @@ export class Sticks {
       mesh.frustumCulled = false;
       mesh.count = 0;
       this.meshes.push(mesh);
-      return { mesh, used: 0, free: [] };
+      return { mesh, used: 0 };
     };
     this.slots = {
       prism: make(new THREE.CylinderGeometry(TAPER, 1, 1, 6), sticks + SPARE),
       stone: make(DODECA, stones + SPARE),
       coil: make(torus, SPARE),
-      head: make(DODECA, 32),
-      wrap: make(torus, 32, new THREE.MeshLambertMaterial({ color: 0xc9ac6e, flatShading: true })),
+      head: make(DODECA, 64),
+      wrap: make(torus, 64, new THREE.MeshLambertMaterial({ color: 0xc9ac6e, flatShading: true })),
     };
 
     for (let i = 0; i < sticks; i++) {
@@ -233,11 +234,6 @@ export class Sticks {
     stick.heldBy = null;
     stick.highlighted = false;
     this.world.removeRigidBody(stick.body);
-    // Free its places in the meshes and hide what is drawn there.
-    this.release(this.slotsFor(stick.shape), stick.slot);
-    if (stick.headSlot >= 0) this.release(this.slots.head, stick.headSlot);
-    if (stick.wrapSlot >= 0) this.release(this.slots.wrap, stick.wrapSlot);
-    stick.headSlot = stick.wrapSlot = -1;
   }
 
   /**
@@ -270,10 +266,16 @@ export class Sticks {
     return out.set(0, stick.length / 2 + AXE_HEAD.along, 0).applyQuaternion(stick.quat).add(stick.pos);
   }
 
-  /** Copies body poses to the meshes. */
-  sync(): void {
+  /**
+   * Copies body poses to the meshes. With `viewer` only pieces within drawing distance are drawn (each is written
+   * into the next free place in its mesh), and far ones are only looked at now and then.
+   */
+  sync(viewer?: THREE.Vector3): void {
+    this.frame++;
+    for (const slots of Object.values(this.slots)) slots.used = 0;
     for (const stick of this.list) {
       if (stick.hidden) continue;
+      if (viewer && stick.pos.distanceToSquared(viewer) > DRAW_DISTANCE * DRAW_DISTANCE && (this.frame + stick.id) % 30 !== 0) continue;
       // Held pieces are real bodies too, so the pose always comes from the physics.
       const t = stick.body.translation();
       const r = stick.body.rotation();
@@ -281,52 +283,47 @@ export class Sticks {
       stick.quat.set(r.x, r.y, r.z, r.w);
       if (t.y < -20) this.respawn(stick); // fell out of the world
       this.updateStickDamping(stick);
+      if (viewer && stick.pos.distanceToSquared(viewer) > DRAW_DISTANCE * DRAW_DISTANCE) continue;
 
       const slots = this.slotsFor(stick.shape);
+      const at = slots.used;
+      if (at >= slots.mesh.instanceMatrix.count) continue;
+      slots.used++;
       if (stick.shape === 'prism') _s.set(stick.radius, stick.length, stick.radius);
       else if (stick.shape === 'stone') _s.set(stick.radius, stick.radius * 0.8, stick.radius);
       else _s.setScalar(stick.radius / COIL_OUTER);
       _m.compose(stick.pos, stick.quat, _s);
-      slots.mesh.setMatrixAt(stick.slot, _m);
-      if (stick.highlighted !== stick.drawnHighlighted) {
-        stick.drawnHighlighted = stick.highlighted;
-        slots.mesh.setColorAt(stick.slot, stick.highlighted ? HIGHLIGHT : _color.copy(stick.baseColor));
-        if (slots.mesh.instanceColor) slots.mesh.instanceColor.needsUpdate = true;
-      }
+      slots.mesh.setMatrixAt(at, _m);
+      slots.mesh.setColorAt(at, stick.highlighted ? HIGHLIGHT : _color.copy(stick.baseColor));
 
       // An axe: a stone head at the top of the handle, and rope wound round it.
-      if (stick.headSlot >= 0) {
-        _off.set(0, stick.length / 2 + AXE_HEAD.along, 0).applyQuaternion(stick.quat).add(stick.pos);
-        _m.compose(_off, stick.quat, _s.set(...AXE_HEAD.scale));
-        this.slots.head.mesh.setMatrixAt(stick.headSlot, _m);
-      }
-      if (stick.wrapSlot >= 0) {
-        _off.set(0, stick.length / 2 + AXE_HEAD.along - 0.045, 0).applyQuaternion(stick.quat).add(stick.pos);
-        _m.compose(_off, stick.quat, _s.setScalar(0.32 * Math.max(0.001, stick.wrap)));
-        this.slots.wrap.mesh.setMatrixAt(stick.wrapSlot, _m);
+      if (stick.hasHead) {
+        const head = this.slots.head;
+        const wrap = this.slots.wrap;
+        if (head.used < head.mesh.instanceMatrix.count) {
+          _off.set(0, stick.length / 2 + AXE_HEAD.along, 0).applyQuaternion(stick.quat).add(stick.pos);
+          _m.compose(_off, stick.quat, _s.set(...AXE_HEAD.scale));
+          head.mesh.setMatrixAt(head.used, _m);
+          head.mesh.setColorAt(head.used, _color.setHSL(0.1, 0.05, 0.42));
+          head.used++;
+        }
+        if (wrap.used < wrap.mesh.instanceMatrix.count) {
+          _off.set(0, stick.length / 2 + AXE_HEAD.along - 0.045, 0).applyQuaternion(stick.quat).add(stick.pos);
+          _m.compose(_off, stick.quat, _s.setScalar(0.32 * Math.max(0.001, stick.wrap)));
+          wrap.mesh.setMatrixAt(wrap.used, _m);
+          wrap.used++;
+        }
       }
     }
-    for (const mesh of this.meshes) {
-      mesh.instanceMatrix.needsUpdate = true;
+    for (const slots of Object.values(this.slots)) {
+      slots.mesh.count = slots.used;
+      slots.mesh.instanceMatrix.needsUpdate = true;
+      if (slots.mesh.instanceColor) slots.mesh.instanceColor.needsUpdate = true;
     }
   }
 
   private slotsFor(shape: Shape): Slots {
     return this.slots[shape];
-  }
-
-  private allocate(slots: Slots): number {
-    const reused = slots.free.pop();
-    if (reused !== undefined) return reused;
-    const i = slots.used++;
-    slots.mesh.count = slots.used;
-    return i;
-  }
-
-  private release(slots: Slots, index: number): void {
-    slots.mesh.setMatrixAt(index, _m.makeScale(0, 0, 0));
-    slots.mesh.instanceMatrix.needsUpdate = true;
-    slots.free.push(index);
   }
 
   /** Puts a loose piece lying on the ground at a spot (x, z). */
@@ -395,7 +392,6 @@ export class Sticks {
       sat[0] + rand() * (sat[1] - sat[0]),
       light[0] + rand() * (light[1] - light[0]),
     );
-    const slots = this.slotsFor(spec.shape);
     const max = extra.durability ?? (kind === 'axe' ? 12 : kind === 'axe2' ? 40 : 0);
     const piece: Stick = {
       id: this.list.length,
@@ -415,16 +411,8 @@ export class Sticks {
       durability: max,
       maxDurability: max,
       wrap: extra.wrap ?? (kind === 'axe2' ? 1 : 0),
-      slot: this.allocate(slots),
-      headSlot: -1,
-      wrapSlot: -1,
+      hasHead: isAxe,
     };
-    if (isAxe) {
-      piece.headSlot = this.allocate(this.slots.head);
-      this.slots.head.mesh.setColorAt(piece.headSlot, _color.setHSL(0.1, 0.05, 0.42));
-      piece.wrapSlot = this.allocate(this.slots.wrap);
-      if (this.slots.head.mesh.instanceColor) this.slots.head.mesh.instanceColor.needsUpdate = true;
-    }
     this.list.push(piece);
     return piece;
   }

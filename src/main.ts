@@ -14,6 +14,7 @@ import { Grab } from './player/grab';
 import { Journal, RECIPES } from './player/journal';
 import { Book, type HandView } from './player/book';
 import { MapView } from './world/mapview';
+import { Pois } from './world/pois';
 import { Fire } from './world/fire';
 import { Building } from './world/building';
 import { TreeRopes } from './world/ropes';
@@ -140,6 +141,7 @@ async function main(): Promise<void> {
   // The book shows the building plans, and the building system needs the grab code, which needs the book to
   // stash sticks: so the building system is filled in once it exists.
   const buildingRef: { current: Building | null } = { current: null };
+  const poisRef: { current: Pois | null } = { current: null };
   const book = new Book(
     scene,
     camera,
@@ -159,7 +161,7 @@ async function main(): Promise<void> {
         day: atmosphere?.day ?? 1,
       }),
       map: mapView,
-      markers: () => [],
+      markers: () => poisRef.current?.markers ?? [],
       player: () => {
         const head = locomotion.headWorld(_viewer);
         camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -179,6 +181,14 @@ async function main(): Promise<void> {
     onMessage: (text) => book.say(text),
     pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
   });
+  // The old places to find, with things lying about inside them.
+  if (forestRef) {
+    poisRef.current = new Pois(forestRef.pois, sticks, {
+      say: (text) => book.say(text),
+      pulse: (strength, ms) => hands.all.forEach((h) => h.pulse(strength, ms)),
+    });
+  }
+
   // Ropes hanging in trees: grab one and pull down to tear it free.
   const treeRopes = forestRef ? new TreeRopes(scene, forestRef.ropes) : null;
   const grab = new Grab(sticks, hands, {
@@ -372,7 +382,8 @@ async function main(): Promise<void> {
     atmosphere?.update(dt, viewer);
     animals?.update(dt, viewer, atmosphere?.night ?? 0);
     mapView?.explore(viewer.x, viewer.z);
-    treeRopes?.update(dt);
+    poisRef.current?.update(viewer);
+    treeRopes?.update(dt, viewer);
     fire.update(dt, viewer, atmosphere?.night ?? 0);
     friction.update(dt);
 
@@ -383,7 +394,7 @@ async function main(): Promise<void> {
     const substeps = Math.ceil(physicsDt / (1 / 60) - 1e-6);
     world.timestep = physicsDt / substeps;
     for (let i = 0; i < substeps; i++) world.step();
-    sticks.sync();
+    sticks.sync(viewer);
 
     fpsFrames++;
     fpsTime += frameDt;
@@ -398,7 +409,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building } });
+  Object.assign(window, { __monke: { locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(
