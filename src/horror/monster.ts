@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildHuman, type Human } from '../mode/figures';
+import { buildGorilla, type Human } from '../mode/figures';
 import { CELL, type Cell, type Facility } from './facility';
 
 export type MonsterState = 'patrol' | 'hunt' | 'lurk' | 'away';
@@ -38,7 +38,7 @@ export class Monster {
     private readonly f: Facility,
     private readonly hooks: { growl(at: THREE.Vector3): void; step(at: THREE.Vector3, loud: number): void },
   ) {
-    this.human = buildHuman('monster', { skin: 0xc9c2b2, hair: 0x14100d, shirt: 0x231b18, pants: 0x1a1816, shoes: 0x0d0d0d });
+    this.human = buildGorilla('monster', { fur: 0x3b2f2c, face: 0x5a4a42, belly: 0x4a3a34 });
     this.group = this.human.group;
     scene.add(this.group);
     const c = f.center(f.monsterStart);

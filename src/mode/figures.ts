@@ -1,9 +1,6 @@
 import * as THREE from 'three';
-import { Body, buildHandGeometry } from '../player/body';
 
-const STONE = 0x9c9c94;
 const _v = new THREE.Vector3();
-const _q = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
 
 const blob = new THREE.IcosahedronGeometry(1, 1);
@@ -45,12 +42,13 @@ function limb(parent: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, r: num
 
 const p3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
-export interface HumanOptions {
-  skin: number;
-  hair: number;
-  shirt: number;
-  pants: number;
-  shoes: number;
+export interface GorillaOptions {
+  /** Fur colour. */
+  fur: number;
+  /** Bare skin of the face, hands and feet. */
+  face: number;
+  /** Chest and belly. */
+  belly: number;
 }
 
 export interface Human {
@@ -58,132 +56,217 @@ export interface Human {
   head: THREE.Group;
   legs: [THREE.Group, THREE.Group];
   arms: [THREE.Group, THREE.Group];
+  /** Where the hands are, in the figure's own space (for holding things). */
+  hands: [THREE.Vector3, THREE.Vector3];
 }
+
+export type GorillaKind = 'dummy' | 'scared' | 'monster';
 
 const BLOOD = 0x8d0d10;
 const BLOOD_DARK = 0x5c080a;
+const SKIN_DARK = 0x2a211d;
 
-/** The head: a round face with the expression that makes the character. Faces -Z; origin at the neck. */
-function buildHead(opts: HumanOptions, kind: 'scared' | 'monster'): THREE.Group {
-  const head = new THREE.Group();
-  const monster = kind === 'monster';
-  const s = monster ? 1.12 : 1;
-  part(head, blob, opts.skin, [0, 0.17 * s, 0], [0.12 * s, 0.14 * s, 0.125 * s]); // skull
-  // Hair: messy tufts on top.
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2;
-    part(head, cone, opts.hair, [Math.cos(a) * 0.08 * s, 0.29 * s, Math.sin(a) * 0.07 * s + 0.01], [0.035, 0.1, 0.035], [Math.sin(a) * 0.7, 0, -Math.cos(a) * 0.7]);
+let seedState = 1;
+const rand = (): number => {
+  seedState = (seedState * 1664525 + 1013904223) >>> 0;
+  return seedState / 4294967296;
+};
+
+/** Fur: short tufts standing out of the surface of an ellipsoid. `skip` drops the ones that would cover the front. */
+function furTufts(parent: THREE.Object3D, centre: [number, number, number], radii: [number, number, number], count: number, color: number, length: number, skip?: (n: THREE.Vector3) => boolean): void {
+  for (let i = 0; i < count; i++) {
+    const n = new THREE.Vector3(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1).normalize();
+    if (skip?.(n)) continue;
+    const m = new THREE.Mesh(cone, mat(color));
+    m.position.set(centre[0] + n.x * radii[0], centre[1] + n.y * radii[1], centre[2] + n.z * radii[2]);
+    // Lean down a little (fur hangs).
+    const dir = n.clone().add(new THREE.Vector3(0, -0.45, 0)).normalize();
+    m.quaternion.setFromUnitVectors(UP, dir);
+    const l = length * (0.7 + rand() * 0.6);
+    m.scale.set(length * 0.3, l, length * 0.3);
+    m.position.addScaledVector(dir, l * 0.3);
+    parent.add(m);
   }
-  part(head, blob, opts.hair, [0, 0.27 * s, 0.03], [0.125 * s, 0.07, 0.12 * s]);
-  // Ears and nose.
-  for (const sx of [-1, 1]) part(head, lowBlob, opts.skin, [sx * 0.125 * s, 0.17 * s, 0.01], [0.025, 0.04, 0.02]);
-  part(head, lowBlob, opts.skin, [0, 0.15 * s, -0.125 * s], [0.025, 0.03, 0.03]);
+}
+
+/** The face, which is what makes each one who it is. Faces -Z; origin at the neck. */
+function buildHead(o: GorillaOptions, kind: GorillaKind): THREE.Group {
+  const head = new THREE.Group();
+  const scared = kind === 'scared';
+  const monster = kind === 'monster';
+  part(head, blob, o.fur, [0, 0.11, 0.0], [0.115, 0.12, 0.12]); // skull
+  part(head, blob, o.fur, [0, 0.21, 0.02], [0.07, 0.06, 0.1]); // the crown (sagittal crest)
+  furTufts(head, [0, 0.12, 0.02], [0.11, 0.11, 0.11], 26, o.fur, 0.05, (n) => n.z < -0.45 && n.y < 0.5);
+  // Ears with the pale inside.
+  for (const sx of [-1, 1]) {
+    part(head, blob, o.fur, [sx * 0.125, 0.115, 0.02], [0.03, 0.045, 0.025]);
+    part(head, lowBlob, o.face, [sx * 0.14, 0.115, 0.012], [0.014, 0.03, 0.016]);
+  }
+  // Bare face: a brow ridge, a face patch, a muzzle with nostrils.
+  part(head, box, SKIN_DARK, [0, scared ? 0.175 : 0.158, -0.105], [0.125, 0.026, 0.045], [scared ? -0.2 : 0.2, 0, 0]);
+  part(head, blob, o.face, [0, 0.11, -0.092], [0.088, 0.085, 0.045]);
+  part(head, blob, o.face, [0, 0.065, -0.14], [0.058, 0.044, 0.05]);
+  part(head, blob, o.belly, [0, 0.032, -0.14], [0.05, 0.022, 0.044]); // the lip
+  for (const sx of [-1, 1]) part(head, lowBlob, 0x120d0b, [sx * 0.016, 0.078, -0.187], [0.009, 0.007, 0.005]); // nostrils
+  part(head, blob, o.face, [0, -0.005, -0.1], [0.04, 0.03, 0.04]); // chin
   if (monster) {
-    // Hollow black eyes with a pinprick of light, and a grin too wide for the face.
+    // Hollow black eyes with a pinprick of light.
     for (const sx of [-1, 1]) {
-      part(head, blob, 0x050505, [sx * 0.05 * s, 0.2 * s, -0.105 * s], [0.04, 0.05, 0.03]);
-      part(head, lowBlob, 0xffffff, [sx * 0.05 * s, 0.2 * s, -0.132 * s], [0.008, 0.008, 0.005], [0, 0, 0], 0xffffff);
-      part(head, box, 0x120505, [sx * 0.055 * s, 0.245 * s, -0.115 * s], [0.05, 0.012, 0.01], [0, 0, sx * -0.35]); // heavy brow
+      part(head, blob, 0x040404, [sx * 0.04, 0.128, -0.115], [0.026, 0.034, 0.02]);
+      part(head, lowBlob, 0xffffff, [sx * 0.04, 0.13, -0.134], [0.006, 0.006, 0.004], [0, 0, 0], 0xffffff);
+      part(head, box, 0x0a0505, [sx * 0.046, 0.168, -0.112], [0.05, 0.012, 0.012], [0, 0, sx * -0.42]); // heavy brow
     }
-    part(head, box, 0x1a0404, [0, 0.085 * s, -0.12 * s], [0.17 * s, 0.045, 0.02]); // the mouth
-    for (let i = -7; i <= 7; i++) {
-      const x = i * 0.0115 * s;
-      const y = 0.085 * s + 0.026 + Math.abs(i) * -0.0009 + (Math.abs(i) > 4 ? 0.012 : 0);
-      part(head, box, 0xeeeadc, [x, y, -0.128 * s], [0.008, 0.022, 0.01]); // top teeth
-      part(head, box, 0xeeeadc, [x, y - 0.043, -0.128 * s], [0.008, 0.02, 0.01]); // bottom teeth
+    // A grin too wide for the face, with teeth.
+    part(head, box, 0x1a0404, [0, 0.04, -0.168], [0.108, 0.04, 0.018]);
+    for (let i = -6; i <= 6; i++) {
+      part(head, box, 0xeeeadc, [i * 0.0083, 0.062 + (Math.abs(i) > 3 ? 0.008 : 0), -0.178], [0.0066, 0.02, 0.008]);
+      part(head, box, 0xeeeadc, [i * 0.0083, 0.021, -0.178], [0.0066, 0.017, 0.008]);
     }
-    // The corners of the smile curl up the cheeks.
-    for (const sx of [-1, 1]) part(head, box, 0x1a0404, [sx * 0.098 * s, 0.108 * s, -0.112 * s], [0.03, 0.01, 0.01], [0, 0, sx * 0.9]);
+    for (const sx of [-1, 1]) part(head, box, 0x1a0404, [sx * 0.058, 0.058, -0.158], [0.03, 0.008, 0.01], [0, 0, sx * 0.9]);
     // Blood: spattered over the face, running from the mouth and the eyes.
-    const spots: Array<[number, number, number, number]> = [[-0.06, 0.25, -0.1, 0.028], [0.07, 0.23, -0.105, 0.022], [0.03, 0.12, -0.125, 0.03], [-0.08, 0.14, -0.1, 0.026], [0.1, 0.16, -0.085, 0.02], [0, 0.03, -0.11, 0.04], [-0.04, 0.07, -0.125, 0.02]];
-    for (const [x, y, z, r] of spots) part(head, blob, BLOOD, [x * s, y * s, z * s], [r, r * 0.8, r * 0.4]);
-    for (const [x, len] of [[-0.03, 0.12], [0.02, 0.15], [0.06, 0.09], [-0.07, 0.07]]) part(head, cyl, BLOOD_DARK, [x * s, (0.05 - len / 2 + 0.02) * s, -0.118 * s], [0.007, len * s, 0.007]); // drips
-    part(head, blob, BLOOD, [0, -0.02, -0.07], [0.07, 0.06, 0.05]); // the chin and neck
-  } else {
-    // Wide, white, frightened eyes with tiny pupils, eyebrows up, an open mouth.
+    const spots: Array<[number, number, number, number]> = [[-0.05, 0.16, -0.108, 0.026], [0.06, 0.15, -0.112, 0.02], [0.02, 0.09, -0.16, 0.026], [-0.07, 0.09, -0.115, 0.022], [0.09, 0.1, -0.09, 0.02], [0, 0.0, -0.14, 0.036], [-0.035, 0.05, -0.17, 0.018]];
+    for (const [x, y, z, r] of spots) part(head, blob, BLOOD, [x, y, z], [r, r * 0.8, r * 0.4]);
+    for (const [x, len] of [[-0.03, 0.12], [0.02, 0.15], [0.06, 0.09], [-0.065, 0.07], [0.045, 0.06]]) part(head, cyl, BLOOD_DARK, [x, 0.04 - len / 2 + 0.02, -0.168], [0.006, len, 0.006]);
+    part(head, blob, BLOOD, [0, -0.04, -0.07], [0.07, 0.05, 0.05]);
+    part(head, blob, BLOOD_DARK, [0.04, 0.22, 0.0], [0.04, 0.025, 0.06]);
+  } else if (scared) {
+    // Wide white eyes with pin-prick pupils, brows up, mouth open, sweat.
     for (const sx of [-1, 1]) {
-      part(head, blob, 0xffffff, [sx * 0.05, 0.19, -0.105], [0.038, 0.045, 0.03]);
-      part(head, lowBlob, 0x1a1a1a, [sx * 0.05, 0.185, -0.133], [0.011, 0.014, 0.008]);
-      part(head, box, opts.hair, [sx * 0.05, 0.255, -0.113], [0.055, 0.012, 0.01], [0, 0, sx * 0.4]);
+      part(head, blob, 0xffffff, [sx * 0.04, 0.128, -0.114], [0.03, 0.037, 0.022]);
+      part(head, lowBlob, 0x1a1a1a, [sx * 0.04, 0.124, -0.134], [0.008, 0.011, 0.005]);
     }
-    part(head, blob, 0x2a0a0a, [0, 0.085, -0.115], [0.028, 0.038, 0.02]); // the open mouth
-    part(head, blob, 0xa8d8f0, [0.115, 0.27, -0.06], [0.012, 0.02, 0.012]); // sweat
-    part(head, blob, 0xa8d8f0, [-0.11, 0.24, -0.07], [0.01, 0.017, 0.01]);
+    part(head, blob, 0x2a0a0a, [0, 0.036, -0.17], [0.03, 0.034, 0.02]);
+    part(head, blob, 0xa8d8f0, [0.115, 0.18, -0.05], [0.011, 0.019, 0.011]);
+    part(head, blob, 0xa8d8f0, [-0.11, 0.15, -0.065], [0.009, 0.016, 0.009]);
+  } else {
+    // The plain, calm face of the dummy: round eyes and a small straight mouth.
+    for (const sx of [-1, 1]) {
+      part(head, blob, 0xfaf6e8, [sx * 0.04, 0.128, -0.114], [0.024, 0.027, 0.018]);
+      part(head, lowBlob, 0x120d0b, [sx * 0.04, 0.128, -0.13], [0.012, 0.014, 0.006]);
+    }
+    part(head, box, SKIN_DARK, [0, 0.042, -0.19], [0.05, 0.005, 0.006]);
   }
   return head;
 }
 
+/** A hand with four fingers and a thumb (palm facing down). Origin at the wrist. `claws` adds sharp tips. */
+function buildGorillaHand(parent: THREE.Object3D, at: THREE.Vector3, sx: number, o: GorillaOptions, claws: boolean): void {
+  const hand = new THREE.Group();
+  hand.position.copy(at);
+  parent.add(hand);
+  part(hand, blob, SKIN_DARK, [0, -0.02, -0.03], [0.055, 0.032, 0.062]); // palm
+  for (let i = 0; i < 4; i++) {
+    const x = (i - 1.5) * 0.026;
+    const len = 0.062 - Math.abs(i - 1.5) * 0.006;
+    part(hand, box, SKIN_DARK, [x, -0.032, -0.09 - len / 2 + 0.02], [0.021, 0.02, len], [0.28, 0, 0]);
+    if (claws) part(hand, cone, 0xd8d2c0, [x, -0.05, -0.15 - len / 2 + 0.02], [0.009, 0.05, 0.009], [-Math.PI / 2 - 0.4, 0, 0]);
+  }
+  part(hand, box, SKIN_DARK, [-sx * 0.048, -0.028, -0.06], [0.022, 0.02, 0.05], [0.1, sx * 0.5, 0]); // thumb
+  part(hand, blob, o.fur, [0, 0.015, 0.02], [0.04, 0.03, 0.04]); // fur at the wrist
+}
+
 /**
- * A person, built from simple shapes, facing -Z with feet at the origin. `scared`: knees together, one arm up in front of the
- * face and a torch held out in the other hand. `monster`: taller, hunched, long arms with claws, a grin, and blood.
+ * The gorilla-tag style ape, built from simple shapes: a round head with a muzzle, brow and ears, a barrel chest, long arms
+ * with proper hands, short bent legs, and fur tufts. Faces -Z, feet at the origin, about 1.2 tall.
+ * `dummy` stands plain and calm; `scared` is wide-eyed with a hand up and one holding out a torch; `monster` is bigger,
+ * hunched, clawed, bloody, and smiling.
  */
-export function buildHuman(kind: 'scared' | 'monster', opts: HumanOptions): Human {
+export function buildGorilla(kind: GorillaKind, o: GorillaOptions): Human {
+  seedState = kind === 'dummy' ? 11 : kind === 'scared' ? 23 : 37;
+  const outer = new THREE.Group();
   const group = new THREE.Group();
+  const size = kind === 'monster' ? 1.18 : 1;
+  group.scale.setScalar(size);
+  outer.add(group);
   const monster = kind === 'monster';
-  const height = monster ? 1.12 : 1;
-  const hip = 0.92 * height;
+  const hip = 0.45;
+  const lean = monster ? -0.42 : kind === 'scared' ? -0.12 : -0.3;
   const legs: [THREE.Group, THREE.Group] = [new THREE.Group(), new THREE.Group()];
   const arms: [THREE.Group, THREE.Group] = [new THREE.Group(), new THREE.Group()];
   group.add(...legs, ...arms);
-  // Legs, hung from the hip. Scared: knock-kneed.
+
+  // Legs: short and bent, with a broad foot. The scared one is knock-kneed.
   [-1, 1].forEach((sx, i) => {
     const leg = legs[i];
-    leg.position.set(sx * 0.11, hip, 0);
-    const knee = monster ? p3(sx * 0.02, -0.46 * height, -0.03) : p3(-sx * 0.015, -0.45, -0.08);
-    const foot = monster ? p3(sx * 0.02, -0.9 * height, 0.02) : p3(sx * 0.07, -0.88, 0.02);
-    limb(leg, p3(0, 0, 0), knee, 0.075, opts.pants);
-    limb(leg, knee, foot, 0.06, opts.pants);
-    part(leg, box, opts.shoes, [foot.x, foot.y - 0.03, foot.z - 0.06], [0.1, 0.07, 0.24]);
+    leg.position.set(sx * 0.13, hip, 0);
+    const knee = kind === 'scared' ? p3(-sx * 0.01, -0.22, -0.11) : p3(sx * 0.04, -0.21, -0.1);
+    const foot = kind === 'scared' ? p3(sx * 0.05, -0.43, -0.02) : p3(sx * 0.05, -0.43, -0.03);
+    part(leg, blob, o.fur, [0, -0.04, 0], [0.1, 0.1, 0.1]);
+    limb(leg, p3(0, 0, 0), knee, 0.085, o.fur);
+    limb(leg, knee, foot, 0.068, o.fur);
+    furTufts(leg, [knee.x / 2, knee.y / 2, knee.z / 2], [0.09, 0.14, 0.09], 8, o.fur, 0.045);
+    part(leg, blob, SKIN_DARK, [foot.x, foot.y - 0.012, foot.z - 0.05], [0.065, 0.032, 0.095]); // the foot
+    for (let t = -1; t <= 1; t++) part(leg, blob, SKIN_DARK, [foot.x + t * 0.03, foot.y - 0.014, foot.z - 0.14], [0.018, 0.02, 0.03]); // toes
   });
-  // Torso.
-  const torsoLean = monster ? -0.25 : 0.12;
+
+  // Torso: a barrel chest with a pale front, a hump of shoulders and a lot of fur.
   const torso = new THREE.Group();
   torso.position.set(0, hip, 0);
-  torso.rotation.x = torsoLean;
+  torso.rotation.x = lean;
   group.add(torso);
-  part(torso, blob, opts.shirt, [0, 0.3 * height, 0], [0.2, 0.3 * height, 0.12]);
-  part(torso, blob, opts.pants, [0, 0.02, 0], [0.18, 0.1, 0.11]);
-  const neck = p3(0, 0.62 * height, 0);
-  const head = buildHead(opts, kind);
-  head.position.copy(neck);
-  head.rotation.set(monster ? 0.28 : -0.12, 0, monster ? 0.18 : 0);
+  part(torso, blob, o.fur, [0, 0.29, 0], [0.22, 0.3, 0.17]);
+  part(torso, blob, o.belly, [0, 0.27, -0.12], [0.15, 0.2, 0.06]);
+  part(torso, blob, o.belly, [0, 0.12, -0.12], [0.13, 0.12, 0.06]);
+  part(torso, blob, o.fur, [0, 0.02, 0], [0.18, 0.1, 0.14]);
+  part(torso, blob, o.fur, [0, 0.5, 0.01], [0.3, 0.13, 0.15]); // shoulders
+  part(torso, blob, o.fur, [0, 0.52, 0.09], [0.2, 0.12, 0.1]); // the back hump
+  furTufts(torso, [0, 0.3, 0], [0.22, 0.3, 0.17], 46, o.fur, 0.07, (n) => n.z < -0.4 && n.y < 0.75);
+  furTufts(torso, [0, 0.5, 0.04], [0.28, 0.13, 0.15], 18, o.fur, 0.07);
+  const head = buildHead(o, kind);
+  head.position.set(0, 0.6, monster ? -0.1 : -0.05);
+  head.rotation.set(-lean * 0.9 + (kind === 'scared' ? -0.1 : 0), 0, monster ? 0.18 : 0);
   torso.add(head);
-  // Arms, from the shoulders.
+
+  // Arms: long, from the shoulders; the hands hang low.
+  const shoulderLocal = (sx: number): THREE.Vector3 => p3(sx * 0.29, 0.5, 0).applyAxisAngle(p3(1, 0, 0), lean);
+  const hands: [THREE.Vector3, THREE.Vector3] = [p3(0, 0, 0), p3(0, 0, 0)];
   [-1, 1].forEach((sx, i) => {
     const arm = arms[i];
-    arm.position.set(sx * 0.22, hip + 0.5 * height, 0);
-    arm.rotation.x = torsoLean;
-    const shoulder = p3(0, 0, 0);
+    const sh = shoulderLocal(sx);
+    arm.position.set(sh.x, hip + sh.y, sh.z);
     let elbow: THREE.Vector3;
     let hand: THREE.Vector3;
     if (monster) {
-      elbow = p3(sx * 0.1, -0.34, -0.1);
-      hand = p3(sx * 0.07, -0.78, -0.2);
+      elbow = p3(sx * 0.09, -0.3, -0.1);
+      hand = p3(sx * 0.06, -0.64, -0.2);
+    } else if (kind === 'scared') {
+      if (sx < 0) {
+        elbow = p3(-0.13, -0.22, -0.18); // up in front of the face
+        hand = p3(-0.03, 0.14, -0.3);
+      } else {
+        elbow = p3(0.14, -0.2, -0.22); // holding the torch out
+        hand = p3(0.07, -0.03, -0.5);
+      }
     } else if (sx < 0) {
-      elbow = p3(-0.12, -0.22, -0.18); // the left arm comes up in front of the face
-      hand = p3(-0.03, 0.12, -0.3);
+      elbow = p3(-0.08, -0.29, -0.06);
+      hand = p3(-0.08, -0.58, -0.11);
     } else {
-      elbow = p3(0.14, -0.2, -0.22); // the right arm holds the torch out
-      hand = p3(0.07, -0.02, -0.5);
+      elbow = p3(0.1, -0.26, -0.15); // holding the stick
+      hand = p3(0.11, -0.36, -0.36);
     }
-    limb(arm, shoulder, elbow, 0.055, opts.shirt);
-    limb(arm, elbow, hand, 0.045, monster ? opts.skin : opts.skin);
-    part(arm, blob, opts.skin, [hand.x, hand.y, hand.z], [0.055, 0.055, 0.05]);
+    hands[i] = hand.clone().add(arm.position);
+    part(arm, blob, o.fur, [0, -0.01, 0], [0.1, 0.1, 0.1]);
+    limb(arm, p3(0, 0, 0), elbow, 0.075, o.fur);
+    limb(arm, elbow, hand, 0.062, o.fur);
+    part(arm, blob, o.fur, [elbow.x, elbow.y, elbow.z], [0.075, 0.075, 0.075]);
+    furTufts(arm, [elbow.x * 0.5, elbow.y * 0.5, elbow.z * 0.5], [0.075, 0.17, 0.075], 12, o.fur, 0.05);
+    furTufts(arm, [(elbow.x + hand.x) / 2, (elbow.y + hand.y) / 2, (elbow.z + hand.z) / 2], [0.065, 0.16, 0.065], 10, o.fur, 0.045);
+    buildGorillaHand(arm, hand, sx, o, monster);
     if (monster) {
-      for (let c = -1; c <= 1; c++) part(arm, cone, 0xd8d2c0, [hand.x + c * 0.025, hand.y - 0.09, hand.z - 0.02], [0.012, 0.11, 0.012], [0.15, 0, c * 0.1]); // claws
-      part(arm, blob, BLOOD, [hand.x, hand.y - 0.02, hand.z], [0.06, 0.07, 0.05]);
-      part(arm, blob, BLOOD, [elbow.x, elbow.y, elbow.z], [0.06, 0.09, 0.06]);
+      part(arm, blob, BLOOD, [hand.x, hand.y - 0.01, hand.z - 0.04], [0.065, 0.06, 0.08]);
+      part(arm, blob, BLOOD, [elbow.x, elbow.y, elbow.z - 0.04], [0.07, 0.09, 0.05]);
+      part(arm, cyl, BLOOD_DARK, [hand.x * 0.5 + elbow.x * 0.5, (hand.y + elbow.y) / 2, (hand.z + elbow.z) / 2 - 0.05], [0.012, 0.2, 0.012]);
     }
   });
   if (monster) {
-    // Blood down the shirt, and tears in it.
-    for (const [x, y, z, r] of [[0, 0.45, -0.1, 0.12], [-0.08, 0.28, -0.11, 0.1], [0.09, 0.2, -0.1, 0.09], [0.02, 0.1, -0.1, 0.08], [-0.12, 0.5, -0.07, 0.06]]) {
-      const b = part(torso, blob, BLOOD, [x, y * height, z], [r, r * 1.5, 0.03]);
+    for (const [x, y, z, r] of [[0, 0.4, -0.15, 0.12], [-0.08, 0.26, -0.16, 0.1], [0.09, 0.2, -0.15, 0.09], [0.02, 0.1, -0.15, 0.08], [-0.13, 0.46, -0.1, 0.06]]) {
+      const b = part(torso, blob, BLOOD, [x, y, z], [r, r * 1.4, 0.03]);
       b.rotation.z = x;
     }
-    for (const x of [-0.08, 0.04, 0.1]) part(torso, cyl, BLOOD_DARK, [x, 0.0, -0.11], [0.01, 0.16, 0.01]);
+    for (const x of [-0.08, 0.04, 0.1]) part(torso, cyl, BLOOD_DARK, [x, 0.05, -0.17], [0.01, 0.2, 0.01]);
   }
-  return { group, head: head as THREE.Group, legs, arms };
+  void outer;
+  return { group: outer, head, legs, arms, hands };
 }
 
 /** The flashlight in the scared statue's hand (a body and a faint beam). */
@@ -200,36 +283,24 @@ export function flashlightMesh(): THREE.Group {
 }
 
 /**
- * The jungle player as a statue: the gorilla body, in stone, standing with a stick. Returns a group with its feet at the origin,
- * facing -Z, at its own (small) size: scale it up.
+ * The jungle player's dummy: the gorilla, calm, standing with a stick in its right hand. Feet at the origin, facing -Z, at its
+ * own (small) size: scale it up.
  */
-export function gorillaStatue(scene: THREE.Scene): THREE.Group {
-  const group = new THREE.Group();
-  const body = new Body(scene, true);
-  scene.remove(body.root);
-  group.add(body.root);
-  const head = new THREE.Vector3(0, 0.67, 0);
-  const handL = new THREE.Vector3(-0.3, 0.2, -0.3);
-  const handR = new THREE.Vector3(0.32, 0.18, -0.34);
-  body.update(1, head, _q.identity(), [handL, handR]);
-  // Stone, not fur.
-  const stone = new THREE.MeshStandardMaterial({ color: STONE, roughness: 0.92, flatShading: true });
-  body.root.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (m.isMesh) m.material = stone;
-  });
-  body.root.updateMatrixWorld(true);
-  // Hands, and the stick the right one holds.
-  for (const [side, at] of [[1, handL], [-1, handR]] as Array<[1 | -1, THREE.Vector3]>) {
-    const hand = new THREE.Mesh(buildHandGeometry(side, 0.07), stone);
-    hand.position.copy(at);
-    group.add(hand);
+export function gorillaStatue(_scene?: THREE.Scene): THREE.Group {
+  const dummy = buildGorilla('dummy', { fur: 0x4a382c, face: 0xb48c6a, belly: 0x6c5442 });
+  const hand = dummy.hands[1];
+  const wood = new THREE.MeshLambertMaterial({ color: 0x6b4a2b, flatShading: true });
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.024, 1.0, 7), wood);
+  stick.position.set(hand.x, hand.y + 0.3, hand.z - 0.02);
+  stick.rotation.set(-0.12, 0, -0.1);
+  for (let i = 0; i < 3; i++) {
+    const knot = new THREE.Mesh(lowBlob, wood);
+    knot.position.set(0, -0.2 + i * 0.25, 0.02);
+    knot.scale.setScalar(0.02);
+    stick.add(knot);
   }
-  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.026, 1.05, 7), stone);
-  stick.position.set(handR.x + 0.06, handR.y + 0.3, handR.z - 0.03);
-  stick.rotation.set(-0.2, 0, -0.28);
-  group.add(stick);
-  return group;
+  dummy.group.add(stick);
+  return dummy.group;
 }
 
 /** A stone plinth to stand a statue on. */

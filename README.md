@@ -368,8 +368,8 @@ Turn it on in **Settings → Pages → Source: GitHub Actions**.
 
 The game now opens in a **lobby**: you spawn on a long black platform. Walk (or swing) up it to the statues:
 
-- **Jungle** – a stone statue of the jungle player holding a stick. Press **PLAY** to enter the jungle game (its main menu appears).
-- **Horror** – to its right, a statue of a scared player with a flashlight, with a smiling bloody monster standing behind it. Press **PLAY** to enter the horror facility.
+- **Jungle** – a gorilla dummy (the jungle player) holding a stick. Press **PLAY** to enter the jungle game (its main menu appears).
+- **Horror** – to its right, a scared gorilla with a flashlight, with a smiling bloody gorilla monster standing behind it. (Every figure is the same detailed gorilla-tag style gorilla model.) Press **PLAY** to enter the horror facility.
 
 Press the world-space buttons by poking them or with the laser pointer.
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildHuman, flashlightMesh, gorillaStatue, plinth, sign } from '../mode/figures';
+import { buildGorilla, flashlightMesh, gorillaStatue, plinth, sign } from '../mode/figures';
 import { createRuntime } from '../mode/runtime';
 import { WorldButton } from '../ui/panel';
 
@@ -66,7 +66,7 @@ export async function runHub(): Promise<void> {
   jungle.position.set(-5, 0, STATUE_Z);
   jungle.rotation.y = Math.PI; // they face the player
   const gorilla = gorillaStatue(scene);
-  gorilla.scale.setScalar(4.2);
+  gorilla.scale.setScalar(2.9);
   gorilla.position.y = 0.5;
   jungle.add(plinth(3, 0.5, 3), gorilla);
   scene.add(jungle);
@@ -79,19 +79,19 @@ export async function runHub(): Promise<void> {
   scene.add(jungleSign);
 
   // --- Horror: the frightened one and, behind, the other ----------------------------------------
-  const scared = buildHuman('scared', { skin: 0xe2b896, hair: 0x4a3322, shirt: 0x3a5a8a, pants: 0x34404c, shoes: 0xdddddd });
-  scared.group.scale.setScalar(2.0);
+  const scared = buildGorilla('scared', { fur: 0xc98a4a, face: 0xe6c9a8, belly: 0xe2b278 });
+  scared.group.scale.setScalar(2.5);
   scared.group.position.set(5, 0.5, STATUE_Z);
   scared.group.rotation.y = Math.PI;
   const torch = flashlightMesh();
-  torch.position.set(0.07, -0.02, -0.5);
+  torch.position.set(0.07, -0.03, -0.5);
   scared.arms[1].add(torch);
   const torchLight = new THREE.SpotLight(0xfff2d0, 80, 26, 0.5, 0.4, 1.2);
   torchLight.position.set(0.07, -0.02, -0.55);
   torchLight.target.position.set(0.07, -0.6, -9);
   scared.arms[1].add(torchLight, torchLight.target);
-  const monster = buildHuman('monster', { skin: 0xc9c2b2, hair: 0x14100d, shirt: 0x231b18, pants: 0x1a1816, shoes: 0x0d0d0d });
-  monster.group.scale.setScalar(2.1);
+  const monster = buildGorilla('monster', { fur: 0x3b2f2c, face: 0x5a4a42, belly: 0x4a3a34 });
+  monster.group.scale.setScalar(2.4);
   monster.group.position.set(5, 0.5, STATUE_Z - 4.2);
   monster.group.rotation.y = Math.PI;
   scene.add(plinthAt(5, STATUE_Z), plinthAt(5, STATUE_Z - 4.2), scared.group, monster.group);
@@ -126,7 +126,7 @@ export async function runHub(): Promise<void> {
     // The torch flickers, and the monster breathes.
     torchLight.intensity = 80 * (0.85 + 0.15 * Math.sin(time * 23) * Math.sin(time * 7.1));
     redLight.intensity = 40 * (0.8 + 0.2 * Math.sin(time * 2.2));
-    monster.group.scale.set(2.1, 2.1 * (1 + 0.006 * Math.sin(time * 1.6)), 2.1);
+    monster.group.scale.set(2.4, 2.4 * (1 + 0.006 * Math.sin(time * 1.6)), 2.4);
     monster.head.rotation.z = 0.18 + 0.03 * Math.sin(time * 0.7);
     // The buttons turn to face wherever you are.
     for (const b of [playJungle, playHorror]) b.mesh.lookAt(rt.head.x, b.mesh.position.y, rt.head.z);
