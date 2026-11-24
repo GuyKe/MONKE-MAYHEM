@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Settings, SettingsData } from '../settings';
 import { SETTING_ROWS } from './menu';
 import { ADMIN_ITEMS, type AdminActions } from '../admin';
+import type { PointerRay } from './laser';
 
 export interface PauseHooks {
   /** Writes the game. Returns false if it could not. */
@@ -28,12 +29,7 @@ interface Hit {
 
 const W = 512;
 const H = 680;
-/** A hand's pointing ray, for the laser. */
-export interface PointerRay {
-  origin: THREE.Vector3;
-  dir: THREE.Vector3;
-  trigger: boolean;
-}
+export type { PointerRay };
 
 /** The panel's size in the world (metres). */
 const PANEL_W = 0.62;

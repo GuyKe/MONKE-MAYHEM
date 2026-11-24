@@ -894,7 +894,7 @@ async function main(): Promise<void> {
       if (paused) locomotion.follow(headLocal, [leftPos, rightPos]);
       else locomotion.update(dt, headLocal, [leftPos, rightPos]);
       // Laser pointers: each controller's pointing ray, for the pause menu.
-      if (pause.open) {
+      if (pause.open || book.isOpen) {
         for (let i = 0; i < 2; i++) {
           // The controller that goes with this hand (the same index as its grip).
           const c = controllers[renderer.xr.getControllerGrip(1) === hands.all[i].grip ? 1 : 0];
@@ -941,7 +941,7 @@ async function main(): Promise<void> {
         view.stickX = hand.stickX;
       });
       perf.lap('building');
-      book.update(dt, { head: locomotion.headWorld(_viewer), hands: handViews, phase: atmosphere?.phase ?? null });
+      book.update(dt, { head: locomotion.headWorld(_viewer), hands: handViews, phase: atmosphere?.phase ?? null, rays: pause.open ? undefined : rays });
       perf.lap('book');
       if (book.page !== lastPage || book.isOpen !== lastOpen) {
         audio.play(book.isOpen !== lastOpen ? 'click' : 'page');

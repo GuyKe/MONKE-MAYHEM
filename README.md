@@ -309,6 +309,9 @@ menu; Resume there picks up where you were). Poke a button with a hand to press 
 Playing alone, the whole world stops while it is open: the clock, animals, physics and your hands' grip. In a multiplayer game it cannot stop (the others carry on), so
 the world keeps going while you use it.
 
+The same lasers work on the **book**: while it is open, aim a beam at a button on its pages (it lights up) and pull the trigger. Poking with a finger and swiping the page
+edge still work too.
+
 ## Redeem code and admin tools
 
 The main menu has an **Enter code** box, and the pause menu has an **Enter code** button (a letter-and-number keypad you poke). Redeem **SECRETADMIN123** and an **Admin**

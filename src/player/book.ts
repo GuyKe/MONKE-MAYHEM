@@ -4,6 +4,7 @@ import type { MapMarker, MapView } from '../world/mapview';
 import type { PieceKind, Stick, Sticks } from '../world/sticks';
 import { FACE, FACE_COUNT, FACE_H, FACE_W, drawFace, parseSettingValue, type BlueprintView, type FaceContext, type Hit } from './bookFaces';
 import { RECIPES, type Journal, type Recipe } from './journal';
+import { Laser, type PointerRay } from '../ui/laser';
 
 /** What the book needs to know about a hand each frame. */
 export interface HandView {
@@ -22,6 +23,8 @@ export interface BookContext {
   /** Head position in the world. */
   head: THREE.Vector3;
   hands: [HandView, HandView];
+  /** Each hand's pointing ray, for lasers (null if the controller is not tracked). */
+  rays?: [PointerRay | null, PointerRay | null];
   phase: 'night' | 'dawn' | 'day' | 'dusk' | null;
 }
 
@@ -118,6 +121,12 @@ export class Book {
   private readonly lastDepth: [number, number] = [1, 1];
   private readonly lastLocalX: [number | null, number | null] = [null, null];
   private readonly cooldown: [number, number] = [0, 0];
+  private readonly lasers: [Laser, Laser];
+  private readonly lastTrigger: [boolean, boolean] = [false, false];
+  private readonly _plane = new THREE.Plane();
+  private readonly _ray = new THREE.Ray();
+  private readonly _hit = new THREE.Vector3();
+  private readonly _nrm = new THREE.Vector3();
   private flipCooldown = 0;
   private lastHolder: 0 | 1 = 0;
   private readonly lastStick: [number, number] = [0, 0];
@@ -130,6 +139,7 @@ export class Book {
     private readonly actions: BookActions,
     private readonly services: BookServices,
   ) {
+    this.lasers = [new Laser(scene), new Laser(scene)];
     // --- The closed book on the hip ---
     this.cover = new THREE.MeshLambertMaterial({ color: 0x6a3e22, emissive: 0x000000 });
     const coverBox = new THREE.Mesh(new THREE.BoxGeometry(PAGE_W + 0.012, PAGE_H + 0.012, 0.05), this.cover);
@@ -371,8 +381,54 @@ export class Book {
 
   // --- Interaction ------------------------------------------------------------------
 
+  /**
+   * Lasers: each controller's beam is aimed at the open pages; the button under the dot lights up and the trigger presses it.
+   * Returns the hover it found, if any.
+   */
+  private pointers(ctx: BookContext): void {
+    const open = this.blend >= 0.9 && this.root.visible;
+    for (let i = 0; i < 2; i++) {
+      const ray = ctx.rays?.[i] ?? null;
+      if (!open || !ray) {
+        this.lasers[i].hide();
+        this.lastTrigger[i] = ray?.trigger ?? false;
+        continue;
+      }
+      this.root.updateWorldMatrix(true, false);
+      this._nrm.set(0, 0, 1).transformDirection(this.root.matrixWorld);
+      this._plane.setFromNormalAndCoplanarPoint(this._nrm, this.root.getWorldPosition(_w));
+      this._ray.set(ray.origin, ray.dir);
+      const point = ray.dir.dot(this._nrm) < 0 ? this._ray.intersectPlane(this._plane, this._hit) : null;
+      let hitRegion: Hit | undefined;
+      let face = 0;
+      let landed: THREE.Vector3 | null = null;
+      if (point) {
+        const local = this.root.worldToLocal(_w.copy(point));
+        if (Math.abs(local.x) <= PAGE_W && Math.abs(local.y) <= PAGE_H / 2) {
+          landed = point;
+          const onRight = local.x >= 0;
+          face = onRight ? 2 * this.page + 1 : 2 * this.page;
+          const px = (onRight ? local.x / PAGE_W : (local.x + PAGE_W) / PAGE_W) * FACE_W;
+          const py = ((PAGE_H / 2 - local.y) / PAGE_H) * FACE_H;
+          hitRegion = this.hits[face].find((h) => px >= h.x - 8 && px <= h.x + h.w + 8 && py >= h.y - 8 && py <= h.y + h.h + 8);
+        }
+      }
+      this.lasers[i].show(ray.origin, ray.dir, landed, !!hitRegion);
+      if (hitRegion) {
+        this.hover = { face, id: hitRegion.id };
+        if (ray.trigger && !this.lastTrigger[i] && this.cooldown[i] === 0) {
+          this.cooldown[i] = 0.4;
+          ctx.hands[i].pulse(0.5, 40);
+          this.perform(hitRegion.id, ctx.hands[i]);
+        }
+      }
+      this.lastTrigger[i] = ray.trigger;
+    }
+  }
+
   private interact(dt: number, ctx: BookContext): void {
     this.hover = null;
+    this.pointers(ctx);
     const free = this.holder === 0 ? 1 : 0;
     const hand = ctx.hands[free];
     // Thumbsticks turn pages too.
