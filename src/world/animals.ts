@@ -15,6 +15,10 @@ export interface AnimalsOptions {
   enabled?: boolean;
   /** Called when an animal is killed, with where it died. */
   onKill?(species: Species, at: THREE.Vector3): void;
+  /** An animal died (its id), for telling the other players. */
+  onDied?(id: number): void;
+  /** On a joined player's machine: an animal was hit, to tell the host. */
+  onRemoteHit?(id: number, amount: number): void;
 }
 
 export type Species = 'rabbit' | 'deer';
@@ -22,6 +26,8 @@ export type Species = 'rabbit' | 'deer';
 type GroundState = 'idle' | 'wander' | 'flee';
 
 export interface Ground {
+  /** The same on every machine. */
+  id: number;
   species: Species;
   x: number;
   z: number;
@@ -132,6 +138,10 @@ const BIRD_GEO = build([
 export class Animals {
   readonly stats = { rabbits: RABBITS, deer: DEER, birds: PERCHED_BIRDS + FLOCKS * BIRDS_PER_FLOCK, active: 0 };
   readonly ground: Ground[] = [];
+  /** Joined players do not simulate animals: they follow what the host says. */
+  remote = false;
+  /** Ids of animals that have died, for new players. */
+  readonly deadIds: number[] = [];
   private readonly birds: Bird[] = [];
   private readonly rabbitMesh: THREE.InstancedMesh;
   private readonly deerMesh: THREE.InstancedMesh;
@@ -175,6 +185,7 @@ export class Animals {
         const at = spot();
         if (!at) continue;
         this.ground.push({
+          id: this.ground.length,
           species,
           x: at.x,
           z: at.z,
@@ -214,17 +225,34 @@ export class Animals {
   }
 
   /** Moves the animals and draws the ones near `viewer`. `night` is 0 by day, 1 at night: the birds roost. */
-  update(dt: number, viewer: THREE.Vector3, night: number): void {
+  update(dt: number, viewer: THREE.Vector3, night: number, others: ReadonlyArray<THREE.Vector3> = []): void {
     if (!this.enabled) return;
     this.time += dt;
     let rabbits = 0;
     let deer = 0;
     for (const a of this.ground) {
-      const dx = a.x - viewer.x;
-      const dz = a.z - viewer.z;
-      const dist = Math.hypot(dx, dz);
+      // Animals keep away from whichever player is nearest, and move if any player is near enough to see them.
+      let dx = a.x - viewer.x;
+      let dz = a.z - viewer.z;
+      let dist = Math.hypot(dx, dz);
+      const mine = dist <= this.activeRadius;
+      for (const o of others) {
+        const d = Math.hypot(a.x - o.x, a.z - o.z);
+        if (d < dist) {
+          dist = d;
+          dx = a.x - o.x;
+          dz = a.z - o.z;
+        }
+      }
       if (dist > this.activeRadius) continue;
-      this.stepGround(a, dt, dist, dx, dz);
+      if (this.remote) {
+        // Follow the host's animal.
+        const k = Math.min(1, dt * 9);
+        a.x += (a.tx - a.x) * k;
+        a.z += (a.tz - a.z) * k;
+        a.y += (this.o.surfaceAt(a.x, a.z) - a.y) * Math.min(1, dt * 14);
+      } else this.stepGround(a, dt, dist, dx, dz);
+      if (!mine) continue;
       const hop = a.species === 'rabbit' ? this.hop(a) : this.gallop(a);
       _m.compose(_p.set(a.x, a.y + hop, a.z), _q.setFromAxisAngle(UP, a.heading), _s.set(1, 1, 1));
       const mesh = a.species === 'rabbit' ? this.rabbitMesh : this.deerMesh;
@@ -332,16 +360,63 @@ export class Animals {
 
   /** Hurts an animal. It runs; if it is out of health it dies and drops what it carried. */
   damage(a: Ground, amount: number): boolean {
+    if (this.remote) {
+      this.o.onRemoteHit?.(a.id, amount);
+      a.state = 'flee';
+      return false;
+    }
     a.hp -= amount;
     if (a.hp > 0) {
       a.state = 'flee';
       a.timer = 0;
       return false;
     }
+    this.remove(a);
+    this.o.onKill?.(a.species, _p.set(a.x, a.y + 0.2, a.z).clone());
+    this.o.onDied?.(a.id);
+    return true;
+  }
+
+  private remove(a: Ground): void {
     const i = this.ground.indexOf(a);
     if (i >= 0) this.ground.splice(i, 1);
-    this.o.onKill?.(a.species, _p.set(a.x, a.y + 0.2, a.z).clone());
-    return true;
+    this.deadIds.push(a.id);
+  }
+
+  /** An animal died somewhere else (no meat: whoever killed it made that). */
+  killRemote(id: number): void {
+    const a = this.ground.find((g) => g.id === id);
+    if (a) this.remove(a);
+  }
+
+  /** What the host sends: animals near any player, as [id, x, z, heading, state, hp]. */
+  snapshot(viewers: ReadonlyArray<THREE.Vector3>, radius: number): number[][] {
+    const out: number[][] = [];
+    for (const a of this.ground) {
+      if (!viewers.some((v) => Math.hypot(a.x - v.x, a.z - v.z) < radius)) continue;
+      out.push([a.id, Math.round(a.x * 100) / 100, Math.round(a.z * 100) / 100, Math.round(a.heading * 100) / 100, a.state === 'idle' ? 0 : a.state === 'wander' ? 1 : 2, a.hp]);
+    }
+    return out;
+  }
+
+  /** Takes what the host sent. */
+  applySnapshot(list: number[][]): void {
+    const states: GroundState[] = ['idle', 'wander', 'flee'];
+    for (const [id, x, z, heading, state, hp] of list) {
+      const a = this.ground[id] && this.ground[id].id === id ? this.ground[id] : this.ground.find((g) => g.id === id);
+      if (!a) continue;
+      a.tx = x;
+      a.tz = z;
+      let d = heading - a.heading;
+      d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
+      a.heading += d * 0.5;
+      a.state = states[state];
+      a.hp = hp;
+      if (Math.hypot(a.x - x, a.z - z) > 6) {
+        a.x = x;
+        a.z = z;
+      }
+    }
   }
 
   /** The nearest living ground animal within `reach` of a point (they are about a metre long). */

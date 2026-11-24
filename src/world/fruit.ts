@@ -51,9 +51,13 @@ export class Fruits {
     return best;
   }
 
+  /** A berry was picked here (its index and when it returns), to tell other players. */
+  onTake: ((index: number, regrowAt: number) => void) | null = null;
+
   take(f: Fruit, days: number): void {
     f.taken = true;
     f.regrowAt = days + REGROW_DAYS;
+    this.onTake?.(this.all.indexOf(f), f.regrowAt);
   }
 
   /** The colour a fruit has. */

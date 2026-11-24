@@ -72,7 +72,11 @@ export class TreeRopes {
   }
 
   /** Takes a rope off its tree. */
-  take(rope: TreeRope): void {
+  /** A rope was taken here (its index), to tell other players. */
+  onTake: ((index: number) => void) | null = null;
+
+  take(rope: TreeRope, quiet = false): void {
+    if (!quiet && !rope.taken) this.onTake?.(this.ropes.indexOf(rope));
     rope.taken = true;
     rope.held = false;
     rope.pull = 0;

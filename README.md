@@ -269,6 +269,32 @@ What the performance pass changed:
 - **Per-frame work:** a few allocations in the main loop removed; texture filtering lowered to 2x.
 - **Profiler:** add `?perf` and the readout lists where each frame's time goes (physics, forest, animals, render submission...), with the current quality level.
 
+## Multiplayer (this branch)
+
+Up to a handful of players in one forest, with voice chat. There is no game server: players connect directly to each other with WebRTC, using
+[PeerJS](https://peerjs.com/) only to introduce them (its free public broker by default).
+
+**Hosting and joining.** Main menu → **Multiplayer**. **Host a game** gives you a four-letter code to read out. A friend types it under **Join a game**
+(or opens `?join=CODE`); the page reloads into *your* forest, with everything as it is now, and they appear where you are. Your own saved game is not touched
+(guests do not autosave; the host's saves carry on as usual). `?host` starts hosting straight away; `?signal=host:port` uses your own PeerJS server (testing).
+
+**How it is kept the same.** Every machine builds the forest from the same seed, and the host sends its whole world to a joiner in one go (the same data as a
+save). After that:
+- **Players** are gorillas with a name over their head (a colour each), moving as the real player does, head, arms and hands, 20 times a second.
+- **Pieces** (sticks, stones, tools, food, meat): every one has a name that is the same everywhere. Making, putting away and moving are sent. Whoever last picked a
+  piece up looks after its physics (it is sent as it flies) until it comes to rest, then the host does.
+- **Animals and crocodiles** are simulated on the host and followed by everyone; they keep away from, or go for, whichever player is nearest. Hits from guests go to
+  the host, which handles the kill, so the meat is made once and shared.
+- **The world**: felled trees, ropes and berries taken, campfires, structures (parts that go in on one machine go in on all), the time of day and the wood-cutting
+  vehicle's position. Health, hunger-style effects, the book, the map and recipes belong to each player.
+
+**Voice.** Press Play and the browser (or headset) asks for the microphone. Each pair of players has a direct call; a voice comes from where that player's head is
+(near is loud, far is faint) and their name pulses while they talk. Mute from the menu or with **M**.
+
+**Limits.** It needs a browser that can do WebRTC and (for voice) HTTPS or localhost. Players behind strict NATs may not be able to connect (there is no relay
+server). Birds, the meat on a roasting spit, particles and the map are not shared. Everything was tested with two browser pages on one machine, not across the
+internet or on headsets.
+
 ## How the movement works
 
 Movement comes entirely from your hands. The avatar has no legs and there is no thumbstick walking.
