@@ -17,6 +17,8 @@ export interface MenuHooks {
   onHost(): Promise<string>;
   /** Joins a game by its code (reloads into the host's world). */
   onJoin(code: string): void;
+  /** A code was typed. Returns what to tell the player. */
+  onCode(code: string): { ok: boolean; message: string };
   /** Stops hosting or leaves. */
   onLeaveGame(): void;
   /** Turns the microphone on (asks permission) or mutes it. */
@@ -171,6 +173,8 @@ export class Menu {
   private confirmNew = false;
   private net: NetStatus = { role: null, code: '', players: [], mic: 'off', muted: false, message: '' };
   private busy = false;
+  private codeMessage = '';
+  private codeOk = false;
 
   constructor(
     private readonly settings: Settings,
@@ -274,6 +278,34 @@ export class Menu {
     if (this.saveInfo) this.panel.append(this.el('p', this.saveInfo, 'status'));
     const status = this.el('p', this.playMessage, 'status');
     this.panel.append(status);
+    // A code to redeem (for the admin tools).
+    const codeRow = this.el('div', '', 'row');
+    codeRow.style.justifyContent = 'center';
+    const input = document.createElement('input');
+    input.id = 'menuRedeem';
+    input.type = 'text';
+    input.placeholder = 'Enter code';
+    input.autocomplete = 'off';
+    input.autocapitalize = 'characters';
+    input.style.cssText = 'font: 18px monospace; letter-spacing: 0.1em; text-transform: uppercase; width: 14em; padding: 8px 12px; border-radius: 10px; border: 1px solid #5d8a62; background: #10201a; color: #f1e7c4;';
+    const redeem = this.button('Redeem', () => {
+      const result = this.hooks.onCode(input.value);
+      this.codeMessage = result.message;
+      this.codeOk = result.ok;
+      this.render();
+    });
+    redeem.id = 'menuRedeemButton';
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') redeem.click();
+    });
+    codeRow.append(input, redeem);
+    this.panel.append(codeRow);
+    if (this.codeMessage) {
+      const msg = this.el('p', this.codeMessage, 'status');
+      msg.id = 'menuCodeMessage';
+      msg.style.color = this.codeOk ? '#9fe08a' : '#e0a08a';
+      this.panel.append(msg);
+    }
     const footer = this.el('div', '', 'footer');
     const save = this.button(this.saveStatus || 'SAVE GAME', () => {
       this.saveStatus = this.hooks.onSave() ? 'Saved ✓' : 'Could not save';

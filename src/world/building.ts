@@ -253,6 +253,17 @@ export class Building {
     return this.placing !== null;
   }
 
+  /** Unlocks every plan (admin). */
+  unlockAll(): void {
+    for (const bp of BLUEPRINTS) this.unlocked.add(bp.id);
+    try {
+      localStorage.setItem(STORAGE, JSON.stringify({ unlocked: [...this.unlocked], built: this.built }));
+    } catch {
+      /* ignore */
+    }
+    this.version++;
+  }
+
   // --- What the book shows ------------------------------------------------------------
 
   view(): BlueprintView {

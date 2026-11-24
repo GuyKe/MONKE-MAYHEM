@@ -358,6 +358,27 @@ export class Animals {
     a.y += (this.o.surfaceAt(a.x, a.z) - a.y) * Math.min(1, dt * 14);
   }
 
+  /** Puts a new animal on the ground (admin). Returns it. */
+  spawn(species: Species, x: number, z: number): Ground {
+    const a: Ground = {
+      id: this.ground.reduce((m, g) => Math.max(m, g.id), -1) + 1,
+      species,
+      x,
+      z,
+      y: this.o.surfaceAt(x, z),
+      heading: Math.random() * Math.PI * 2,
+      state: 'idle',
+      timer: 2,
+      tx: x,
+      tz: z,
+      phase: Math.random() * 10,
+      tint: new THREE.Color().setHSL(0.08, 0.1, 0.9 + Math.random() * 0.2),
+      hp: species === 'rabbit' ? 2 : 6,
+    };
+    this.ground.push(a);
+    return a;
+  }
+
   /** Hurts an animal. It runs; if it is out of health it dies and drops what it carried. */
   damage(a: Ground, amount: number): boolean {
     if (this.remote) {

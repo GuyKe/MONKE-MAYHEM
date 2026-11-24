@@ -154,6 +154,13 @@ export class Journal {
     this.save();
   }
 
+  /** Unlocks every recipe (admin). */
+  unlockAll(): void {
+    for (const r of RECIPES) this.unlocked.add(r.id);
+    this.version++;
+    this.save();
+  }
+
   markSeen(): void {
     if (this.fresh.size) {
       this.fresh.clear();
