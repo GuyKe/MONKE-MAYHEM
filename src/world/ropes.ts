@@ -12,7 +12,7 @@ export interface TreeRope {
 }
 
 /** You tear a rope off its tree by pulling it down this far. */
-export const PULL_TO_TEAR = 0.5;
+export const PULL_TO_TEAR = 0.35;
 /** Ropes further than this from the player are not drawn. */
 const DRAW_DISTANCE = 100;
 /** Only the lower part of a rope can be grabbed. */
@@ -98,10 +98,10 @@ export class TreeRopes {
       const sway = (r.held ? 0.004 : 0.03) * Math.sin(this.time * 0.9 + r.phase);
       _q.setFromEuler(_e.set(sway, 0, sway * 0.7));
       const centre = _a.set(0, -length / 2, 0).applyQuaternion(_q).add(top);
-      _m.compose(centre, _q, _s.set(0.022, length, 0.022));
+      _m.compose(centre, _q, _s.set(0.032, length, 0.032));
       this.lineMesh.setMatrixAt(i, _m);
       const end = _b.set(0, -length, 0).applyQuaternion(_q).add(top);
-      _m.compose(end, _q.identity(), _s.set(0.055, 0.055, 0.055));
+      _m.compose(end, _q.identity(), _s.set(0.085, 0.085, 0.085));
       this.knotMesh.setMatrixAt(i, _m);
     }
     this.lineMesh.count = this.knotMesh.count = n;

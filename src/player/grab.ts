@@ -73,7 +73,7 @@ const _spin = new THREE.Vector3();
 const _dq = new THREE.Quaternion();
 
 /** A hand this close to a hanging rope can take hold of it (metres). */
-const ROPE_GRAB_RADIUS = 0.15;
+const ROPE_GRAB_RADIUS = 0.3;
 
 /** Optional ways for other systems to join in. */
 export interface GrabHooks {

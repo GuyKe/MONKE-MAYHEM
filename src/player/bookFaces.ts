@@ -365,7 +365,7 @@ function plan(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null): void {
 function ropesAndTies(c: Ctx): void {
   heading(c, 'Rope and ties');
   let y = 112;
-  y = para(c, 'Some trees have a rope hanging down their trunk. Grab the lower end and pull down hard, about half a metre. If you let go too soon it springs back up.', y, 21) + 14;
+  y = para(c, 'Some trees have a rope hanging down their trunk. Grab the lower end and pull down hard, about a third of a metre. If you let go too soon it springs back up.', y, 21) + 14;
   y = para(c, 'To tie a joint, hold the rope in one hand near it, hold the trigger and circle the rope around it with your hand, about one and a half times.', y, 21) + 14;
   para(c, 'Rope is precious. The same rope can lash an axe or tie part of a structure, but not both.', y, 21, FAINT);
 }

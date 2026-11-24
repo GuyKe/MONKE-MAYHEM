@@ -508,10 +508,10 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
   const ropes: RopeSpot[] = [];
   const addRope = (t: TreeData) => {
     const angle = rand() * Math.PI * 2;
-    const x = t.x + Math.cos(angle) * (t.radius + 0.05);
-    const z = t.z + Math.sin(angle) * (t.radius + 0.05);
+    const x = t.x + Math.cos(angle) * (t.radius + 0.16);
+    const z = t.z + Math.sin(angle) * (t.radius + 0.16);
     const ground = surfaceAt(x, z);
-    ropes.push({ x, z, top: ground + Math.min(t.height * 0.5, 9), bottom: ground + range(1.15, 1.4) });
+    ropes.push({ x, z, top: ground + Math.min(t.height * 0.5, 9), bottom: ground + range(0.55, 0.9) });
   };
   for (const t of trees) if (t.radius > 0.5 && rand() < 0.13) addRope(t);
   // Always a few close to where you start.
