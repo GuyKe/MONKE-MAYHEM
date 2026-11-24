@@ -244,6 +244,8 @@ export class Sticks {
   readonly meshes: THREE.InstancedMesh[] = [];
   /** How many pieces have fallen out of the world and been put back (should stay 0). */
   respawned = 0;
+  /** How many times a piece has been lifted back out of the ground. */
+  rescued = 0;
   private frame = 0;
   private nextId = 0;
   /** Network ids: pieces made here are named with this prefix and a counter, so no two machines make the same one. */
@@ -255,13 +257,11 @@ export class Sticks {
   onStash: ((stick: Stick) => void) | null = null;
   /** Pieces further than this from the player are not drawn (lowered when the frame rate is low). */
   drawDistance = DEFAULT_DRAW_DISTANCE;
-  private readonly home: THREE.Vector3Like;
   private readonly world: RAPIER.World;
   private readonly slots: Record<'prism' | 'stone' | 'coil' | 'head' | 'wrap', Slots>;
 
   constructor(scene: THREE.Scene, world: RAPIER.World, private readonly options: SticksOptions) {
     this.world = world;
-    this.home = options.spawn;
     const sticks = options.count ?? 280;
     const stones = options.stones ?? 120;
     const rand = mulberry32((options.seed ?? 99) + 7);
@@ -386,7 +386,7 @@ export class Sticks {
       const r = stick.body.rotation();
       stick.pos.set(t.x, t.y, t.z);
       stick.quat.set(r.x, r.y, r.z, r.w);
-      if (t.y < -20) this.respawn(stick); // fell out of the world
+      if (stick.heldBy === null) this.rescue(stick); // pushed down through the ground
       this.updateStickDamping(stick, far ? dt * 30 : dt);
       if (viewer && stick.pos.distanceToSquared(viewer) > this.drawDistance * this.drawDistance) continue;
 
@@ -579,15 +579,20 @@ export class Sticks {
     stick.body.setAngularDamping(d.angular);
   }
 
-  /** Drops a stray piece back near the spawn. */
-  private respawn(stick: Stick): void {
-    this.respawned++;
-    const home = this.home;
-    const x = home.x + (Math.random() - 0.5) * 6;
-    const z = home.z - 3 - Math.random() * 3;
-    stick.body.setTranslation({ x, y: this.options.surfaceAt(x, z) + 1, z }, true);
+  /**
+   * A piece that has been pushed down through the ground (piled sticks can squeeze each other through the thin terrain
+   * surface) is put back on top of it, where it was.
+   */
+  private rescue(stick: Stick): void {
+    const ground = this.options.surfaceAt(stick.pos.x, stick.pos.z);
+    if (stick.pos.y > ground - 0.15 && stick.pos.y > -60) return;
+    this.rescued++;
+    const lift = Math.max(stick.radius, stick.length / 2) * 0.6 + 0.12;
+    stick.body.setTranslation({ x: stick.pos.x, y: ground + lift, z: stick.pos.z }, true);
     stick.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     stick.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    stick.rest = 0;
+    stick.pos.y = ground + lift;
   }
 
   private findSpot(rand: () => number, tier: Tier, wide = false): { x: number; z: number } {

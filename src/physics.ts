@@ -29,5 +29,8 @@ export const QUERY_TERRAIN = groups(0xffff, GROUP_WORLD);
 
 export async function createPhysicsWorld(): Promise<RAPIER.World> {
   await RAPIER.init();
-  return new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+  const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+  // More passes at the contacts, so a pile of sticks pressing on the ground is held up instead of squeezed through it.
+  world.integrationParameters.numSolverIterations = 8;
+  return world;
 }
