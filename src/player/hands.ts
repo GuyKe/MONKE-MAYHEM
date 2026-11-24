@@ -19,7 +19,7 @@ export class Hand {
   private readonly idleColor = new THREE.Color(0x4a3426);
   private readonly contactColor = new THREE.Color(0x7a5a3e);
 
-  constructor(readonly handedness: Handedness, scene: THREE.Scene) {
+  constructor(readonly handedness: Handedness, scene: THREE.Scene, private readonly rig: THREE.Object3D) {
     const r = LOCOMOTION.handRadius;
     this.material = new THREE.MeshLambertMaterial({ color: this.idleColor, vertexColors: true, flatShading: true });
     this.mesh = new THREE.Mesh(buildHandGeometry(handedness === 'left' ? 1 : -1, r), this.material);
@@ -58,6 +58,11 @@ export class Hand {
     return this.tracked ? target.copy(this.grip!.position) : null;
   }
 
+  /** The controller's orientation in the world (the grip's own turn, plus the rig's if the player has turned). */
+  worldQuaternion(out: THREE.Quaternion): THREE.Quaternion {
+    return out.copy(this.rig.quaternion).multiply(this.grip!.quaternion);
+  }
+
   /** Places the mitt at `visualPos` and the ghost at the raw controller position. */
   updateVisual(visualPos: THREE.Vector3, rawWorldPos: THREE.Vector3, touching: boolean): void {
     this.mesh.visible = this.tracked;
@@ -66,7 +71,7 @@ export class Hand {
       return;
     }
     this.mesh.position.copy(visualPos);
-    this.mesh.quaternion.copy(this.grip!.quaternion); // rig has no rotation
+    this.worldQuaternion(this.mesh.quaternion);
     this.material.color.copy(touching ? this.contactColor : this.idleColor);
 
     this.ghost.position.copy(rawWorldPos);
@@ -95,8 +100,8 @@ export class Hands {
   readonly right: Hand;
 
   constructor(renderer: THREE.WebGLRenderer, rig: THREE.Object3D, scene: THREE.Scene) {
-    this.left = new Hand('left', scene);
-    this.right = new Hand('right', scene);
+    this.left = new Hand('left', scene, rig);
+    this.right = new Hand('right', scene, rig);
 
     for (let i = 0; i < 2; i++) {
       const grip = renderer.xr.getControllerGrip(i);

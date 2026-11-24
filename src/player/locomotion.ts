@@ -38,6 +38,9 @@ const SWIM_GAIN = 3.4;
 const SWIM_DRAG = 1.35;
 const SWIM_VERTICAL_DRAG = 3.2;
 const _arm = new THREE.Vector3();
+const _hl = new THREE.Vector3();
+const _yAxis = new THREE.Vector3(0, 1, 0);
+const _turnQ = new THREE.Quaternion();
 const _stroke = new THREE.Vector3();
 
 /**
@@ -124,7 +127,15 @@ export class Locomotion {
 
   /** World position of the head. */
   headWorld(target: THREE.Vector3): THREE.Vector3 {
-    return target.copy(this.rig.position).add(this.headLocal);
+    return target.copy(this.headLocal).applyQuaternion(this.rig.quaternion).add(this.rig.position);
+  }
+
+  /** Turns the player about the vertical through the head (positive is to the left), keeping the head where it is. */
+  turn(angle: number): void {
+    const head = this.headWorld(_v).clone();
+    this.rig.quaternion.premultiply(_turnQ.setFromAxisAngle(_yAxis, angle));
+    this.rig.position.copy(head).sub(_hl.copy(this.headLocal).applyQuaternion(this.rig.quaternion));
+    for (const hand of this.hands) hand.initialized = false; // the hands start again from the head, so none is left inside a surface
   }
 
   /** Moves the whole player by `delta` without any physics (riding a vehicle). */
@@ -138,7 +149,8 @@ export class Locomotion {
   /** Puts the head over `feet` (world), standing on it, with no velocity. */
   respawn(feet: THREE.Vector3Like): void {
     const headAboveFeet = 2 * C.bodyHalfHeight + C.bodyRadius + 0.02;
-    this.rig.position.set(feet.x - this.headLocal.x, feet.y + headAboveFeet - this.headLocal.y, feet.z - this.headLocal.z);
+    _hl.copy(this.headLocal).applyQuaternion(this.rig.quaternion);
+    this.rig.position.set(feet.x - _hl.x, feet.y + headAboveFeet - _hl.y, feet.z - _hl.z);
     this.placeBody(this.headWorld(_v));
     this.velocity.set(0, 0, 0);
     for (const h of this.history) h.set(0, 0, 0);
@@ -276,7 +288,7 @@ export class Locomotion {
     const moved = this.controller.computedMovement();
     const newHead = bodyHead.add(moved);
     this.placeBody(newHead);
-    this.rig.position.copy(newHead).sub(this.headLocal);
+    this.rig.position.copy(newHead).sub(_hl.copy(this.headLocal).applyQuaternion(this.rig.quaternion));
     this.grounded = this.controller.computedGrounded();
 
     if (touchingCount === 0) {
@@ -354,7 +366,7 @@ export class Locomotion {
 
   /** Arm-length-clamped world position for a hand at tracking-space `local`. */
   private handWorld(local: THREE.Vector3, headWorld: THREE.Vector3, target: THREE.Vector3): THREE.Vector3 {
-    target.subVectors(local, this.headLocal).multiplyScalar(this.reachScale).clampLength(0, C.maxArmLength);
+    target.subVectors(local, this.headLocal).multiplyScalar(this.reachScale).clampLength(0, C.maxArmLength).applyQuaternion(this.rig.quaternion);
     return target.add(headWorld);
   }
 

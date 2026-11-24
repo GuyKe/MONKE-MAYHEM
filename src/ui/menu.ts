@@ -49,10 +49,18 @@ export const SETTING_ROWS: Array<{ title: string; rows: Array<ChoiceRow | Slider
     ],
   },
   {
-    title: 'Comfort and speed',
+    title: 'Comfort',
     rows: [
+      { kind: 'choice', key: 'turning', label: 'Thumbstick turning', options: [['off', 'Off'], ['snap', 'Snap'], ['smooth', 'Smooth']] },
+      { kind: 'choice', key: 'snapAngle', label: 'Snap angle', options: [['30', '30°'], ['45', '45°'], ['90', '90°']] },
+      { kind: 'choice', key: 'turnSpeed', label: 'Smooth turn speed', options: [['slow', 'Slow'], ['medium', 'Medium'], ['fast', 'Fast']] },
       { kind: 'choice', key: 'vignette', label: 'Comfort vignette', options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
       { kind: 'choice', key: 'reduceMotion', label: 'Reduce motion', options: [[false, 'Off'], [true, 'On']] },
+    ],
+  },
+  {
+    title: 'Performance',
+    rows: [
       { kind: 'choice', key: 'quality', label: 'Quality', options: [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']] },
       { kind: 'choice', key: 'sharpness', label: 'Sharpness', options: [['low', 'Soft'], ['normal', 'Normal'], ['high', 'Sharp']], note: 'Next VR session' },
     ],
@@ -73,7 +81,7 @@ const CONTROLS_VR: Array<[string, string]> = [
   ['Grip', 'Squeeze to pick up sticks, stones, rope and your book. Let go to drop, or swing and let go to throw.'],
   ['Trigger', 'Hold it while you work: smashing a stone on a stick to make an axe, winding rope around something, placing a blueprint.'],
   ['The book', 'Reach to your hip and squeeze to take it out. Open pages face you. Flip them by swiping the free hand across the page edge, or push the thumbstick sideways.'],
-  ['Stash a stick', 'Hold a stick to the book and let go.'],
+  ['Turn', 'Push the right thumbstick sideways: snap or smooth turning, chosen in Settings. Turning your head always works. (Stash a stick: hold it to the book and let go.)'],
   ['Make fire', 'Rub two sticks together over a pile of five or more.'],
   ['Ropes', 'Some trees have a rope hanging down. Grab it and pull down hard to take it.'],
   ['Swim', 'In deep water pull your hands back through it like a stroke. Watch for leeches, and crocodiles.'],
@@ -88,7 +96,7 @@ const CONTROLS_DESKTOP: Array<[string, string]> = [
   ['Space', 'Both hands push down to jump.'],
   ['Q / E', 'Squeeze the left / right grip.'],
   ['Z / X', 'Hold the left / right trigger.'],
-  ['B', 'Take the book out or put it away.  [ and ] flip pages.'],
+  ['B', 'Take the book out or put it away.  [ and ] flip pages, or turn you when the book is closed.'],
   ['T', 'T-pose calibration.   [ ] with Shift change arm length.'],
   ['R', 'Respawn.'],
 ];

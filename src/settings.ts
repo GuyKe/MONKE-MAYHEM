@@ -20,6 +20,11 @@ export interface SettingsData {
   showDebug: boolean;
   /** The screen darkens round the edges when you move fast, which helps with motion sickness. */
   vignette: 'off' | 'low' | 'medium' | 'high';
+  /** Turning with the thumbstick: not at all, in jumps, or smoothly. (Turning your head always works.) */
+  turning: 'off' | 'snap' | 'smooth';
+  /** Degrees per snap. */
+  snapAngle: '30' | '45' | '90';
+  turnSpeed: 'slow' | 'medium' | 'fast';
   /** No drifting dust, fireflies or falling leaves. */
   reduceMotion: boolean;
   /** How much is drawn. Auto watches the frame rate and adjusts. */
@@ -39,6 +44,9 @@ export const DEFAULT_SETTINGS: SettingsData = {
   volume: 0.8,
   bookSide: 'left',
   showDebug: true,
+  turning: 'snap',
+  snapAngle: '45',
+  turnSpeed: 'medium',
   vignette: 'medium',
   reduceMotion: false,
   quality: 'auto',
@@ -50,6 +58,8 @@ export const VIEW_DISTANCE_M = { low: 62, medium: 78, high: 100 } as const;
 export const TREE_SPACING_M = { sparse: 6.2, normal: 4.8, dense: 4.1 } as const;
 /** How dark the comfort vignette gets at its strongest. */
 export const VIGNETTE_STRENGTH = { off: 0, low: 0.45, medium: 0.75, high: 0.95 } as const;
+/** Degrees per second for smooth turning. */
+export const TURN_SPEED_DEG = { slow: 60, medium: 110, fast: 180 } as const;
 /** Render resolution relative to the headset's default. */
 export const SHARPNESS = { low: 0.8, normal: 1, high: 1.2 } as const;
 export const FOG_SCALE = { light: 0.7, normal: 1, heavy: 1.35 } as const;

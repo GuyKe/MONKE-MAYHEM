@@ -169,7 +169,7 @@ export class Grab {
 
       _handP.copy(contact.position);
       state.lastPos.copy(_handP);
-      _handQ.copy(hand.grip.quaternion); // the rig is never rotated, so this is a world rotation
+      hand.worldQuaternion(_handQ);
       state.lastQuat.copy(_handQ);
       this.record(state, contact.rawPosition, _handQ, dt);
 

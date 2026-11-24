@@ -209,6 +209,11 @@ export class Building {
       .map((s) => ({ id: s.bp.id, x: s.pos.x, y: s.pos.y, z: s.pos.z, yaw: s.yaw }));
   }
 
+  /** Is a plan being placed (the thumbstick then turns the hologram, not you)? */
+  get isPlacing(): boolean {
+    return this.placing !== null;
+  }
+
   // --- What the book shows ------------------------------------------------------------
 
   view(): BlueprintView {

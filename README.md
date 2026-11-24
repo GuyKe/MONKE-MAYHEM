@@ -57,7 +57,7 @@ fake controllers from the keyboard:
 | Q / E | Squeeze the left / right grip (grab, throw, pick berries) |
 | Z / X | Squeeze the left / right trigger (smash, lash, tie) |
 | B | Take out or put away the book |
-| [ and ] | Flip pages (book open); Shift+[ / ] changes arm length |
+| [ and ] | Flip pages (book open) or turn (book closed); Shift+[ / ] changes arm length |
 | 1 to 4 | Craft a recipe (book open) |
 | T | T-pose arm calibration |
 | R | Respawn |
@@ -252,6 +252,9 @@ Take it off with your grip. Rest a stone on the lever and it keeps turning by it
 
 Settings are under **Comfort and speed** (main menu, or the book's settings pages).
 
+- **Thumbstick turning** (off / snap / smooth): push the **right thumbstick** sideways. Snap turns in steps of 30, 45 or 90 degrees; smooth turns at slow, medium
+  or fast (60, 110 or 180 degrees a second). It is switched off while the book is open (the stick turns pages) and while you are placing a plan (it turns the
+  hologram). Turning your head always works too. The default is snap, 45 degrees.
 - **Comfort vignette** (off / low / medium / high): the edges of the view darken and the clear circle closes in when you are moving fast (launching, falling,
   riding the logger) or turning your head quickly. It comes on fast and fades gently.
 - **Reduce motion:** no drifting dust, fireflies or falling leaves.

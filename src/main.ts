@@ -39,7 +39,7 @@ import { Quality } from './quality';
 import { MEAT_COLOR } from './player/survival';
 import { SaveStore, type SaveData } from './save';
 import type { DesktopEmulator } from './debug/desktop';
-import { DAY_SECONDS, FOG_SCALE, SHARPNESS, Settings, TREE_SPACING_M, VIEW_DISTANCE_M } from './settings';
+import { DAY_SECONDS, FOG_SCALE, SHARPNESS, Settings, TREE_SPACING_M, TURN_SPEED_DEG, VIEW_DISTANCE_M } from './settings';
 import { Menu } from './ui/menu';
 import { Hand } from './player/hands';
 
@@ -197,7 +197,7 @@ async function main(): Promise<void> {
       markers: () => poisRef.current?.markers ?? [],
       player: () => {
         const head = locomotion.headWorld(_viewer);
-        camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+        camForward.set(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(_wq));
         return { x: head.x, z: head.z, heading: Math.atan2(camForward.x, -camForward.z) };
       },
       blueprints: {
@@ -579,6 +579,8 @@ async function main(): Promise<void> {
   const _viewer = new THREE.Vector3();
   const headLocal = new THREE.Vector3(0, 1.6, 0);
   const _hq = new THREE.Quaternion();
+  const _wq = new THREE.Quaternion();
+  let lastTurnStick = 0;
   const handLocals: [THREE.Vector3, THREE.Vector3] = [new THREE.Vector3(), new THREE.Vector3()];
   const clock = new THREE.Clock();
   const perf = new Perf(params.has('perf'));
@@ -624,6 +626,19 @@ async function main(): Promise<void> {
       }
       locomotion.reachScale = armSpan.scale;
 
+      // Turning with the right thumbstick (when it is not busy turning pages or a hologram).
+      const stickX = right.stickX;
+      if (settings.data.turning !== 'off' && !book.isOpen && !building.isPlacing) {
+        if (settings.data.turning === 'snap') {
+          if (Math.abs(stickX) > 0.7 && Math.abs(lastTurnStick) < 0.3) locomotion.turn((-Math.sign(stickX) * Number(settings.data.snapAngle) * Math.PI) / 180);
+        } else if (Math.abs(stickX) > 0.2) {
+          const rate = ((TURN_SPEED_DEG[settings.data.turnSpeed] * Math.PI) / 180) * Math.sign(stickX) * ((Math.abs(stickX) - 0.2) / 0.8);
+          locomotion.turn(-rate * dt);
+        }
+      }
+      lastTurnStick = stickX;
+      // The sky stays put in the world however you turn.
+      if (atmosphere) atmosphere.sky.quaternion.copy(rig.quaternion).invert();
       perf.lap('arm span');
       locomotion.update(dt, headLocal, [leftPos, rightPos]);
       perf.lap('locomotion');
@@ -641,7 +656,7 @@ async function main(): Promise<void> {
       crafting.update(dt);
       combat.update(dt);
       perf.lap('grab+craft');
-      camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      camForward.set(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(_wq));
       camForward.y = 0;
       building.update(dt, {
         head: locomotion.headWorld(_viewer),
@@ -756,7 +771,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { quality, comfort, perf, spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
+  Object.assign(window, { __monke: { settings, quality, comfort, perf, spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(

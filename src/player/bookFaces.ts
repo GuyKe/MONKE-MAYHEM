@@ -60,7 +60,7 @@ const CONTROLS: Array<[string, string]> = [
   ['Grip', 'Squeeze to pick up sticks, stones, rope and this book. Let go to drop, or swing and let go to throw.'],
   ['Trigger', 'Hold it while you work: smashing stone on stick, winding rope, tying a joint.'],
   ['This book', 'Squeeze at your hip to take it out, let go to put it away. Poke buttons with your free hand. Swipe the page edge or push a thumbstick to turn pages.'],
-  ['Stash', 'Hold a stick to the book and let go.'],
+  ['Turn', 'Push the right thumbstick sideways to turn, in steps or smoothly (see Settings). You can always just turn your head.'],
   ['Fire', 'Rub two sticks together over a pile of five or more.'],
   ['Ropes', 'Grab a rope hanging from a tree and pull it down hard.'],
   ['Swim', 'In deep water pull your hands back through it, like a stroke.'],
@@ -102,8 +102,8 @@ export function drawFace(index: number, c: Ctx, f: FaceContext, hover: string | 
     case FACE.map: mapPage(c, f); break;
     case FACE.places: mapNotes(c, f); break;
     case FACE.settingsA: settingsPage(c, f, hits, hover, [0, 1]); break;
-    case FACE.settingsB: settingsPage(c, f, hits, hover, [2]); break;
-    case FACE.settingsC: settingsPage(c, f, hits, hover, [3]); break;
+    case FACE.settingsB: settingsPage(c, f, hits, hover, [2, 3]); break;
+    case FACE.settingsC: settingsPage(c, f, hits, hover, [4]); break;
     case FACE.startOver: startOver(c, hits, hover); break;
     case FACE.controlsA: controls(c, 'Controls', CONTROLS.slice(0, 4)); break;
     case FACE.controlsB: controls(c, 'Controls, continued', CONTROLS.slice(4)); break;
@@ -443,7 +443,7 @@ function mapNotes(c: Ctx, f: FaceContext): void {
 }
 
 function settingsPage(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null, groups: number[]): void {
-  heading(c, groups.length === 2 ? 'Settings' : groups[0] === 2 ? 'Comfort and speed' : 'Settings, you');
+  heading(c, groups[0] === 0 ? 'Settings' : groups[0] === 2 ? 'Comfort and speed' : 'Settings, you');
   let y = 100;
   for (const g of groups) {
     const group = SETTING_ROWS[g];
@@ -455,7 +455,7 @@ function settingsPage(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null,
     for (const row of group.rows) {
       c.fillStyle = INK;
       c.font = '21px Georgia, serif';
-      c.fillText(row.label, 30, y + 22);
+      c.fillText(row.label, 30, y + 20);
       const options: Array<[string | boolean | number, string]> =
         row.kind === 'choice'
           ? row.options.map(([v, label]) => [v, label.replace('Always day', 'All day').replace('Left hip', 'Left').replace('Right hip', 'Right')])
@@ -464,9 +464,9 @@ function settingsPage(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null,
       const w = (FACE_W - 60 - (options.length - 1) * 6) / options.length;
       options.forEach(([value, label], i) => {
         const on = row.kind === 'slider' ? Math.abs(Number(current) - Number(value)) < 0.13 : current === value;
-        button(c, hits, hover, `set:${String(row.key)}:${String(value)}`, label, 30 + i * (w + 6), y + 28, w, 46, { on, size: 17, color: '#7a5a3a' });
+        button(c, hits, hover, `set:${String(row.key)}:${String(value)}`, label, 30 + i * (w + 6), y + 26, w, 38, { on, size: 17, color: '#7a5a3a' });
       });
-      y += 80;
+      y += 66;
     }
   }
 }

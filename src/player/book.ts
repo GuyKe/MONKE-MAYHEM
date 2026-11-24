@@ -67,6 +67,7 @@ const SWIPE_SPEED = 0.8;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
+const _bq = new THREE.Quaternion();
 const _w = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _m = new THREE.Matrix4();
@@ -220,7 +221,7 @@ export class Book {
     if (ctx.phase === 'dusk' || ctx.phase === 'night') this.journal.notify('dusk');
 
     // The way the body faces, smoothed, so the pouch doesn't swing with every glance.
-    _v.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    _v.set(0, 0, -1).applyQuaternion(this.camera.getWorldQuaternion(_bq));
     const target = Math.atan2(-_v.x, -_v.z);
     if (!this.yawReady) {
       this.yaw = target;
