@@ -18,6 +18,14 @@ export interface SettingsData {
   bookSide: 'left' | 'right';
   /** The text readout at the top left of the screen (desktop only). */
   showDebug: boolean;
+  /** The screen darkens round the edges when you move fast, which helps with motion sickness. */
+  vignette: 'off' | 'low' | 'medium' | 'high';
+  /** No drifting dust, fireflies or falling leaves. */
+  reduceMotion: boolean;
+  /** How much is drawn. Auto watches the frame rate and adjusts. */
+  quality: 'auto' | 'high' | 'medium' | 'low';
+  /** How sharp the picture is. Takes effect the next time you enter VR. */
+  sharpness: 'low' | 'normal' | 'high';
 }
 
 export const DEFAULT_SETTINGS: SettingsData = {
@@ -31,11 +39,19 @@ export const DEFAULT_SETTINGS: SettingsData = {
   volume: 0.8,
   bookSide: 'left',
   showDebug: true,
+  vignette: 'medium',
+  reduceMotion: false,
+  quality: 'auto',
+  sharpness: 'normal',
 };
 
 /** What each choice means in numbers. */
 export const VIEW_DISTANCE_M = { low: 62, medium: 78, high: 100 } as const;
 export const TREE_SPACING_M = { sparse: 6.2, normal: 4.8, dense: 4.1 } as const;
+/** How dark the comfort vignette gets at its strongest. */
+export const VIGNETTE_STRENGTH = { off: 0, low: 0.45, medium: 0.75, high: 0.95 } as const;
+/** Render resolution relative to the headset's default. */
+export const SHARPNESS = { low: 0.8, normal: 1, high: 1.2 } as const;
 export const FOG_SCALE = { light: 0.7, normal: 1, heavy: 1.35 } as const;
 /** Seconds for a whole day; 0 means the sun stays up. */
 export const DAY_SECONDS = { short: 300, normal: 600, long: 1200, 'always-day': 0 } as const;

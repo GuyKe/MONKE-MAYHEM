@@ -16,7 +16,8 @@ Built with Three.js (WebXR), Rapier physics, Vite and TypeScript.
 - [x] **Third round:** lakes and hills, swimming, leeches and crocodiles, hunting and food, felling trees, more weapons and plans, shelters
   you wake up in, saving, a mirror, and a gorilla body in leaf pants.
 - [x] **Milestone 5, sounds:** all synthesised in the browser (no audio files), placed in 3D, with a volume setting.
-- [ ] Milestone 5, still to do: comfort options and a headset performance pass.
+- [x] **Milestone 5, comfort and performance:** a comfort vignette, reduce-motion, adjustable quality (auto by default) and sharpness, and a physics speed-up.
+- [ ] Still untested: the real headset. All of this was tried in the desktop emulator.
 
 ## Running it
 
@@ -246,6 +247,24 @@ and the water's edge.
 **Roasting spit** (plan unlocked by the drying rack). Two posts either side of a campfire, with a long stick across and a crank at one end. Kill an animal, let go
 of the meat over the rod to put it on, and turn the crank by hand (grip the end and circle it): about a dozen turns roast the meat, if the fire is right under it.
 Take it off with your grip. Rest a stone on the lever and it keeps turning by itself, but each time round the stone may slip off.
+
+## Comfort and performance
+
+Settings are under **Comfort and speed** (main menu, or the book's settings pages).
+
+- **Comfort vignette** (off / low / medium / high): the edges of the view darken and the clear circle closes in when you are moving fast (launching, falling,
+  riding the logger) or turning your head quickly. It comes on fast and fades gently.
+- **Reduce motion:** no drifting dust, fireflies or falling leaves.
+- **Quality** (auto / high / medium / low): each level changes how far the forest, grass, loose pieces, animals and falling leaves are drawn. **Auto** watches
+  how long frames take (against the headset's refresh rate) and steps down when they run long and back up when there is room. The desktop emulator is too slow to
+  judge by, so it stays on high unless you add `?autoquality`.
+- **Sharpness** (soft / normal / sharp): render resolution 0.8 / 1.0 / 1.2 of the headset's default, applied the next time you enter VR.
+
+What the performance pass changed:
+- **Physics:** pieces lying still are put to sleep (and ones that jitter against the ground are calmed and slept), and a piece you hold wakes anything asleep
+  next to it. A physics step went from about 3.8 ms to 1.4 ms in the emulator with 530 pieces. Put-away pieces are dropped from the lists.
+- **Per-frame work:** a few allocations in the main loop removed; texture filtering lowered to 2x.
+- **Profiler:** add `?perf` and the readout lists where each frame's time goes (physics, forest, animals, render submission...), with the current quality level.
 
 ## How the movement works
 

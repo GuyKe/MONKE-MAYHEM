@@ -116,6 +116,9 @@ export interface Stick {
   wrap: number;
   /** Tools carry a head (stone blade, club knob), and a lashed axe has rope wound round it. */
   hasHead: boolean;
+  /** How long it has been lying still (seconds). */
+  rest: number;
+  jitter: number;
   /** Food: how it is doing, and how many game days old it is. */
   state: FoodState;
   age: number;
@@ -151,7 +154,7 @@ export interface PieceOptions {
 /** Room in each mesh beyond the pieces scattered at the start, for crafted ones and loot. */
 const SPARE = 300;
 /** Pieces further than this from the player are not drawn (the fog hides them anyway). */
-const DRAW_DISTANCE = 100;
+const DEFAULT_DRAW_DISTANCE = 100;
 /** Sticks placed in a fan right in front of the player. */
 const FAN_COUNT = 8;
 /** Sticks placed in the clearing and trees around the spawn. */
@@ -236,6 +239,8 @@ export class Sticks {
   /** How many pieces have fallen out of the world and been put back (should stay 0). */
   respawned = 0;
   private frame = 0;
+  /** Pieces further than this from the player are not drawn (lowered when the frame rate is low). */
+  drawDistance = DEFAULT_DRAW_DISTANCE;
   private readonly home: THREE.Vector3Like;
   private readonly world: RAPIER.World;
   private readonly slots: Record<'prism' | 'stone' | 'coil' | 'head' | 'wrap', Slots>;
@@ -334,20 +339,38 @@ export class Sticks {
    * Copies body poses to the meshes. With `viewer` only pieces within drawing distance are drawn (each is written
    * into the next free place in its mesh), and far ones are only looked at now and then.
    */
-  sync(viewer?: THREE.Vector3): void {
+  sync(viewer?: THREE.Vector3, dt = 1 / 60): void {
     this.frame++;
+    // Pieces that have been put away stay in the list until now; dropping them keeps the loops short.
+    if (this.frame % 600 === 0) {
+      let w = 0;
+      for (const s of this.list) if (!s.hidden) this.list[w++] = s;
+      this.list.length = w;
+    }
     for (const slots of Object.values(this.slots)) slots.used = 0;
+    // Something held wakes whatever is sleeping close to it, so it cannot be pressed through the ground.
+    for (const held of this.list) {
+      if (held.heldBy === null || held.hidden) continue;
+      const reach = held.length / 2 + 0.5;
+      for (const other of this.list) {
+        if (other !== held && !other.hidden && other.body.isSleeping() && other.pos.distanceToSquared(held.pos) < reach * reach) {
+          other.body.wakeUp();
+          other.rest = 0;
+        }
+      }
+    }
     for (const stick of this.list) {
       if (stick.hidden) continue;
-      if (viewer && stick.pos.distanceToSquared(viewer) > DRAW_DISTANCE * DRAW_DISTANCE && (this.frame + stick.id) % 30 !== 0) continue;
+      const far = !!viewer && stick.pos.distanceToSquared(viewer) > this.drawDistance * this.drawDistance;
+      if (far && (this.frame + stick.id) % 30 !== 0) continue;
       // Held pieces are real bodies too, so the pose always comes from the physics.
       const t = stick.body.translation();
       const r = stick.body.rotation();
       stick.pos.set(t.x, t.y, t.z);
       stick.quat.set(r.x, r.y, r.z, r.w);
       if (t.y < -20) this.respawn(stick); // fell out of the world
-      this.updateStickDamping(stick);
-      if (viewer && stick.pos.distanceToSquared(viewer) > DRAW_DISTANCE * DRAW_DISTANCE) continue;
+      this.updateStickDamping(stick, far ? dt * 30 : dt);
+      if (viewer && stick.pos.distanceToSquared(viewer) > this.drawDistance * this.drawDistance) continue;
 
       const slots = this.slotsFor(stick.shape);
       const at = slots.used;
@@ -478,6 +501,8 @@ export class Sticks {
       maxDurability: max,
       wrap: extra.wrap ?? (kind === 'axe2' ? 1 : 0),
       hasHead: !!headSpec,
+      rest: 0,
+      jitter: 0,
       state: extra.state ?? 'raw',
       age: extra.age ?? 0,
     };
@@ -495,10 +520,30 @@ export class Sticks {
    * heavy damping so it comes to rest; while it is fast (thrown, tumbling) it is nearly
    * undamped so throws keep their spin.
    */
-  private updateStickDamping(stick: Stick): void {
+  private updateStickDamping(stick: Stick, dt = 1 / 60): void {
     if (stick.heldBy !== null || stick.hidden) return;
     const v = stick.body.linvel();
     const speed = Math.hypot(v.x, v.y, v.z);
+    // Lying still: put it to sleep, so the physics does not keep looking after it (it wakes if anything touches it).
+    const w = stick.body.angvel();
+    if (speed < 0.2 && Math.hypot(w.x, w.y, w.z) < 1.0) {
+      stick.rest += dt;
+      if (stick.rest > 0.5 && !stick.body.isSleeping()) stick.body.sleep();
+    } else {
+      stick.rest = 0;
+    }
+    // A piece that spins on the spot without going anywhere is shaking against the ground: calm it and let it sleep.
+    if (speed < 0.3 && Math.hypot(w.x, w.y, w.z) > 3) {
+      stick.jitter += dt;
+      if (stick.jitter > 0.6) {
+        stick.jitter = 0;
+        stick.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+        stick.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+        stick.body.sleep();
+      }
+    } else {
+      stick.jitter = 0;
+    }
     const wantSettling = speed < SETTLE_BELOW_SPEED;
     if (wantSettling === stick.settling) return;
     stick.settling = wantSettling;

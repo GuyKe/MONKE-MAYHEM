@@ -33,10 +33,13 @@ import { Fruits } from './world/fruit';
 import { FallingLeaves } from './world/leaves';
 import { Logger } from './world/logger';
 import { Spits } from './world/spit';
+import { Perf } from './perf';
+import { Comfort } from './comfort';
+import { Quality } from './quality';
 import { MEAT_COLOR } from './player/survival';
 import { SaveStore, type SaveData } from './save';
 import type { DesktopEmulator } from './debug/desktop';
-import { DAY_SECONDS, FOG_SCALE, Settings, TREE_SPACING_M, VIEW_DISTANCE_M } from './settings';
+import { DAY_SECONDS, FOG_SCALE, SHARPNESS, Settings, TREE_SPACING_M, VIEW_DISTANCE_M } from './settings';
 import { Menu } from './ui/menu';
 import { Hand } from './player/hands';
 
@@ -158,6 +161,7 @@ async function main(): Promise<void> {
   const body = new Body(scene);
   const audio = new GameAudio();
   const mirror = new MirrorView(scene, body);
+  const comfort = new Comfort(camera);
 
   // The field journal on your hip: stash sticks in it, craft from it, unlock recipes as you go.
   const journal = new Journal(params.has('resetbook'));
@@ -505,6 +509,9 @@ async function main(): Promise<void> {
     if (document.visibilityState === 'hidden' && renderer.xr.isPresenting && autosaveOn) saveNow();
   });
 
+  // With a headset the quality follows the frame rate; the desktop emulator is too slow to judge by (unless asked: ?autoquality).
+  const quality = new Quality(forestRef, sticks, animals, leaves);
+  quality.fixed = !!emulator && !params.has('autoquality');
   const vrButton = VRButton.createButton(renderer);
   if (emulator) vrButton.textContent = 'ENTER VR (DESKTOP EMULATOR)';
   document.body.appendChild(vrButton);
@@ -518,6 +525,8 @@ async function main(): Promise<void> {
   actions.resetBook = () => journal.reset();
   renderer.xr.addEventListener('sessionstart', () => {
     menu.hide();
+    const rate = (renderer.xr.getSession() as unknown as { frameRate?: number } | null)?.frameRate;
+    if (rate && rate > 30) quality.targetMs = 1000 / rate;
     audio.start(); // sound may only begin after a click, and pressing Play is one
   });
   renderer.xr.addEventListener('sessionend', () => {
@@ -533,7 +542,11 @@ async function main(): Promise<void> {
   const applySetting = () => {
     Hand.hapticScale = settings.data.haptics;
     audio.setVolume(settings.data.volume);
-    forestRef?.setViewRadius(VIEW_DISTANCE_M[settings.data.viewDistance]);
+    quality?.configure(settings.data.quality, settings.data.viewDistance);
+    comfort.setLevel(settings.data.vignette);
+    renderer.xr.setFramebufferScaleFactor(SHARPNESS[settings.data.sharpness]);
+    if (atmosphere) atmosphere.motes = !settings.data.reduceMotion;
+    if (leaves) leaves.enabled = !settings.data.reduceMotion;
     forestRef?.setGrass(settings.data.grass);
     if (atmosphere) {
       atmosphere.fogScale = FOG_SCALE[settings.data.atmosphere];
@@ -568,17 +581,20 @@ async function main(): Promise<void> {
   const _hq = new THREE.Quaternion();
   const handLocals: [THREE.Vector3, THREE.Vector3] = [new THREE.Vector3(), new THREE.Vector3()];
   const clock = new THREE.Clock();
+  const perf = new Perf(params.has('perf'));
   let fpsFrames = 0;
   let fpsTime = 0;
   let fps = 0;
 
   renderer.setAnimationLoop((_time, frame?: XRFrame) => {
+    perf.begin();
     const frameDt = clock.getDelta(); // real frame time, for the fps counter
     let dt = frameDt;
     if (emulator) {
       dt = Math.min(dt, 1 / 30); // keep emulator and simulation in step on slow machines
       emulator.update(dt);
     }
+    perf.lap('emulator');
 
     if (frame && renderer.xr.isPresenting) {
       const refSpace = renderer.xr.getReferenceSpace();
@@ -608,7 +624,9 @@ async function main(): Promise<void> {
       }
       locomotion.reachScale = armSpan.scale;
 
+      perf.lap('arm span');
       locomotion.update(dt, headLocal, [leftPos, rightPos]);
+      perf.lap('locomotion');
 
       hands.all.forEach((hand, i) => {
         const contact = locomotion.hands[i];
@@ -622,6 +640,7 @@ async function main(): Promise<void> {
       grab.update(dt, locomotion.hands);
       crafting.update(dt);
       combat.update(dt);
+      perf.lap('grab+craft');
       camForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
       camForward.y = 0;
       building.update(dt, {
@@ -638,7 +657,9 @@ async function main(): Promise<void> {
         view.holding = grab.held(i as 0 | 1) !== null;
         view.stickX = hand.stickX;
       });
+      perf.lap('building');
       book.update(dt, { head: locomotion.headWorld(_viewer), hands: handViews, phase: atmosphere?.phase ?? null });
+      perf.lap('book');
       if (book.page !== lastPage || book.isOpen !== lastOpen) {
         audio.play(book.isOpen !== lastOpen ? 'click' : 'page');
         lastPage = book.page;
@@ -660,10 +681,14 @@ async function main(): Promise<void> {
         autosave = 0;
         saveNow();
       }
+      perf.lap('body+survival');
       crocs?.update(dt, headNow, locomotion.inWater);
       vitalsView.update(dt, hands.left.tracked ? body.forearm[0] : null, headNow, locomotion.headUnderwater);
       audio.listen(headNow, _hq);
-      const lakeEdge = forestRef ? Math.min(...forestRef.lakes.map((l) => Math.hypot(l.x - headNow.x, l.z - headNow.z) - l.r), Infinity) : Infinity;
+      comfort.update(dt, Math.max(locomotion.velocity.length(), Math.abs(loggerRef.current?.rider !== null ? (loggerRef.current?.speed ?? 0) : 0)), _hq);
+      quality.update(frameDt);
+      let lakeEdge = Infinity;
+      if (forestRef) for (const l of forestRef.lakes) lakeEdge = Math.min(lakeEdge, Math.hypot(l.x - headNow.x, l.z - headNow.z) - l.r);
       audio.update(dt, {
         night: atmosphere?.night ?? 0,
         lakeDistance: lakeEdge,
@@ -675,6 +700,7 @@ async function main(): Promise<void> {
         airSpeed: !locomotion.grounded && !locomotion.anyTouching ? locomotion.velocity.length() : 0,
         crocDistance: Infinity,
       });
+      perf.lap('audio+ui');
       swimTime = locomotion.swimming ? swimTime + dt : 0;
       if (swimTime > 4) {
         swimTime = 0;
@@ -687,15 +713,22 @@ async function main(): Promise<void> {
     // The world around the player: which chunks are drawn, and the time of day.
     const viewer = locomotion.headWorld(_viewer);
     forestRef?.update(viewer, dt);
+    perf.lap('forest');
     atmosphere?.update(dt, viewer);
+    perf.lap('atmosphere');
     animals?.update(dt, viewer, atmosphere?.night ?? 0);
+    perf.lap('animals');
     mapView?.explore(viewer.x, viewer.z);
     poisRef.current?.update(viewer);
+    perf.lap('map+pois');
     treeRopes?.update(dt, viewer);
     fruits?.update(dt, viewer, survival.days);
+    perf.lap('ropes+fruit');
     leaves?.update(dt, viewer, atmosphere?.night ?? 0);
+    perf.lap('leaves');
     fire.update(dt, viewer, atmosphere?.night ?? 0);
     friction.update(dt);
+    perf.lap('fire');
 
     // Step physics by the real frame time so sticks fall at the right speed whatever
     // the refresh rate, in steps of at most 1/60 s so slow frames don't make the
@@ -704,7 +737,9 @@ async function main(): Promise<void> {
     const substeps = Math.ceil(physicsDt / (1 / 60) - 1e-6);
     world.timestep = physicsDt / substeps;
     for (let i = 0; i < substeps; i++) world.step();
-    sticks.sync(viewer);
+    perf.lap('physics');
+    sticks.sync(viewer, dt);
+    perf.lap('sticks.sync');
 
     fpsFrames++;
     fpsTime += frameDt;
@@ -715,11 +750,13 @@ async function main(): Promise<void> {
     }
     hud.textContent = hudText(renderer, locomotion, armSpan, grab, journal, friction.heat, crafting, fps, emulator !== null, worldStats, atmosphere);
 
+    if (perf.enabled) hud.textContent += `\n\nquality ${quality.level}${quality.auto ? ' (auto)' : ''}, ${quality.changes} changes\n${perf.report()}`;
     renderer.render(scene, camera);
+    perf.lap('render');
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
+  Object.assign(window, { __monke: { quality, comfort, perf, spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(

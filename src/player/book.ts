@@ -532,6 +532,8 @@ export class Book {
       }
       case FACE.settingsA:
       case FACE.settingsB:
+      case FACE.settingsC:
+      case FACE.startOver:
         return `${this.settingsVersion}|${hover}`;
       case FACE.notes:
         return `${j}|${this.services.world().clock}`;

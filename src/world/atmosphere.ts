@@ -113,6 +113,8 @@ export class Atmosphere {
   day = 1;
   /** Multiplies how thick the fog is (a setting). */
   fogScale = 1;
+  /** Drifting dust and fireflies (off with Reduce motion). */
+  motes = true;
   /** When set, the sun stays where it is at this time of day. */
   frozenAt: number | null = null;
 
@@ -242,7 +244,7 @@ export class Atmosphere {
       m.uniforms.uViewer.value.copy(viewer);
       m.uniforms.uTime.value = this.elapsed;
       m.uniforms.uOpacity.value = opacity;
-      points.visible = opacity > 0.01;
+      points.visible = this.motes && opacity > 0.01;
     }
   }
 

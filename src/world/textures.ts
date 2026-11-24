@@ -38,7 +38,7 @@ function fractal(size: number, rand: () => number, octaves: Array<[number, numbe
   return total;
 }
 
-function toTexture(size: number, paint: (x: number, y: number) => [number, number, number], anisotropy = 4): THREE.CanvasTexture {
+function toTexture(size: number, paint: (x: number, y: number) => [number, number, number], anisotropy = 2): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const c = canvas.getContext('2d')!;

@@ -7,9 +7,9 @@ import { RECIPES, type Journal, type Recipe } from './journal';
 export const FACE_W = 512;
 export const FACE_H = 692;
 /** Two faces per spread, nine spreads: the inside covers and eight leaves. */
-export const FACE_COUNT = 18;
+export const FACE_COUNT = 20;
 /** Which face is which (the left page of a spread is even). */
-export const FACE = { cover: 0, recipesA: 1, recipesB: 2, tools: 3, plansA: 4, plansB: 5, plan: 6, ropes: 7, survival: 8, wildlife: 9, map: 10, places: 11, settingsA: 12, settingsB: 13, controlsA: 14, controlsB: 15, notes: 16, back: 17 } as const;
+export const FACE = { cover: 0, recipesA: 1, recipesB: 2, tools: 3, plansA: 4, plansB: 5, plan: 6, ropes: 7, survival: 8, wildlife: 9, map: 10, places: 11, settingsA: 12, settingsB: 13, settingsC: 14, startOver: 15, controlsA: 16, controlsB: 17, notes: 18, back: 19 } as const;
 
 /** A pokeable region of a page, in page pixels. */
 export interface Hit {
@@ -102,7 +102,9 @@ export function drawFace(index: number, c: Ctx, f: FaceContext, hover: string | 
     case FACE.map: mapPage(c, f); break;
     case FACE.places: mapNotes(c, f); break;
     case FACE.settingsA: settingsPage(c, f, hits, hover, [0, 1]); break;
-    case FACE.settingsB: settingsPage(c, f, hits, hover, [2]); startOver(c, hits, hover); break;
+    case FACE.settingsB: settingsPage(c, f, hits, hover, [2]); break;
+    case FACE.settingsC: settingsPage(c, f, hits, hover, [3]); break;
+    case FACE.startOver: startOver(c, hits, hover); break;
     case FACE.controlsA: controls(c, 'Controls', CONTROLS.slice(0, 4)); break;
     case FACE.controlsB: controls(c, 'Controls, continued', CONTROLS.slice(4)); break;
     case FACE.notes: notes(c, f); break;
@@ -441,7 +443,7 @@ function mapNotes(c: Ctx, f: FaceContext): void {
 }
 
 function settingsPage(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null, groups: number[]): void {
-  heading(c, groups.length === 2 ? 'Settings' : 'Settings, you');
+  heading(c, groups.length === 2 ? 'Settings' : groups[0] === 2 ? 'Comfort and speed' : 'Settings, you');
   let y = 100;
   for (const g of groups) {
     const group = SETTING_ROWS[g];
@@ -470,13 +472,11 @@ function settingsPage(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null,
 }
 
 function startOver(c: Ctx, hits: Hit[], hover: string | null): void {
-  const y = 450;
-  c.fillStyle = '#7a5a2a';
-  c.font = 'bold 16px system-ui, sans-serif';
-  c.fillText('START OVER', 30, y + 14);
+  heading(c, 'Start over');
+  const y = 90;
   button(c, hits, hover, 'reset:arms', 'Measure my arms again', 30, y + 28, FACE_W - 60, 46, { size: 19, color: '#8a5a3a' });
   button(c, hits, hover, 'reset:book', 'Forget unlocked recipes', 30, y + 84, FACE_W - 60, 46, { size: 19, color: '#8a3a22' });
-  para(c, 'World settings apply to a new forest.', y + 150, 18, FAINT);
+  para(c, 'These only forget what you have learned, not the forest or your saved game. To start a new forest, use New forest on the main menu. World settings (trees, animals) apply to a new forest.', y + 160, 19, FAINT);
 }
 
 function controls(c: Ctx, title: string, items: Array<[string, string]>): void {

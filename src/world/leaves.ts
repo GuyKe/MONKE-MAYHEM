@@ -59,11 +59,16 @@ export class FallingLeaves {
   }
 
   private placed = false;
+  /** Off with Reduce motion. */
+  enabled = true;
+  /** How many leaves are drawn (fewer when the frame rate is low). */
+  maxCount = COUNT;
 
   update(dt: number, viewer: THREE.Vector3, night: number): void {
     this.time += dt;
-    this.mesh.visible = night < 0.8;
+    this.mesh.visible = this.enabled && night < 0.8 && this.maxCount > 0;
     if (!this.mesh.visible) return;
+    this.mesh.count = Math.min(COUNT, this.maxCount);
     if (!this.placed) {
       // First time: scatter them through the air around the player (positions are in the world from here on).
       this.placed = true;
@@ -74,6 +79,7 @@ export class FallingLeaves {
       }
     }
     this.leaves.forEach((l, i) => {
+      if (i >= this.maxCount) return;
       l.y -= l.speed * dt;
       // Keep the cloud around the player: a leaf that falls out of the box on one side comes back on the other.
       if (l.x - viewer.x > RADIUS) l.x -= 2 * RADIUS;

@@ -49,6 +49,15 @@ export const SETTING_ROWS: Array<{ title: string; rows: Array<ChoiceRow | Slider
     ],
   },
   {
+    title: 'Comfort and speed',
+    rows: [
+      { kind: 'choice', key: 'vignette', label: 'Comfort vignette', options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
+      { kind: 'choice', key: 'reduceMotion', label: 'Reduce motion', options: [[false, 'Off'], [true, 'On']] },
+      { kind: 'choice', key: 'quality', label: 'Quality', options: [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']] },
+      { kind: 'choice', key: 'sharpness', label: 'Sharpness', options: [['low', 'Soft'], ['normal', 'Normal'], ['high', 'Sharp']], note: 'Next VR session' },
+    ],
+  },
+  {
     title: 'You',
     rows: [
       { kind: 'slider', key: 'haptics', label: 'Controller buzz' },

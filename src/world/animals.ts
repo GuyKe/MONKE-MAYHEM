@@ -63,7 +63,7 @@ interface Bird {
 }
 
 /** Animals further than this from the player aren't simulated or drawn. */
-const ACTIVE_RADIUS = 95;
+const DEFAULT_ACTIVE_RADIUS = 95;
 const RABBITS = 260;
 const DEER = 80;
 const PERCHED_BIRDS = 60;
@@ -138,6 +138,8 @@ export class Animals {
   private readonly birdMesh: THREE.InstancedMesh;
   private readonly rand: () => number;
   private time = 0;
+  /** Animals further than this from the player are not simulated (lowered when the frame rate is low). */
+  activeRadius = DEFAULT_ACTIVE_RADIUS;
   private readonly enabled: boolean;
 
   constructor(
@@ -221,7 +223,7 @@ export class Animals {
       const dx = a.x - viewer.x;
       const dz = a.z - viewer.z;
       const dist = Math.hypot(dx, dz);
-      if (dist > ACTIVE_RADIUS) continue;
+      if (dist > this.activeRadius) continue;
       this.stepGround(a, dt, dist, dx, dz);
       const hop = a.species === 'rabbit' ? this.hop(a) : this.gallop(a);
       _m.compose(_p.set(a.x, a.y + hop, a.z), _q.setFromAxisAngle(UP, a.heading), _s.set(1, 1, 1));
@@ -240,7 +242,7 @@ export class Animals {
     let birds = 0;
     for (const b of this.birds) {
       if (b.state === 'circling' && night > 0.55) continue; // roosting
-      if (Math.hypot(b.state === 'circling' ? b.cx - viewer.x : b.x - viewer.x, b.state === 'circling' ? b.cz - viewer.z : b.z - viewer.z) > ACTIVE_RADIUS + 20) continue;
+      if (Math.hypot(b.state === 'circling' ? b.cx - viewer.x : b.x - viewer.x, b.state === 'circling' ? b.cz - viewer.z : b.z - viewer.z) > this.activeRadius + 20) continue;
       this.stepBird(b, dt, viewer, night);
       const span = b.state === 'perched' ? 0.45 : 0.55 + 0.45 * Math.abs(Math.sin(b.flap));
       _q.setFromEuler(_e.set(b.state === 'flying' ? -0.15 : 0, b.heading, 0, 'YXZ'));

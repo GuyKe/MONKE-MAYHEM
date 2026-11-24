@@ -145,6 +145,8 @@ export interface Forest {
   /** Changes how far chunks are drawn. */
   setViewRadius(metres: number): void;
   setGrass(on: boolean): void;
+  /** How far full-detail chunks and grass are drawn (metres). */
+  setDetail(detail: number, grass: number): void;
   stats: { trees: number; branches: number; rocks: number; logs: number; ponds: number; puddles: number; colliders: number };
 }
 
@@ -962,6 +964,8 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
 
   let viewRadius = options.viewRadius ?? VIEW_RADIUS;
   let grassOn = options.grass ?? true;
+  let detailRadius = DETAIL_RADIUS;
+  let grassRadius = GRASS_RADIUS;
   const update = (viewer: THREE.Vector3, dt = 0): void => {
     if (dt > 0) stepFalling(dt);
     lakes.forEach((l, i) => (lakeMeshes[i].visible = Math.hypot(l.x - viewer.x, l.z - viewer.z) < viewRadius + l.r + 30));
@@ -971,14 +975,14 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
         const dz = Math.max(c.minZ - viewer.z, 0, viewer.z - c.maxZ);
         const d = Math.hypot(dx, dz);
         const shown = d < viewRadius;
-        const detailed = d < DETAIL_RADIUS;
+        const detailed = d < detailRadius;
         c.terrain.high.visible = detailed;
         c.terrain.low.visible = shown && !detailed;
         if (c.propsMesh) c.propsMesh.visible = detailed;
         if (c.propsLowMesh) c.propsLowMesh.visible = shown && !detailed;
         if (c.treesMesh) c.treesMesh.visible = detailed;
         if (c.treesLowMesh) c.treesLowMesh.visible = shown && !detailed;
-        if (c.tuftsMesh) c.tuftsMesh.visible = grassOn && d < GRASS_RADIUS;
+        if (c.tuftsMesh) c.tuftsMesh.visible = grassOn && d < grassRadius;
       }
     }
   };
@@ -1008,6 +1012,10 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     update,
     setViewRadius: (metres) => void (viewRadius = metres),
     setGrass: (on) => void (grassOn = on),
+    setDetail: (detail, grass) => {
+      detailRadius = detail;
+      grassRadius = grass;
+    },
     stats: { trees: trees.length, branches, rocks: rockCount, logs: logCount, ponds, puddles, colliders },
   };
 }
