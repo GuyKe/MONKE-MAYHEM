@@ -288,6 +288,10 @@ save). After that:
 - **The world**: felled trees, ropes and berries taken, campfires, structures (parts that go in on one machine go in on all), the time of day and the wood-cutting
   vehicle's position. Health, hunger-style effects, the book, the map and recipes belong to each player.
 
+**Saving as host.** The multiplayer screen has **Save the game now** (it saves the whole shared world, including what your guests built, made and moved, and tells them),
+and **Autosave while hosting** (on by default, every 40 seconds; turn it off if you would rather save by hand). Stopping the host saves too. Next time, press Continue
+and host again to carry on with the same world. Guests never save.
+
 **Voice.** Press Play and the browser (or headset) asks for the microphone. Each pair of players has a direct call; a voice comes from where that player's head is
 (near is loud, far is faint) and their name pulses while they talk. Mute from the menu or with **M**.
 

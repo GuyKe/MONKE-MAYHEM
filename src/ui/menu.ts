@@ -407,6 +407,22 @@ export class Menu {
       }, n.mic === 'on' && !n.muted ? 'on' : '');
       mic.id = 'menuMic';
       this.panel.append(mic);
+      if (n.role === 'host') {
+        // The host's game is the shared world: saving it keeps everything everyone has built and made.
+        const save = this.button(this.saveStatus || 'SAVE THE GAME NOW', () => {
+          this.saveStatus = this.hooks.onSave() ? 'Saved ✓ (guests are told)' : 'Could not save';
+          this.render();
+        });
+        save.id = 'menuSaveHost';
+        this.panel.append(save);
+        const auto = this.button(`Autosave while hosting: ${this.settings.data.hostAutosave ? 'On' : 'Off'}`, () => {
+          this.settings.set('hostAutosave', !this.settings.data.hostAutosave);
+          this.render();
+        }, this.settings.data.hostAutosave ? 'on' : '');
+        auto.id = 'menuHostAuto';
+        this.panel.append(auto);
+        this.panel.append(this.el('p', 'Saves the whole shared world: everything you and your guests built, made and moved. Next time, Continue and Host again.', 'status'));
+      }
       const leave = this.button(n.role === 'host' ? 'Stop hosting' : 'Leave game', () => this.hooks.onLeaveGame());
       leave.id = 'menuLeave';
       this.panel.append(leave);

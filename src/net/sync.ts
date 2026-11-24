@@ -304,6 +304,9 @@ export class Sync {
         this.rosterChanged();
         break;
       }
+      case 'saved':
+        d.say('The host saved the game.');
+        break;
       case 'bye':
         this.left((msg as unknown as { id: string }).id);
         break;

@@ -553,7 +553,10 @@ async function main(): Promise<void> {
     if (!vitals.alive || params.has('arena')) return false;
     const data = collect();
     const ok = SaveStore.write(data);
-    if (ok) menu.setSaveInfo(SaveStore.describe(data));
+    if (ok) {
+      menu.setSaveInfo(SaveStore.describe(data));
+      if (net.role === 'host') net.broadcast({ t: 'saved' });
+    }
     return ok;
   };
   actions.save = saveNow;
@@ -616,6 +619,7 @@ async function main(): Promise<void> {
       location.href = url.toString();
       return;
     }
+    if (net.role === 'host' && autosaveOn) saveNow(); // what everyone did is kept
     sync.stop();
     netMessage = '';
     netStatus();
@@ -823,7 +827,7 @@ async function main(): Promise<void> {
       spitsRef.current?.update(dt, 0);
       mirror.update(sticks, headNow);
       autosave += dt;
-      if (autosave > 40 && autosaveOn) {
+      if (autosave > 40 && autosaveOn && (net.role !== 'host' || settings.data.hostAutosave)) {
         autosave = 0;
         saveNow();
       }

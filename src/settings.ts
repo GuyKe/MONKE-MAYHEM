@@ -20,6 +20,8 @@ export interface SettingsData {
   showDebug: boolean;
   /** The screen darkens round the edges when you move fast, which helps with motion sickness. */
   vignette: 'off' | 'low' | 'medium' | 'high';
+  /** The host's game saves by itself every 40 seconds (as a single-player game does). */
+  hostAutosave: boolean;
   /** Turning with the thumbstick: not at all, in jumps, or smoothly. (Turning your head always works.) */
   turning: 'off' | 'snap' | 'smooth';
   /** Degrees per snap. */
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS: SettingsData = {
   volume: 0.8,
   bookSide: 'left',
   showDebug: true,
+  hostAutosave: true,
   turning: 'snap',
   snapAngle: '45',
   turnSpeed: 'medium',
