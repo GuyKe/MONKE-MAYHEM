@@ -4,6 +4,8 @@ import type { MapMarker } from './mapview';
 import type { Sticks } from './sticks';
 
 export interface PoiHooks {
+  /** A wood-cutting vehicle is in a barn here. */
+  onVehicle?(x: number, y: number, z: number, yaw: number): void;
   say(text: string): void;
   pulse(strength: number, ms: number): void;
 }
@@ -32,8 +34,9 @@ export class Pois {
         const a = Math.random() * Math.PI * 2;
         if (item.kind === 'stone' || item.kind === 'rope') quat.setFromEuler(new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6));
         else quat.setFromUnitVectors(UP, new THREE.Vector3(Math.cos(a), 0, Math.sin(a)));
-        sticks.craft(item.kind, new THREE.Vector3(item.x, item.y + 0.1, item.z), quat);
+        sticks.craft(item.kind, new THREE.Vector3(item.x, item.y + 0.1, item.z), quat, item.length ? { length: item.length } : {});
       }
+      if (poi.vehicle) this.hooks.onVehicle?.(poi.vehicle.x, poi.vehicle.y, poi.vehicle.z, poi.vehicle.yaw);
     }
   }
 

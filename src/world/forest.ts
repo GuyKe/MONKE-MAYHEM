@@ -19,6 +19,8 @@ export interface ForestOptions {
   /** How far chunks are drawn. Default 78. */
   viewRadius?: number;
   grass?: boolean;
+  /** Put a wood-cutting vehicle in every barn (`?logger`). */
+  forceLogger?: boolean;
 }
 
 export interface Tree {
@@ -86,7 +88,9 @@ export interface PoiInfo {
   /** Ground height at its centre. */
   baseY: number;
   footprint: number;
-  loot: Array<{ kind: PieceKind; x: number; y: number; z: number }>;
+  loot: Array<{ kind: PieceKind; x: number; y: number; z: number; length?: number }>;
+  /** A vehicle to put in the barn. */
+  vehicle?: { x: number; y: number; z: number; yaw: number };
 }
 
 /** Where a felled tree landed. */
@@ -294,9 +298,9 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
   // --- Places to find ----------------------------------------------------------
   // Chosen now so the ground can be levelled and trees kept away. The first is a short walk from the start.
   const plans: Array<{ ruin: Ruin; x: number; z: number; yaw: number }> = [];
-  const ruinTypes: RuinType[] = ['camp', 'cabin', 'stones', 'tower', 'cabin', 'camp', 'stones', 'tower', 'cabin', 'camp', 'tower', 'stones'];
+  const ruinTypes: RuinType[] = ['camp', 'cabin', 'stones', 'barn', 'tower', 'cabin', 'camp', 'barn', 'stones', 'tower', 'cabin', 'camp', 'barn', 'tower', 'stones'];
   ruinTypes.forEach((type, k) => {
-    const ruin = designRuin(type, rand);
+    const ruin = designRuin(type, rand, options.forceLogger);
     for (let tries = 0; tries < 500; tries++) {
       let x: number;
       let z: number;
@@ -711,8 +715,9 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
       footprint: plan.ruin.footprint,
       loot: plan.ruin.loot.map((l) => {
         const w = toWorld(l.pos);
-        return { kind: l.kind, x: w.x, y: w.y, z: w.z };
+        return { kind: l.kind, x: w.x, y: w.y, z: w.z, length: l.length };
       }),
+      vehicle: plan.ruin.vehicle ? (() => { const v = toWorld(plan.ruin.vehicle!.pos); return { x: v.x, y: v.y, z: v.z, yaw: plan.yaw + plan.ruin.vehicle!.yaw }; })() : undefined,
     });
   });
 

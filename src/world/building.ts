@@ -88,7 +88,13 @@ const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _hv = new THREE.Vector3();
 
-const WOOD_COLOR = { log: 0x5b3d26, pole: 0x9a7448, stick: 0x7a5a38, leaf: 0x3f8f3a, mud: 0x4a3524, stone: 0x8b8f86 } as const;
+/** Does this piece go in a slot of this kind? A long stick fits a stick slot too, but only a long one fits a long slot. */
+function fits(slot: string, piece: Stick): boolean {
+  if (slot === 'long') return piece.kind === 'stick' && piece.length >= 1.5;
+  return slot === piece.kind;
+}
+
+const WOOD_COLOR = { log: 0x5b3d26, pole: 0x9a7448, stick: 0x7a5a38, long: 0x8a6a40, leaf: 0x3f8f3a, mud: 0x4a3524, stone: 0x8b8f86 } as const;
 /** Things you can pound a post in with. */
 const HAMMERS = new Set(['stone', 'axe', 'axe2', 'club', 'log']);
 /** A post goes in after this many blows, and starts this far (metres) above its place. */
@@ -197,10 +203,10 @@ export class Building {
   }
 
   /** Finished structures of a kind, for spawning and drying meat. */
-  completed(kind: 'shelter' | 'rack' | 'oven'): Array<{ id: string; x: number; z: number }> {
+  completed(kind: 'shelter' | 'rack' | 'oven' | 'spit'): Array<{ id: string; x: number; y: number; z: number; yaw: number }> {
     return this.sites
       .filter((s) => s.complete && s.bp[kind])
-      .map((s) => ({ id: s.bp.id, x: s.pos.x, z: s.pos.z }));
+      .map((s) => ({ id: s.bp.id, x: s.pos.x, y: s.pos.y, z: s.pos.z, yaw: s.yaw }));
   }
 
   // --- What the book shows ------------------------------------------------------------
@@ -289,7 +295,7 @@ export class Building {
     let best: SlotState | null = null;
     let bestScore = Infinity;
     for (const s of site.slots) {
-      if (s.filled || s.planted || s.slot.kind === 'tie' || s.slot.kind !== stick.kind || !this.available(s)) continue;
+      if (s.filled || s.planted || s.slot.kind === 'tie' || !fits(s.slot.kind, stick) || !this.available(s)) continue;
       const long = stick.shape === 'prism';
       if (long && stick.length < 0.6 * s.slot.length) continue;
       const d = stick.pos.distanceTo(s.pos);
@@ -468,7 +474,7 @@ export class Building {
       const avail = this.available(s);
       let match = false;
       if (avail && s.slot.kind !== 'tie') {
-        match = held.some((h) => h && h.kind === s.slot.kind && (h.shape !== 'prism' || h.length >= 0.6 * s.slot.length) && h.pos.distanceTo(s.pos) < 0.7);
+        match = held.some((h) => h && fits(s.slot.kind, h) && (h.shape !== 'prism' || h.length >= 0.6 * s.slot.length) && h.pos.distanceTo(s.pos) < 0.7);
       } else if (avail) {
         match = held.some((h) => h && h.kind === 'rope' && h.pos.distanceTo(s.pos) < 0.6);
       }
@@ -592,7 +598,7 @@ export class Building {
       s.loose = null;
     }
     s.planted = false;
-    if (s.slot.kind === 'log' || s.slot.kind === 'pole' || s.slot.kind === 'stick') {
+    if (s.slot.kind === 'log' || s.slot.kind === 'pole' || s.slot.kind === 'stick' || s.slot.kind === 'long') {
       // Solid: it can be leant on, climbed and stood on.
       const collider = this.world.createCollider(
         RAPIER.ColliderDesc.cylinder(s.slot.length / 2, s.slot.radius)

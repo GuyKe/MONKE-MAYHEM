@@ -227,6 +227,26 @@ New plans: **Mud Wall**, and the **Mud Oven**, which roasts meat near it six tim
 **Textures.** The ground, bark, rock, foliage and wood now have procedural textures (grain, cracks, patches), and there is a much thicker carpet of fallen leaves,
 especially under the broadleaf trees.
 
+## Barns, spears, spits and the logger (latest)
+
+**Stick sizes.** Sticks are small, medium, large or long (a long one is 1.5–2 m). The game tells you which you picked up. The throwing-spear recipe is gone from
+the book: a spear now has to be made from a long stick.
+
+**Spear.** Hold a long stick in one hand and a stone in the other, hold a trigger and rub the stone along the thin tip of the stick for a few seconds (the book
+shows the progress). The stone is kept. Axes are made from the shorter sticks.
+
+**Abandoned barns.** Weathered board walls, a half-fallen roof, hay bales and crates, with good loot inside: an axe, knife, club, ropes, long sticks, stones,
+logs and a torch. Three or so per forest, shown on the map once found.
+
+**The wood-cutting vehicle.** One barn in 138 has a little yellow tractor with a circular saw on the front (the odds are rolled when the forest is made; add
+`?logger` to the URL to put one in every barn). Squeeze the handlebar to climb on. It goes where you face; push your gripping hand forward to speed up and pull
+it back to slow and reverse. Squeeze a trigger to spin the saw: any tree it reaches comes down, with logs and sticks. Let go to climb off. It stops at tree trunks
+and the water's edge.
+
+**Roasting spit** (plan unlocked by the drying rack). Two posts either side of a campfire, with a long stick across and a crank at one end. Kill an animal, let go
+of the meat over the rod to put it on, and turn the crank by hand (grip the end and circle it): about a dozen turns roast the meat, if the fire is right under it.
+Take it off with your grip. Rest a stone on the lever and it keeps turning by itself, but each time round the stone may slip off.
+
 ## How the movement works
 
 Movement comes entirely from your hands. The avatar has no legs and there is no thumbstick walking.

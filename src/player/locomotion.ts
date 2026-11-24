@@ -127,6 +127,14 @@ export class Locomotion {
     return target.copy(this.rig.position).add(this.headLocal);
   }
 
+  /** Moves the whole player by `delta` without any physics (riding a vehicle). */
+  carry(delta: THREE.Vector3): void {
+    this.rig.position.add(delta);
+    this.placeBody(this.headWorld(_v));
+    for (const hand of this.hands) hand.position.add(delta);
+    this.velocity.set(0, 0, 0);
+  }
+
   /** Puts the head over `feet` (world), standing on it, with no velocity. */
   respawn(feet: THREE.Vector3Like): void {
     const headAboveFeet = 2 * C.bodyHalfHeight + C.bodyRadius + 0.02;

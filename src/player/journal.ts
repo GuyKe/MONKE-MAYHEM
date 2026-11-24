@@ -3,7 +3,7 @@ import type { PieceKind } from '../world/sticks';
 /** Things that happen in the game and can unlock a recipe. */
 export type JournalEvent = 'stash' | 'dusk' | 'throw' | 'craft:torch' | 'axe' | 'axe2' | 'log' | 'kill' | 'swim';
 
-export type RecipeId = 'pole' | 'torch' | 'campfire' | 'spear' | 'knife' | 'club' | 'mirror';
+export type RecipeId = 'pole' | 'torch' | 'campfire' | 'knife' | 'club' | 'mirror';
 
 export interface Recipe {
   id: RecipeId;
@@ -37,15 +37,6 @@ export const RECIPES: readonly Recipe[] = [
     blurb: 'A bundle that burns. Light for the night.',
     unlockedBy: 'dusk',
     hint: 'Be out in the forest as evening falls.',
-  },
-  {
-    id: 'spear',
-    name: 'Throwing Spear',
-    cost: 2,
-    makes: 'spear',
-    blurb: 'Long, light and straight. Flies far.',
-    unlockedBy: 'throw',
-    hint: 'Throw a stick 8 metres.',
   },
   {
     id: 'campfire',

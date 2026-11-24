@@ -39,6 +39,8 @@ export interface SaveData {
   felled: number[];
   fires: Array<[number, number, number]>;
   explored: string;
+  /** Where the wood-cutting vehicle was left: x, z, heading. */
+  logger?: [number, number, number];
   found: number[];
   crocsDead: number[];
 }

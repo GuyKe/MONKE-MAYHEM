@@ -1,6 +1,6 @@
 /** What a slot in a plan takes: a kind of piece, or a rope tie round a joint. */
 /** What a slot in a plan takes. Upright wood is pounded into the ground; leaves, mud and stones are just set down. */
-export type SlotKind = 'log' | 'pole' | 'stick' | 'tie' | 'leaf' | 'mud' | 'stone';
+export type SlotKind = 'log' | 'pole' | 'stick' | 'long' | 'tie' | 'leaf' | 'mud' | 'stone';
 
 /** One place in a structure where a part goes. Positions and axes are in the structure's own space (y up). */
 export interface Slot {
@@ -38,6 +38,8 @@ export interface Blueprint {
   rack?: boolean;
   /** Meat left near it roasts six times as fast. */
   oven?: boolean;
+  /** A roasting spit: turn the crank and meat on it cooks. */
+  spit?: boolean;
 }
 
 /** A rafter running from the ridge down to the ground behind the posts. */
@@ -263,7 +265,30 @@ const OVEN: Blueprint = {
   ],
 };
 
-export const BLUEPRINTS: readonly Blueprint[] = [LEAN_TO, HUT, LOOKOUT, RACK, FENCE, BED, WALL, OVEN];
+const SPIT: Blueprint = {
+  id: 'spit',
+  name: 'Roasting Spit',
+  blurb: 'Two posts and a long stick over a fire, with a crank. Put meat on it and turn it by hand.',
+  needs: '2 logs, 1 long stick, 2 ropes, a campfire',
+  unlockedBy: 'rack',
+  hint: 'Finish a drying rack.',
+  steps: [
+    'Stand two posts either side of a campfire and pound each in with a stone.',
+    'Lay a long stick across the tops. Only a long stick is long enough.',
+    'Tie both ends with rope. The crank appears.',
+  ],
+  footprint: 1.3,
+  spit: true,
+  slots: [
+    { id: 'post-l', kind: 'log', pos: [-0.8, 0.45, 0], axis: [0, 1, 0], length: 0.9, radius: 0.1, requires: [], step: 0 },
+    { id: 'post-r', kind: 'log', pos: [0.8, 0.45, 0], axis: [0, 1, 0], length: 0.9, radius: 0.1, requires: [], step: 0 },
+    { id: 'rod', kind: 'long', pos: [0, 0.92, 0], axis: [1, 0, 0], length: 1.9, radius: 0.025, requires: ['post-l', 'post-r'], step: 1 },
+    tie('tie-l', -0.8, 0.92, 0, ['post-l', 'rod'], 2),
+    tie('tie-r', 0.8, 0.92, 0, ['post-r', 'rod'], 2),
+  ],
+};
+
+export const BLUEPRINTS: readonly Blueprint[] = [LEAN_TO, HUT, LOOKOUT, RACK, FENCE, BED, WALL, OVEN, SPIT];
 
 /** Upright wood has to be pounded into the ground. */
 export function isUpright(slot: Slot): boolean {

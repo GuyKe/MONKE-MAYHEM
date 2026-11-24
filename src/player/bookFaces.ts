@@ -36,7 +36,7 @@ export interface BlueprintView {
 export interface FaceContext {
   journal: Journal;
   settings: Settings;
-  craft: { smashes: number; lashing: number; smashesNeeded: number };
+  craft: { smashes: number; lashing: number; sharpening: number; smashesNeeded: number };
   seed: number;
   clock: string;
   phase: string;
@@ -279,28 +279,33 @@ function recipeRow(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null, re
 
 function tools(c: Ctx, f: FaceContext): void {
   heading(c, 'Tools');
-  let y = 112;
-  c.fillStyle = INK;
-  c.font = 'bold 25px Georgia, serif';
-  c.fillText('Stone axe', 30, y);
-  y += 12;
-  y = para(c, 'Take a stone in one hand and a stick in the other. Hold a trigger and smash the stone against the stick, twice. An outline shows on the stick as a hint.', y + 12, 20);
+  let y = 108;
+  const title = (text: string) => {
+    c.fillStyle = INK;
+    c.font = 'bold 23px Georgia, serif';
+    c.fillText(text, 30, y);
+  };
+  title('Sticks');
+  y = para(c, 'They come small, medium, large and long. Only a long one (as long as you are tall) is any use for a spear.', y + 8, 17) + 10;
+  title('Stone axe');
+  y = para(c, 'A stone in one hand, a short stick in the other. Hold a trigger and smash the stone against the stick, twice.', y + 8, 17);
   c.fillStyle = f.craft.smashes > 0 ? GREEN : FAINT;
-  c.font = 'bold 21px Georgia, serif';
-  c.fillText(`Smashes: ${f.craft.smashes} of ${f.craft.smashesNeeded}`, 30, y + 6);
-  y += 44;
-  c.fillStyle = INK;
-  c.font = 'bold 25px Georgia, serif';
-  c.fillText('Chopping', 30, y);
-  y = para(c, 'Swing the axe hard into a trunk. Chips fly, logs come loose and after enough blows the whole tree comes down. Every swing wears the axe.', y + 14, 20);
-  y += 20;
-  c.fillStyle = INK;
-  c.font = 'bold 25px Georgia, serif';
-  c.fillText('Stronger axe', 30, y);
-  y = para(c, 'Find a rope on a tree and pull it down. Hold the axe in one hand and the rope in the other, hold both triggers and wind the rope round the head with your hand.', y + 14, 20);
+  c.font = 'bold 17px Georgia, serif';
+  c.fillText(`Smashes: ${f.craft.smashes} of ${f.craft.smashesNeeded}`, 30, y + 2);
+  y += 30;
+  title('Spear');
+  y = para(c, 'A stone in one hand and a long stick in the other. Hold a trigger and rub the stone along the tip of the stick.', y + 8, 17);
+  c.fillStyle = f.craft.sharpening > 0 ? GREEN : FAINT;
+  c.font = 'bold 17px Georgia, serif';
+  c.fillText(`Sharpening: ${Math.round(f.craft.sharpening * 100)}%`, 30, y + 2);
+  y += 30;
+  title('Chopping');
+  y = para(c, 'Swing the axe hard into a trunk. Enough blows and the tree comes down. Every swing wears the axe.', y + 8, 17) + 10;
+  title('Stronger axe');
+  y = para(c, 'Hold the axe in one hand and a rope in the other, hold both triggers and wind the rope round the head.', y + 8, 17);
   c.fillStyle = f.craft.lashing > 0 ? GREEN : FAINT;
-  c.font = 'bold 21px Georgia, serif';
-  c.fillText(`Winding: ${Math.round(f.craft.lashing * 100)}%`, 30, y + 6);
+  c.font = 'bold 17px Georgia, serif';
+  c.fillText(`Winding: ${Math.round(f.craft.lashing * 100)}%`, 30, y + 2);
 }
 
 function structures(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null, start: number): void {
@@ -388,7 +393,7 @@ function wildlife(c: Ctx): void {
   y = para(c, 'Leeches cling on in the water and drain you. Grab one with your free hand and pull it off.', y, 21) + 12;
   y = para(c, 'About one lake in ten is home to a crocodile. It hunts what is in or near the water. Stay out of the lake, or fight it with a spear or axe.', y, 21, '#8a3a22') + 12;
   y = para(c, 'Rabbits and deer run from you. Hit them with a weapon, or throw a spear, and they drop meat.', y, 21) + 12;
-  para(c, 'Weapons: stick, club, knife, spear, axe. Heavier swings hurt more.', y, 21, FAINT);
+  para(c, 'Weapons: stick, club, knife, spear (made from a long stick), axe. Heavier swings hurt more.', y, 21, FAINT);
 }
 
 function mapPage(c: Ctx, f: FaceContext): void {

@@ -35,7 +35,7 @@ export interface BookActions {
 /** What the pages need from the rest of the game. */
 export interface BookServices {
   settings: Settings;
-  craft(): { smashes: number; lashing: number; smashesNeeded: number };
+  craft(): { smashes: number; lashing: number; sharpening: number; smashesNeeded: number };
   world(): { seed: number; clock: string; phase: string; day: number };
   map: MapView | null;
   markers(): MapMarker[];
@@ -519,7 +519,7 @@ export class Book {
         return `${j}|${hover}`;
       case FACE.tools: {
         const c = this.services.craft();
-        return `${c.smashes}|${Math.round(c.lashing * 25)}`;
+        return `${c.smashes}|${Math.round(c.lashing * 25)}|${Math.round(c.sharpening * 25)}`;
       }
       case FACE.plansA:
       case FACE.plansB:

@@ -21,7 +21,7 @@ import { TreeRopes } from './world/ropes';
 import { Crafting, SMASHES_FOR_AXE } from './player/crafting';
 import { Animals } from './world/animals';
 import { FrictionFire } from './world/friction';
-import { Sticks } from './world/sticks';
+import { Sticks, STICK_TYPES, stickType } from './world/sticks';
 import { Body } from './player/body';
 import { GameAudio } from './audio';
 import { Vitals, VitalsView } from './player/vitals';
@@ -31,6 +31,9 @@ import { MirrorView } from './player/mirror';
 import { Crocs } from './world/crocs';
 import { Fruits } from './world/fruit';
 import { FallingLeaves } from './world/leaves';
+import { Logger } from './world/logger';
+import { Spits } from './world/spit';
+import { MEAT_COLOR } from './player/survival';
 import { SaveStore, type SaveData } from './save';
 import type { DesktopEmulator } from './debug/desktop';
 import { DAY_SECONDS, FOG_SCALE, Settings, TREE_SPACING_M, VIEW_DISTANCE_M } from './settings';
@@ -106,6 +109,7 @@ async function main(): Promise<void> {
     const spawnXZ = { x: (roll() * 2 - 1) * WORLD_HALF * 0.55, z: (roll() * 2 - 1) * WORLD_HALF * 0.55 };
     const forest = buildForest(scene, world, {
       seed,
+      forceLogger: params.has('logger'),
       spawn: spawnXZ,
       treeSpacing: TREE_SPACING_M[settings.data.treeDensity],
       viewRadius: VIEW_DISTANCE_M[settings.data.viewDistance],
@@ -165,6 +169,8 @@ async function main(): Promise<void> {
   // stash sticks: so the building system is filled in once it exists.
   const buildingRef: { current: Building | null } = { current: null };
   const poisRef: { current: Pois | null } = { current: null };
+  const loggerRef: { current: Logger | null } = { current: null };
+  const spitsRef: { current: Spits | null } = { current: null };
   const book = new Book(
     scene,
     camera,
@@ -176,7 +182,7 @@ async function main(): Promise<void> {
     },
     {
       settings,
-      craft: () => ({ smashes: crafting.smashes, lashing: crafting.lashing, smashesNeeded: SMASHES_FOR_AXE }),
+      craft: () => ({ smashes: crafting.smashes, lashing: crafting.lashing, sharpening: crafting.sharpening, smashesNeeded: SMASHES_FOR_AXE }),
       world: () => ({
         seed,
         clock: atmosphere?.clock ?? '--:--',
@@ -211,17 +217,31 @@ async function main(): Promise<void> {
   // The old places to find, with things lying about inside them.
   if (forestRef) {
     poisRef.current = new Pois(forestRef.pois, sticks, {
+      onVehicle: (x, _y, z, yaw) => {
+        loggerRef.current = new Logger(scene, x, z, yaw, {
+          say: (text) => say(text),
+          pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
+          fell: (tree, fx, fz) => crafting.fell(tree, fx, fz),
+          surfaceAt: forestRef!.surfaceAt,
+          nearestTree: forestRef!.nearestTree,
+          waterLevelAt: forestRef!.waterLevelAt,
+          sound: (name, at) => audio.play(name, at),
+        });
+      },
       say: say,
       pulse: (strength, ms) => hands.all.forEach((h) => h.pulse(strength, ms)),
     });
   }
 
   // Ropes hanging in trees: grab one and pull down to tear it free.
+  const seenSticks = new Set<string>();
   const treeRopes = forestRef ? new TreeRopes(scene, forestRef.ropes) : null;
   const fruits = forestRef ? new Fruits(scene, forestRef.bushes) : null;
   const leaves = forestRef ? new FallingLeaves(scene, seed, forestRef.surfaceAt) : null;
   const grab = new Grab(sticks, hands, {
     pick: (handPos) => {
+      const meat = spitsRef.current?.take(handPos);
+      if (meat) return meat;
       const f = fruits?.nearest(handPos, 0.2);
       if (f && fruits) {
         fruits.take(f, refs.survival?.days ?? 0);
@@ -249,14 +269,23 @@ async function main(): Promise<void> {
       }
       return null;
     },
-    stash: (stick, handPos) => book.acceptStash(stick, handPos) || (buildingRef.current?.accept(stick) ?? false),
+    stash: (stick, handPos) => book.acceptStash(stick, handPos) || (buildingRef.current?.accept(stick) ?? false) || (spitsRef.current?.accept(stick) ?? false),
     onFarThrow: () => void journal.notify('throw'),
     ropes: treeRopes ?? undefined,
     onRopePulled: () => {
       say('Rope! Keep it: wind it round an axe head, or use it to tie things.');
       audio.play('rope');
     },
-    onGrab: () => audio.play('click'),
+    onGrab: (stick) => {
+      audio.play('click');
+      if (stick.kind === 'stick') {
+        const type = stickType(stick.length);
+        if (!seenSticks.has(type)) {
+          seenSticks.add(type);
+          say(STICK_TYPES[type].label + '.');
+        }
+      }
+    },
     onThrow: (speed, at) => audio.play('whoosh', at, speed / 8),
   });
 
@@ -304,7 +333,7 @@ async function main(): Promise<void> {
       burst: (at, count) => {
         friction.burst(at, count);
         // Chips, smashes and falling trees all throw sparks; how many says which it was.
-        const sound = count === 5 ? 'chop' : count === 6 ? 'smash' : count === 12 ? 'break' : count === 24 ? 'crash' : count === 14 || count === 8 ? 'build' : null;
+        const sound = count === 3 ? 'scrape' : count === 5 ? 'chop' : count === 6 ? 'smash' : count === 12 ? 'break' : count === 24 ? 'crash' : count === 14 || count === 8 ? 'build' : null;
         if (sound) audio.play(sound, at);
       },
       pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
@@ -357,6 +386,11 @@ async function main(): Promise<void> {
     burst: (at, count) => friction.burst(at, count),
     say: say,
   });
+  spitsRef.current = new Spits(scene, building, sticks, fire, grab, hands, locomotion, {
+    say,
+    pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
+    sound: (name, at) => audio.play(name, at),
+  });
   let swimTime = 0;
   let lastPage = 0;
   let lastOpen = false;
@@ -376,6 +410,7 @@ async function main(): Promise<void> {
 
   // --- Saving: the forest comes back from its seed, and this puts back what changed in it ---------------
   const V3 = THREE.Vector3;
+  const MEAT_HEX = { raw: MEAT_COLOR.raw.getHex(), roast: MEAT_COLOR.roast.getHex(), rotten: MEAT_COLOR.rotten.getHex() };
   const collect = (): SaveData => {
     const head = locomotion.headWorld(new V3());
     const ground = forestRef ? forestRef.surfaceAt(head.x, head.z) : 0;
@@ -391,7 +426,7 @@ async function main(): Promise<void> {
       day: atmosphere?.day ?? 1,
       respawn: survival.respawnAt,
       stash: journal.stash,
-      pieces: sticks.list
+      pieces: [...sticks.list
         .filter((s) => !s.hidden)
         .map((s) => ({
           k: s.kind,
@@ -405,12 +440,16 @@ async function main(): Promise<void> {
           a: Math.round(s.age * 1000) / 1000,
           c: s.baseColor.getHex(),
         })),
+        // Meat on a spit goes back on the ground by it.
+        ...(spitsRef.current?.contents() ?? []).map((m) => ({ k: 'meat' as const, p: [m.at.x, m.at.y, m.at.z] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number], l: 0.15, r: 0.085, d: 0, w: 0, s: m.state, a: m.age, c: MEAT_HEX[m.state] })),
+      ],
       sites: building.export(),
       ropes: treeRopes ? treeRopes.ropes.flatMap((r, i) => (r.taken ? [i] : [])) : [],
       fruits: fruits ? fruits.export() : [],
       felled: forestRef ? forestRef.felledIndices() : [],
       fires: fire.exportCampfires(),
       explored: mapView ? mapView.exportExplored() : '',
+      logger: loggerRef.current ? [loggerRef.current.x, loggerRef.current.z, loggerRef.current.heading] : undefined,
       found: poisRef.current ? poisRef.current.export() : [],
       crocsDead: crocs ? crocs.killed : [],
     };
@@ -428,6 +467,11 @@ async function main(): Promise<void> {
     forestRef?.restoreFelled(data.felled);
     fire.restoreCampfires(data.fires);
     if (data.explored) mapView?.restoreExplored(data.explored);
+    if (data.logger && loggerRef.current) {
+      loggerRef.current.x = data.logger[0];
+      loggerRef.current.z = data.logger[1];
+      loggerRef.current.heading = data.logger[2];
+    }
     poisRef.current?.restore(data.found);
     crocs?.restore(data.crocsDead);
     journal.stash = data.stash;
@@ -608,6 +652,8 @@ async function main(): Promise<void> {
         hands.right.tracked ? locomotion.hands[1].position : null,
       ]);
       survival.update(dt, headNow, _hq);
+      loggerRef.current?.update(dt, headNow, _hq, hands, locomotion);
+      spitsRef.current?.update(dt, 0);
       mirror.update(sticks, headNow);
       autosave += dt;
       if (autosave > 40 && autosaveOn) {
@@ -673,7 +719,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
+  Object.assign(window, { __monke: { spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(

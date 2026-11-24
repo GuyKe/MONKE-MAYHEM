@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PieceKind } from './sticks';
 
-export type RuinType = 'cabin' | 'stones' | 'camp' | 'tower';
+export type RuinType = 'cabin' | 'stones' | 'camp' | 'tower' | 'barn';
 
 /** One solid piece of a ruin, in the ruin's own space (y up from the ground, +z is the front). */
 export type RuinPart =
@@ -11,6 +11,8 @@ export type RuinPart =
 
 export interface RuinLoot {
   kind: PieceKind;
+  /** For sticks: how long. */
+  length?: number;
   /** Position in the ruin's own space. */
   pos: [number, number, number];
 }
@@ -22,6 +24,8 @@ export interface Ruin {
   footprint: number;
   parts: RuinPart[];
   loot: RuinLoot[];
+  /** A wood-cutting vehicle stands here (one barn in 138). */
+  vehicle?: { pos: [number, number, number]; yaw: number };
 }
 
 export const RUIN_LABELS: Record<RuinType, string> = {
@@ -29,6 +33,7 @@ export const RUIN_LABELS: Record<RuinType, string> = {
   stones: 'Standing Stones',
   camp: 'Abandoned Camp',
   tower: 'Fallen Lookout',
+  barn: 'Abandoned Barn',
 };
 
 const DARK_WOOD = 0x4a3220;
@@ -75,8 +80,10 @@ function fireRing(cx: number, cz: number, radius: number, count: number, rand: (
 }
 
 /** Designs a ruin. The same `rand` always gives the same ruin. */
-export function designRuin(type: RuinType, rand: () => number): Ruin {
+export function designRuin(type: RuinType, rand: () => number, forceVehicle = false): Ruin {
   switch (type) {
+    case 'barn':
+      return barn(rand, forceVehicle);
     case 'cabin':
       return cabin(rand);
     case 'stones':
@@ -86,6 +93,65 @@ export function designRuin(type: RuinType, rand: () => number): Ruin {
     default:
       return tower(rand);
   }
+}
+
+/** One barn in this many has a wood-cutting vehicle in it. */
+export const VEHICLE_ODDS = 138;
+
+function barn(rand: () => number, forceVehicle: boolean): Ruin {
+  const parts: RuinPart[] = [];
+  const W = 3.4; // half width (x)
+  const D = 3.0; // half depth (z)
+  const T = 0.09;
+  const WALL = 0x6b4a30;
+  const board = (x: number, y: number, z: number, sx: number, sz: number, yaw = 0) => parts.push(box(x, y, z, sx, 0.4, sz, yaw, rand() < 0.5 ? WALL : GREY_WOOD));
+  // Walls of weathered boards; the higher ones have gone, here and there.
+  for (let j = 0; j < 6; j++) {
+    const y = 0.22 + j * 0.43;
+    const keep = () => j < 2 || rand() > 0.12 + j * 0.1;
+    if (keep()) board(0, y, -D, W * 2, T * 2);
+    if (keep()) board(-W, y, 0, T * 2, D * 2);
+    if (keep()) board(W, y, 0, T * 2, D * 2);
+    // The front has a wide door in the middle.
+    if (keep()) board(-W + 1.1, y, D, 2.2, T * 2);
+    if (keep()) board(W - 1.1, y, D, 2.2, T * 2);
+  }
+  // Posts, and the frame of the roof, half fallen in.
+  for (const [x, z] of [[-W, -D], [W, -D], [-W, D], [W, D], [-W, 0], [W, 0]] as Array<[number, number]>) parts.push(log(x, 1.45, z, 2.9, 0.15, [0, 1, 0], DARK_WOOD));
+  parts.push(log(0, 3.2, -D, W * 2 + 0.4, 0.12, [1, 0, 0], GREY_WOOD, 'wood'));
+  parts.push(log(0, 3.55, 0, W * 2 + 0.4, 0.13, [1, 0, 0], GREY_WOOD, 'wood'));
+  if (rand() < 0.5) parts.push(log(0, 3.2, D, W * 2 + 0.4, 0.12, [1, 0, 0], GREY_WOOD, 'wood'));
+  for (const x of [-2.4, -0.8, 0.8, 2.4]) if (rand() < 0.55) parts.push(log(x, 3.35, -1.5, 3.3, 0.07, [0, 0.4, 1], GREY_WOOD, 'wood'));
+  parts.push(log(-1.0, 0.18, 1.2, 3.2, 0.1, [1, 0, 0.15], GREY_WOOD, 'wood')); // a beam that fell
+  // Hay, crates and a barrel.
+  for (let i = 0; i < 5; i++) parts.push(box(2.0 - (i % 3) * 0.95, 0.28 + Math.floor(i / 3) * 0.56, -2.1, 0.9, 0.55, 0.55, (rand() - 0.5) * 0.2, 0xc8a850, true));
+  for (const [x, z] of [[-2.5, -2.2], [-2.5, -1.4], [-1.9, 1.9]] as Array<[number, number]>) parts.push(box(x, 0.3, z, 0.6, 0.6, 0.6, rand(), 0x7a5a38, true));
+  parts.push(log(2.6, 0.4, 1.8, 0.8, 0.3, [0, 1, 0], 0x5a3a22));
+  const vehicle = forceVehicle || rand() < 1 / VEHICLE_ODDS;
+  return {
+    type: 'barn',
+    label: RUIN_LABELS.barn,
+    footprint: 6.2,
+    parts,
+    vehicle: vehicle ? { pos: [0.2, 0, -0.3], yaw: Math.PI / 2 } : undefined,
+    loot: [
+      { kind: 'axe', pos: [-2.6, 0.7, -2.2] },
+      { kind: 'knife', pos: [-2.4, 0.7, -1.4] },
+      { kind: 'club', pos: [2.2, 0.3, 1.2] },
+      { kind: 'rope', pos: [1.6, 0.7, -2.1] },
+      { kind: 'rope', pos: [2.6, 0.5, -2.0] },
+      { kind: 'rope', pos: [-1.8, 0.2, 0.4] },
+      { kind: 'rope', pos: [0.5, 0.2, 2.2] },
+      { kind: 'stick', length: 1.7, pos: [-1.2, 0.2, -0.6] },
+      { kind: 'stick', length: 1.8, pos: [1.0, 0.2, 0.6] },
+      { kind: 'stick', length: 1.6, pos: [-0.3, 0.2, 1.0] },
+      { kind: 'stone', pos: [0.4, 0.2, -2.4] },
+      { kind: 'stone', pos: [-2.8, 0.2, 0.8] },
+      { kind: 'log', pos: [2.2, 0.3, 0.2] },
+      { kind: 'log', pos: [-2.2, 0.3, 2.3] },
+      { kind: 'torch', pos: [1.5, 1.2, -2.0] },
+    ],
+  };
 }
 
 function cabin(rand: () => number): Ruin {

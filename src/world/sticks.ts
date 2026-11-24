@@ -8,6 +8,36 @@ export type Side = 'left' | 'right';
 /** What a piece is. Everything you can pick up is a piece; sticks and stones are the raw materials. */
 export type PieceKind = 'stick' | 'pole' | 'torch' | 'spear' | 'stone' | 'rope' | 'log' | 'axe' | 'axe2' | 'club' | 'knife' | 'mirror' | 'fruit' | 'meat' | 'leaf' | 'mud';
 
+/** Sticks come in four sizes. Only a long one will do for a spear. */
+export type StickType = 'small' | 'medium' | 'large' | 'long';
+
+export const STICK_TYPES: Record<StickType, { length: [number, number]; radius: [number, number]; chance: number; label: string }> = {
+  small: { length: [0.3, 0.5], radius: [0.012, 0.018], chance: 0.34, label: 'A small stick' },
+  medium: { length: [0.6, 0.85], radius: [0.018, 0.026], chance: 0.3, label: 'A medium stick' },
+  large: { length: [0.9, 1.25], radius: [0.03, 0.04], chance: 0.23, label: 'A large stick' },
+  long: { length: [1.5, 2.0], radius: [0.02, 0.027], chance: 0.13, label: 'A long stick: long enough for a spear' },
+};
+
+/** Which size a stick of this length is. */
+export function stickType(length: number): StickType {
+  return length < 0.55 ? 'small' : length < 0.9 ? 'medium' : length < 1.3 ? 'large' : 'long';
+}
+
+/** A random size for a new stick. */
+export function randomStick(rand: () => number): { length: number; radius: number; type: StickType } {
+  let roll = rand();
+  let type: StickType = 'medium';
+  for (const t of ['small', 'medium', 'large', 'long'] as const) {
+    roll -= STICK_TYPES[t].chance;
+    if (roll <= 0) {
+      type = t;
+      break;
+    }
+  }
+  const spec = STICK_TYPES[type];
+  return { type, length: spec.length[0] + rand() * (spec.length[1] - spec.length[0]), radius: spec.radius[0] + rand() * (spec.radius[1] - spec.radius[0]) };
+}
+
 /** Food goes through these as the days pass. */
 export type FoodState = 'raw' | 'roast' | 'rotten';
 
@@ -255,8 +285,9 @@ export class Sticks {
   /** Creates a crafted piece in the world and returns it. */
   craft(kind: PieceKind, position: THREE.Vector3, quaternion: THREE.Quaternion, extra: PieceOptions = {}): Stick | null {
     const spec = KINDS[kind];
-    const length = extra.length ?? (spec.length[0] + Math.random() * (spec.length[1] - spec.length[0]));
-    const radius = extra.radius ?? spec.radius[0] + Math.random() * (spec.radius[1] - spec.radius[0]);
+    const stick = kind === 'stick' && extra.length === undefined ? randomStick(Math.random) : null;
+    const length = extra.length ?? stick?.length ?? (spec.length[0] + Math.random() * (spec.length[1] - spec.length[0]));
+    const radius = extra.radius ?? stick?.radius ?? spec.radius[0] + Math.random() * (spec.radius[1] - spec.radius[0]);
     return this.addPiece(kind, length, radius, position, quaternion, Math.random, extra);
   }
 
@@ -364,8 +395,9 @@ export class Sticks {
   private scatter(kind: PieceKind, spot: { x: number; z: number }, rand: () => number): void {
     const { surfaceAt } = this.options;
     const spec = KINDS[kind];
-    const length = spec.length[0] + rand() * (spec.length[1] - spec.length[0]);
-    const radius = spec.radius[0] + rand() * (spec.radius[1] - spec.radius[0]);
+    const sized = kind === 'stick' ? randomStick(rand) : null;
+    const length = sized?.length ?? spec.length[0] + rand() * (spec.length[1] - spec.length[0]);
+    const radius = sized?.radius ?? spec.radius[0] + rand() * (spec.radius[1] - spec.radius[0]);
 
     // Lie along the contour of the slope so both ends touch the ground.
     const e = 0.5;

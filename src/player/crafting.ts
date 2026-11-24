@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { FellInfo, Tree } from '../world/forest';
-import { type Side, type Stick, type Sticks } from '../world/sticks';
+import { stickType, type Side, type Stick, type Sticks } from '../world/sticks';
 import type { Grab } from './grab';
 import type { Hands } from './hands';
 import { TieGesture } from './tie';
@@ -72,6 +72,10 @@ export class Crafting {
   smashes = 0;
   /** Progress winding rope on an axe, 0 to 1. */
   lashing = 0;
+  /** Progress sharpening a long stick into a spear, 0 to 1. */
+  sharpening = 0;
+  private sharpenBuzz = 0;
+  private told2 = false;
 
   private smashCooldown = 0;
   private sinceSmash = 0;
@@ -121,6 +125,7 @@ export class Crafting {
     for (const [stick, t] of this.chopCooldown) this.chopCooldown.set(stick, Math.max(0, t - dt));
 
     this.knap(dt);
+    this.sharpen(dt);
     this.lash(dt);
     for (const side of [0, 1] as const) {
       const held = this.grab.held(side);
@@ -133,7 +138,8 @@ export class Crafting {
   private knap(dt: number): void {
     const held = [this.grab.held(0), this.grab.held(1)] as const;
     const stoneHand = held[0]?.kind === 'stone' ? 0 : held[1]?.kind === 'stone' ? 1 : -1;
-    const stickHand = held[0]?.kind === 'stick' ? 0 : held[1]?.kind === 'stick' ? 1 : -1;
+    const shortStick = (s: Stick | null | undefined) => !!s && s.kind === 'stick' && stickType(s.length) !== 'long';
+    const stickHand = shortStick(held[0]) ? 0 : shortStick(held[1]) ? 1 : -1;
     if (this.ghost) this.ghost.visible = false;
     if (stickHand < 0) {
       this.sinceSmash += dt;
@@ -209,6 +215,53 @@ export class Crafting {
     this.hooks.pulse('right', 1, 160);
   }
 
+  // --- Spear: scrape a stone along the tip of a long stick -------------------------------
+
+  private sharpen(dt: number): void {
+    const held = [this.grab.held(0), this.grab.held(1)] as const;
+    const isLong = (s: Stick | null | undefined) => !!s && s.kind === 'stick' && stickType(s.length) === 'long';
+    const stickHand = isLong(held[0]) ? 0 : isLong(held[1]) ? 1 : -1;
+    const stoneHand = held[0]?.kind === 'stone' ? 0 : held[1]?.kind === 'stone' ? 1 : -1;
+    if (stickHand < 0 || stoneHand < 0 || stickHand === stoneHand) {
+      this.sharpening = Math.max(0, this.sharpening - dt * 0.2);
+      return;
+    }
+    const stick = held[stickHand as 0 | 1]!;
+    const stone = held[stoneHand as 0 | 1]!;
+    const trigger = this.hands.left.triggered || this.hands.right.triggered;
+    if (!trigger) {
+      if (!this.told2) {
+        this.told2 = true;
+        this.hooks.say('Hold a trigger and rub the stone along the tip of the long stick to sharpen it into a spear.');
+      }
+      return;
+    }
+    // The stone has to be against the stick, in the top third (the thin end), and sliding along it.
+    const tip = _hp.set(0, stick.length / 2, 0).applyQuaternion(stick.quat).add(stick.pos);
+    const gap = this.sticks.distanceTo(stick, stone.pos) - stone.radius;
+    const nearTip = stone.pos.distanceTo(tip) < stick.length * 0.34;
+    this.grab.velocity(stickHand as 0 | 1, _v);
+    this.grab.velocity(stoneHand as 0 | 1, _w);
+    const rubbing = _w.sub(_v).length();
+    if (gap > 0.05 || !nearTip || rubbing < 0.4) return;
+    this.sharpening = Math.min(1, this.sharpening + dt * 0.33 * Math.min(1.5, rubbing));
+    this.sharpenBuzz -= dt;
+    if (this.sharpenBuzz <= 0) {
+      this.sharpenBuzz = 0.09;
+      this.hooks.pulse(stoneHand === 0 ? 'left' : 'right', 0.2 + 0.4 * this.sharpening, 40);
+      this.hooks.burst(stone.pos, 3);
+    }
+    if (this.sharpening < 1) return;
+    this.sharpening = 0;
+    const spear = this.sticks.craft('spear', stick.pos.clone(), stick.quat.clone(), { length: stick.length });
+    this.sticks.stash(stick);
+    if (spear) this.grab.give(stickHand as 0 | 1, spear);
+    this.hooks.burst(tip, 8);
+    this.hooks.pulse('left', 1, 160);
+    this.hooks.pulse('right', 1, 160);
+    this.hooks.say('You sharpened it into a spear! Stab with it, or throw it.');
+  }
+
   // --- Chopping -----------------------------------------------------------------
 
   private chop(axe: Stick, side: 0 | 1, dt: number): void {
@@ -282,6 +335,15 @@ export class Crafting {
       this.told.worn.add(axe);
       this.hooks.say('The axe is wearing out.');
     }
+  }
+
+  /** Brings a tree down straight away (a saw does it): it falls away from (fromX, fromZ). */
+  fell(tree: Tree, fromX: number, fromZ: number): boolean {
+    if (!this.world.fellTree || this.falling.has(tree) || tree.felled) return false;
+    this.falling.add(tree);
+    if (this.world.fellTree(tree, fromX, fromZ, (info) => this.landed(tree, info))) return true;
+    this.falling.delete(tree);
+    return false;
   }
 
   /** A felled tree has hit the ground: logs along the trunk, sticks where the crown lies. */
