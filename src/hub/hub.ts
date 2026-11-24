@@ -1,145 +1,128 @@
 import * as THREE from 'three';
-import { buildGorilla, flashlightMesh, gorillaStatue, plinth, sign } from '../mode/figures';
+import { sign } from '../mode/figures';
+import { STATUES, type Statue } from './statues';
 import { createRuntime } from '../mode/runtime';
 import { WorldButton } from '../ui/panel';
 
-/** Where a statue's Play button sends you. */
-export type GameMode = 'jungle' | 'horror' | 'hub';
-
-/** Goes to another mode. (A new page: the headset leaves VR, and the mode's own menu is shown.) */
-export function goToMode(mode: GameMode): void {
-  const old = new URLSearchParams(location.search);
-  const params = new URLSearchParams();
-  params.set('mode', mode);
-  for (const keep of ['emulate', 'signal', 'netdebug']) if (old.has(keep)) params.set(keep, old.get(keep) ?? '');
-  location.href = `${location.pathname}?${params.toString().replace(/=(&|$)/g, '$1')}`;
-}
+export { goToMode, type GameMode } from '../mode/nav';
+import { goToMode } from '../mode/nav';
 
 /**
- * The lobby: a long black platform in the dark. You start at one end; at the far end are the modes, each a statue with a Play
- * button. Jungle (the gorilla with a stick) is the game. To its right is Horror: a frightened person with a flashlight, and
- * behind them something that looks just like them, smiling.
+ * The lobby: a huge black platform in the dark. You start at one end; down its length are the modes, each a statue with a name
+ * and a Play button, two to a row.
  */
 export async function runHub(): Promise<void> {
-  const rt = await createRuntime({ background: 0x000000, spawn: new THREE.Vector3(0, 0, 26), killY: -8 });
+  const ROW = 34;
+  const FIRST = -26;
+  const LENGTH = 176;
+  const WIDTH = 46;
+  const CENTER = -64;
+  const rt = await createRuntime({ background: 0x000000, spawn: new THREE.Vector3(0, 0, 18), killY: -8 });
   const { scene } = rt;
 
   // --- The platform ------------------------------------------------------------------
-  const LENGTH = 64;
-  const WIDTH = 12;
   const floor = new THREE.Mesh(new THREE.BoxGeometry(WIDTH, 0.5, LENGTH), new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.35, metalness: 0.6 }));
-  floor.position.y = -0.25;
+  floor.position.set(0, -0.25, CENTER);
   scene.add(floor);
-  rt.solidBox(0, -0.25, 0, WIDTH / 2, 0.25, LENGTH / 2);
+  rt.solidBox(0, -0.25, CENTER, WIDTH / 2, 0.25, LENGTH / 2);
   const edgeMat = new THREE.MeshBasicMaterial({ color: 0x2a4a8a });
   for (const sx of [-1, 1]) {
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, LENGTH), edgeMat);
-    strip.position.set(sx * (WIDTH / 2 - 0.1), 0.012, 0);
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, LENGTH), edgeMat);
+    strip.position.set(sx * (WIDTH / 2 - 0.2), 0.012, CENTER);
     scene.add(strip);
   }
   // Faint guide marks down the middle, so you can feel how long it is.
   const markMat = new THREE.MeshBasicMaterial({ color: 0x14203a });
-  for (let z = -LENGTH / 2 + 2; z < LENGTH / 2; z += 4) {
-    const mark = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.012, 1.4), markMat);
+  for (let z = CENTER - LENGTH / 2 + 2; z < CENTER + LENGTH / 2; z += 4) {
+    const mark = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.012, 1.6), markMat);
     mark.position.set(0, 0.008, z);
     scene.add(mark);
   }
   // Stars.
-  const stars = new Float32Array(900 * 3);
-  for (let i = 0; i < 900; i++) {
+  const stars = new Float32Array(1200 * 3);
+  for (let i = 0; i < 1200; i++) {
     const a = Math.random() * Math.PI * 2;
     const e = Math.acos(1 - Math.random() * 0.95);
-    const r = 160;
+    const r = 190;
     stars[i * 3] = Math.sin(e) * Math.cos(a) * r;
     stars[i * 3 + 1] = Math.cos(e) * r;
     stars[i * 3 + 2] = Math.sin(e) * Math.sin(a) * r;
   }
   const starGeo = new THREE.BufferGeometry();
   starGeo.setAttribute('position', new THREE.BufferAttribute(stars, 3));
-  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x9aa6c0, size: 0.9, sizeAttenuation: false, fog: false })));
+  const starPoints = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x9aa6c0, size: 0.9, sizeAttenuation: false, fog: false }));
+  scene.add(starPoints);
+  scene.add(new THREE.AmbientLight(0x3a3a4c, 1.7));
 
-  scene.add(new THREE.AmbientLight(0x2a2a38, 0.9));
+  // --- The statues ---------------------------------------------------------------------------
+  interface Placed { spec: (typeof STATUES)[number]; statue: Statue; x: number; z: number; button: WorldButton }
+  const placed: Placed[] = [];
+  const buttons: Record<string, WorldButton> = {};
+  STATUES.forEach((spec, i) => {
+    const row = Math.floor(i / 2);
+    const alone = i === STATUES.length - 1 && i % 2 === 0;
+    const x = alone ? 0 : i % 2 === 0 ? -12 : 12;
+    const z = FIRST - row * ROW;
+    const statue = spec.build(scene);
+    statue.group.position.set(x, 0, z);
+    statue.group.rotation.y = Math.PI; // they face the player
+    scene.add(statue.group);
+    const title = sign(spec.name, spec.color, 9);
+    title.position.set(x, 11.5, z);
+    scene.add(title);
+    const button = rt.panels.add(new WorldButton(scene, 'PLAY', 2.0, 0.7, spec.button, () => goToMode(spec.mode)));
+    button.mesh.position.set(x, 1.1, z + 6.4);
+    const cap = sign(spec.caption, '#c8c8c8', 3);
+    cap.position.set(x, 0.45, z + 7.2);
+    cap.rotation.x = -Math.PI / 2;
+    cap.position.y = 0.02;
+    scene.add(cap);
+    buttons[spec.mode] = button;
+    placed.push({ spec, statue, x, z, button });
+  });
 
-  // --- Jungle ------------------------------------------------------------------------------
-  const STATUE_Z = -22;
-  const jungle = new THREE.Group();
-  jungle.position.set(-5, 0, STATUE_Z);
-  jungle.rotation.y = Math.PI; // they face the player
-  const gorilla = gorillaStatue(scene);
-  gorilla.scale.setScalar(2.9);
-  gorilla.position.y = 0.5;
-  jungle.add(plinth(3, 0.5, 3), gorilla);
-  scene.add(jungle);
-  const jungleLight = new THREE.SpotLight(0xfff0d0, 260, 40, 0.42, 0.6, 1.4);
-  jungleLight.position.set(-5, 13, STATUE_Z + 7);
-  jungleLight.target.position.set(-5, 2, STATUE_Z);
-  scene.add(jungleLight, jungleLight.target);
-  const jungleSign = sign('JUNGLE', '#9be07a', 4.6);
-  jungleSign.position.set(-5, 8.4, STATUE_Z);
-  scene.add(jungleSign);
-
-  // --- Horror: the frightened one and, behind, the other ----------------------------------------
-  const scared = buildGorilla('scared', { fur: 0xc98a4a, face: 0xe6c9a8, belly: 0xe2b278 });
-  scared.group.scale.setScalar(2.5);
-  scared.group.position.set(5, 0.5, STATUE_Z);
-  scared.group.rotation.y = Math.PI;
-  const torch = flashlightMesh();
-  torch.position.set(0.07, -0.03, -0.5);
-  scared.arms[1].add(torch);
-  const torchLight = new THREE.SpotLight(0xfff2d0, 80, 26, 0.5, 0.4, 1.2);
-  torchLight.position.set(0.07, -0.02, -0.55);
-  torchLight.target.position.set(0.07, -0.6, -9);
-  scared.arms[1].add(torchLight, torchLight.target);
-  const monster = buildGorilla('monster', { fur: 0x3b2f2c, face: 0x5a4a42, belly: 0x4a3a34 });
-  monster.group.scale.setScalar(2.4);
-  monster.group.position.set(5, 0.5, STATUE_Z - 4.2);
-  monster.group.rotation.y = Math.PI;
-  scene.add(plinthAt(5, STATUE_Z), plinthAt(5, STATUE_Z - 4.2), scared.group, monster.group);
-  const horrorLight = new THREE.SpotLight(0xc8d8ff, 150, 40, 0.5, 0.7, 1.4);
-  horrorLight.position.set(5, 13, STATUE_Z + 8);
-  horrorLight.target.position.set(5, 2, STATUE_Z - 2);
-  const redLight = new THREE.PointLight(0xb01010, 40, 14, 1.6);
-  redLight.position.set(5, 1.2, STATUE_Z - 6.5);
-  scene.add(horrorLight, horrorLight.target, redLight);
-  const horrorSign = sign('HORROR', '#e03030', 4.6);
-  horrorSign.position.set(5, 8.4, STATUE_Z - 1);
-  scene.add(horrorSign);
-
-  // --- Play buttons ---------------------------------------------------------------------------------
-  const playJungle = rt.panels.add(new WorldButton(scene, 'PLAY', 1.7, 0.6, '#2d6a3a', () => goToMode('jungle')));
-  playJungle.mesh.position.set(-5, 1.0, STATUE_Z + 4.2);
-  const playHorror = rt.panels.add(new WorldButton(scene, 'PLAY', 1.7, 0.6, '#8a1f1f', () => goToMode('horror')));
-  playHorror.mesh.position.set(5, 1.0, STATUE_Z + 4.2);
-  // A caption under each.
-  const caption = (text: string, x: number) => {
-    const s = sign(text, '#c8c8c8', 2.2);
-    s.position.set(x, 0.42, STATUE_Z + 4.2);
-    scene.add(s);
+  // A few spotlights that follow you down the hall and light the nearest statues.
+  const pool = [0, 1, 2, 3].map(() => {
+    const l = new THREE.SpotLight(0xffffff, 420, 60, 0.55, 0.6, 1.4);
+    scene.add(l, l.target);
+    return l;
+  });
+  let lightTimer = 0;
+  const relight = () => {
+    // The ones ahead of you, nearest first (the ones you have walked past stay dark).
+    const rank = (p: Placed): number => Math.hypot(p.x - rt.head.x, p.z - rt.head.z) + (p.z > rt.head.z + 4 ? 80 : 0);
+    const near = placed.slice().sort((a, b) => rank(a) - rank(b));
+    pool.forEach((l, i) => {
+      const p = near[i];
+      l.visible = !!p;
+      if (!p) return;
+      l.color.set(p.spec.light);
+      l.position.set(p.x, 17, p.z + 11);
+      l.target.position.set(p.x, 3, p.z - 1);
+    });
   };
-  caption('the wilds', -5);
-  caption('the facility', 5);
+  relight();
 
   // --- Life ----------------------------------------------------------------------------------------------
   let time = 0;
   rt.onFrame = (dt) => {
     time += dt;
-    // The torch flickers, and the monster breathes.
-    torchLight.intensity = 80 * (0.85 + 0.15 * Math.sin(time * 23) * Math.sin(time * 7.1));
-    redLight.intensity = 40 * (0.8 + 0.2 * Math.sin(time * 2.2));
-    monster.group.scale.set(2.4, 2.4 * (1 + 0.006 * Math.sin(time * 1.6)), 2.4);
-    monster.head.rotation.z = 0.18 + 0.03 * Math.sin(time * 0.7);
-    // The buttons turn to face wherever you are.
-    for (const b of [playJungle, playHorror]) b.mesh.lookAt(rt.head.x, b.mesh.position.y, rt.head.z);
+    lightTimer -= dt;
+    if (lightTimer <= 0) {
+      lightTimer = 0.4;
+      relight();
+    }
+    for (const p of placed) {
+      // Statues only move while you are near them.
+      if (Math.abs(p.z - rt.head.z) < 70 && p.statue.update) p.statue.update(time, dt);
+      // The buttons turn to face wherever you are.
+      p.button.mesh.lookAt(rt.head.x, p.button.mesh.position.y, rt.head.z);
+    }
+    starPoints.position.set(rt.head.x, 0, rt.head.z);
   };
   const label = document.createElement('div');
   label.textContent = 'NATURE MONKE · LOBBY';
   label.style.cssText = 'position:fixed;top:12px;left:12px;z-index:100000;color:#9aa6c0;font:600 13px/1.4 system-ui;letter-spacing:.2em;pointer-events:none';
   document.body.appendChild(label);
-  Object.assign(window, { __hub: { rt, playJungle, playHorror, goToMode, scared, monster, gorilla }, __monke: { THREE, renderer: rt.renderer, scene: rt.scene, camera: rt.camera, locomotion: rt.locomotion, rig: rt.rig, emulator: rt.emulator, panels: rt.panels } });
-}
-
-function plinthAt(x: number, z: number): THREE.Mesh {
-  const p = plinth(3, 0.5, 3);
-  p.position.set(x, 0.25, z);
-  return p;
+  Object.assign(window, { __hub: { rt, buttons, playJungle: buttons.jungle, playHorror: buttons.horror, goToMode, placed }, __monke: { THREE, renderer: rt.renderer, scene: rt.scene, camera: rt.camera, locomotion: rt.locomotion, rig: rt.rig, emulator: rt.emulator, panels: rt.panels } });
 }

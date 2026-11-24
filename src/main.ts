@@ -1116,12 +1116,16 @@ function surfaceLabel(loco: Locomotion, i: 0 | 1): string {
  */
 const pageParams = new URLSearchParams(location.search);
 const pageMode = pageParams.get('mode') ?? (['play', 'seed', 'arena', 'join', 'continue', 'fresh', 'host'].some((k) => pageParams.has(k)) ? 'jungle' : 'hub');
-const start: Promise<void> =
-  pageMode === 'hub'
-    ? import('./hub/hub').then((m) => m.runHub())
-    : pageMode === 'horror'
-      ? import('./horror/horror').then((m) => m.runHorror())
-      : main();
+const loaders: Record<string, () => Promise<void>> = {
+  hub: () => import('./hub/hub').then((m) => m.runHub()),
+  horror: () => import('./horror/horror').then((m) => m.runHorror()),
+  madness: () => import('./modes/madness').then((m) => m.runMadness()),
+  cooking: () => import('./modes/cooking').then((m) => m.runCooking()),
+  huss: () => import('./modes/huss').then((m) => m.runHuss()),
+  vacuum: () => import('./modes/vacuum').then((m) => m.runVacuum()),
+  algo: () => import('./modes/algo').then((m) => m.runAlgo()),
+};
+const start: Promise<void> = (loaders[pageMode] ?? main)();
 start.catch((err) => {
   console.error(err);
   document.body.insertAdjacentHTML('beforeend', `<pre style="color:#900;padding:16px">${String(err)}</pre>`);

@@ -366,13 +366,17 @@ Turn it on in **Settings → Pages → Source: GitHub Actions**.
 
 ## Lobby and modes
 
-The game now opens in a **lobby**: you spawn on a long black platform. Walk (or swing) up it to the statues:
+The game opens in a **lobby**: a huge black platform. Walk (or swing) down it; the modes stand on both sides, two to a row, each a statue with a name sign and a **PLAY** button (poke it or use the laser). Every figure is the same detailed gorilla-tag style gorilla.
 
-- **Jungle** – a gorilla dummy (the jungle player) holding a stick. Press **PLAY** to enter the jungle game (its main menu appears).
-- **Horror** – to its right, a scared gorilla with a flashlight, with a smiling bloody gorilla monster standing behind it. (Every figure is the same detailed gorilla-tag style gorilla model.) Press **PLAY** to enter the horror facility.
+| Mode | Statue | What it is |
+| --- | --- | --- |
+| **Jungle** | a gorilla dummy with a stick | The original game (its main menu appears). |
+| **Horror** | a scared gorilla with a flashlight, a bloody smiling gorilla behind it | A dark facility with a safe room, an exit lift and a monster that hunts you. Light slows it. |
+| **ABSOLUTE MADNESS** | a gorilla hand-feeding a chicken, a horse with a KFC bucket, a ufo and screens above | A flat field of motionless horses, horses in cars, spinning animals, ufos, flashing lights and screens, screaming chickens, a giant bucket. Guns lie about: grip to pick up, trigger to shoot things into the air. |
+| **COOKING SHOW!** | a gorilla about to be sliced by the chainsaw monster | You are the chainsaw monster. Grab audience members (left grip) and cut them with the saw (right trigger): how you swing decides how they are sliced, and every piece can be cut again. Blend, cook or bake them. Lots of blood. |
+| **HUSS HUSS HUSS** | the monster gorilla chasing a gorilla | An endless yellow field with a few pillars. Fast monsters that are slow to turn; another one every 20 s. |
+| **VACUUM** | a gorilla riding a vacuum like a cowboy | You are tiny in a giant house. A vacuum patrols and sucks you in; it can't fit under the couch. Escape through the mouse hole. |
+| **O ALGO** | the picture chasing a gorilla | On the moon (low gravity), the picture hunts you. Find three glowing rocket parts, install them, launch. Guns kill the picture, but it comes back. |
 
-Press the world-space buttons by poking them or with the laser pointer.
-
-**Horror facility**: a dark maze with a green *safe room* (the monster never enters; it lurks at the door, then wanders off). Find the **exit lift** to escape. Your flashlight (right hand) slows the monster when you shine it on it. **BACK TO LOBBY** is on the wall at the start; the jungle main menu has one too.
-
-URLs: `?mode=hub` (default), `?mode=jungle` (older `?play`/`?seed=`/`?join=` links still open the jungle), `?mode=horror`.
+URLs: `?mode=hub` (default), `?mode=jungle` (older `?play`/`?seed=`/`?join=` links still open the jungle), `?mode=horror`, `?mode=madness`, `?mode=cooking`, `?mode=huss`, `?mode=vacuum`, `?mode=algo`. **L** on the desktop emulator goes back to the lobby from any mode; each mode also has a BACK TO LOBBY button.
+Desktop emulator keys for the new modes: Q/E = left/right grip, Z/X = left/right trigger.

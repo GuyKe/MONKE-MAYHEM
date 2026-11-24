@@ -3,7 +3,7 @@ import * as THREE from 'three';
 /** Every sound the game makes, for tests and for calling from other systems. */
 export type SoundName =
   | 'click' | 'whoosh' | 'chop' | 'smash' | 'creak' | 'crash' | 'rope' | 'splash' | 'snap' | 'thud' | 'hurt' | 'die'
-  | 'growl' | 'thump' | 'sting' | 'step' | 'scrape' | 'eat' | 'chime' | 'page' | 'squelch' | 'unlock' | 'build' | 'break' | 'bird' | 'owl' | 'ignite';
+  | 'growl' | 'thump' | 'sting' | 'step' | 'scrape' | 'eat' | 'chime' | 'page' | 'squelch' | 'unlock' | 'build' | 'break' | 'bird' | 'owl' | 'ignite' | 'squawk' | 'bang' | 'saw' | 'splat' | 'suck' | 'buzz' | 'pop' | 'sizzle' | 'whirr';
 
 export interface AmbientState {
   /** 0 by day, 1 at night. */
@@ -290,6 +290,25 @@ export class GameAudio {
         this.tone(at, 1.2, 'sawtooth', 67, 38, 0.35 * v, 0.05);
         this.burst(at, 1.1, 'lowpass', 500, 120, 3, 0.45 * v);
         break;
+      case 'squawk': {
+        const f = 700 + Math.random() * 500;
+        this.tone(at, 0.5, 'sawtooth', f, f * 0.55, 0.28 * v);
+        this.tone(at, 0.45, 'square', f * 1.5, f * 0.8, 0.12 * v, 0.03);
+        this.burst(at, 0.4, 'bandpass', 2200, 1200, 3, 0.25 * v);
+        break;
+      }
+      case 'bang': this.burst(at, 0.22, 'lowpass', 2600, 200, 1, 0.9 * v); this.tone(at, 0.15, 'sawtooth', 160, 40, 0.5 * v); break;
+      case 'saw':
+        this.tone(at, 0.3, 'sawtooth', 95, 105, 0.3 * v);
+        this.tone(at, 0.3, 'square', 190, 215, 0.12 * v);
+        this.burst(at, 0.3, 'bandpass', 2400, 3200, 2, 0.25 * v);
+        break;
+      case 'splat': this.burst(at, 0.3, 'lowpass', 700, 120, 2, 0.8 * v); this.tone(at, 0.2, 'sine', 140, 50, 0.4 * v); break;
+      case 'suck': this.burst(at, 0.45, 'bandpass', 500, 1400, 1, 0.5 * v); this.tone(at, 0.45, 'sawtooth', 110, 170, 0.2 * v); break;
+      case 'buzz': this.tone(at, 1.3, 'sawtooth', 59, 60, 0.12 * v); this.tone(at, 1.3, 'square', 120, 121, 0.04 * v); break;
+      case 'pop': this.tone(at, 0.1, 'sine', 600, 200, 0.5 * v); this.burst(at, 0.06, 'highpass', 3000, 3000, 1, 0.3 * v); break;
+      case 'sizzle': this.burst(at, 0.5, 'highpass', 5000, 4000, 0.7, 0.35 * v); break;
+      case 'whirr': this.tone(at, 0.4, 'sawtooth', 200, 520, 0.25 * v); this.burst(at, 0.4, 'bandpass', 1500, 3000, 1.5, 0.2 * v); break;
       case 'thump': this.tone(at, 0.16, 'sine', 70, 38, 0.9 * v); break;
       case 'sting':
         this.tone(undefined, 1.0, 'sawtooth', 1480, 1320, 0.28);

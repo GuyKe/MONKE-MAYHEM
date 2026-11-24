@@ -3,14 +3,14 @@ import * as THREE from 'three';
 const _v = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
-const blob = new THREE.IcosahedronGeometry(1, 1);
-const lowBlob = new THREE.IcosahedronGeometry(1, 0);
-const box = new THREE.BoxGeometry(1, 1, 1);
-const cyl = new THREE.CylinderGeometry(1, 1, 1, 8);
-const cone = new THREE.ConeGeometry(1, 1, 6);
+export const blob = new THREE.IcosahedronGeometry(1, 1);
+export const lowBlob = new THREE.IcosahedronGeometry(1, 0);
+export const box = new THREE.BoxGeometry(1, 1, 1);
+export const cyl = new THREE.CylinderGeometry(1, 1, 1, 8);
+export const cone = new THREE.ConeGeometry(1, 1, 6);
 
 const materials = new Map<number, THREE.MeshLambertMaterial>();
-function mat(color: number, emissive = 0): THREE.MeshLambertMaterial {
+export function mat(color: number, emissive = 0): THREE.MeshLambertMaterial {
   const key = color * 31 + emissive;
   let m = materials.get(key);
   if (!m) {
@@ -20,7 +20,7 @@ function mat(color: number, emissive = 0): THREE.MeshLambertMaterial {
   return m;
 }
 
-function part(parent: THREE.Object3D, geo: THREE.BufferGeometry, color: number, at: [number, number, number], size: [number, number, number], rot: [number, number, number] = [0, 0, 0], emissive = 0): THREE.Mesh {
+export function part(parent: THREE.Object3D, geo: THREE.BufferGeometry, color: number, at: [number, number, number], size: [number, number, number], rot: [number, number, number] = [0, 0, 0], emissive = 0): THREE.Mesh {
   const m = new THREE.Mesh(geo, mat(color, emissive));
   m.position.set(...at);
   m.scale.set(...size);
@@ -30,7 +30,7 @@ function part(parent: THREE.Object3D, geo: THREE.BufferGeometry, color: number, 
 }
 
 /** A limb: a tapered cylinder from point `a` to point `b`. */
-function limb(parent: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, r: number, color: number): THREE.Mesh {
+export function limb(parent: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, r: number, color: number): THREE.Mesh {
   const m = new THREE.Mesh(cyl, mat(color));
   const len = a.distanceTo(b);
   m.position.copy(a).add(b).multiplyScalar(0.5);
@@ -40,7 +40,7 @@ function limb(parent: THREE.Object3D, a: THREE.Vector3, b: THREE.Vector3, r: num
   return m;
 }
 
-const p3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+export const p3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
 export interface GorillaOptions {
   /** Fur colour. */
@@ -321,7 +321,12 @@ export function sign(text: string, color: string, width = 3): THREE.Mesh {
   c.shadowColor = color;
   c.shadowBlur = 24;
   c.fillStyle = color;
-  c.font = 'bold 120px Georgia, serif';
+  let size = 120;
+  c.font = `bold ${size}px Georgia, serif`;
+  while (c.measureText(text).width > 720 && size > 30) {
+    size -= 6;
+    c.font = `bold ${size}px Georgia, serif`;
+  }
   c.textAlign = 'center';
   c.textBaseline = 'middle';
   c.fillText(text, 384, 100);
@@ -329,4 +334,31 @@ export function sign(text: string, color: string, width = 3): THREE.Mesh {
   tex.colorSpace = THREE.SRGBColorSpace;
   const m = new THREE.Mesh(new THREE.PlaneGeometry(width, width / 4), new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false, fog: false }));
   return m;
+}
+
+/** A running pose, frozen or animated: `phase` in radians. */
+export function poseRun(h: Human, phase: number, amount = 0.9): void {
+  const s = Math.sin(phase) * amount;
+  h.legs[0].rotation.x = s;
+  h.legs[1].rotation.x = -s;
+  h.arms[0].rotation.x = -s * 1.1;
+  h.arms[1].rotation.x = s * 1.1;
+}
+
+/** A cowboy hat for a gorilla's head (add it to `human.head`). */
+export function cowboyHat(): THREE.Group {
+  const g = new THREE.Group();
+  part(g, cyl, 0x6b4a2b, [0, 0.235, 0.0], [0.2, 0.012, 0.2]);
+  part(g, cyl, 0x7a5532, [0, 0.285, 0.0], [0.105, 0.09, 0.105]);
+  part(g, cyl, 0x2a1c10, [0, 0.255, 0.0], [0.108, 0.018, 0.108]);
+  for (const sx of [-1, 1]) part(g, box, 0x6b4a2b, [sx * 0.2, 0.25, 0], [0.03, 0.012, 0.15], [0, 0, sx * 0.35]);
+  return g;
+}
+
+/** A chef's hat. */
+export function chefHat(): THREE.Group {
+  const g = new THREE.Group();
+  part(g, cyl, 0xf4f4f0, [0, 0.25, 0], [0.1, 0.05, 0.1]);
+  part(g, blob, 0xf8f8f4, [0, 0.35, 0], [0.13, 0.09, 0.13]);
+  return g;
 }
