@@ -202,6 +202,45 @@ export class Building {
     this.version++;
   }
 
+  /**
+   * Adds what another player built: structures this player does not have yet appear, and parts that are in over there
+   * go in here too. Nothing is ever taken away, and what this player is placing is left alone.
+   */
+  merge(list: SiteSave[]): void {
+    const active = this.site;
+    this.restoring = true;
+    try {
+      for (const saved of list) {
+        const bp = BLUEPRINTS.find((b) => b.id === saved.id);
+        if (!bp) continue;
+        const known = [...this.sites, ...(active ? [active] : [])].find((s) => s.bp.id === saved.id && Math.hypot(s.pos.x - saved.x, s.pos.z - saved.z) < 0.05);
+        if (known) {
+          for (const id of saved.filled) {
+            const s = known.slots.find((o) => o.slot.id === id);
+            if (s && !s.filled) this.fill(known, s);
+          }
+          continue;
+        }
+        this.createSite(bp, new THREE.Vector3(saved.x, this.terrain.surfaceAt(saved.x, saved.z), saved.z), saved.yaw);
+        const site = this.site!;
+        for (const id of saved.filled) {
+          const s = site.slots.find((o) => o.slot.id === id);
+          if (s && !s.filled) this.fill(site, s);
+        }
+        if (this.site === site) {
+          this.sites.push(site);
+          this.site = null;
+        }
+        for (const s of site.slots) if (!s.filled) site.group.remove(s.ghost);
+      }
+    } finally {
+      this.restoring = false;
+      // What this player is placing carries on.
+      if (active && !active.complete) this.site = active;
+    }
+    this.version++;
+  }
+
   /** Finished structures of a kind, for spawning and drying meat. */
   completed(kind: 'shelter' | 'rack' | 'oven' | 'spit'): Array<{ id: string; x: number; y: number; z: number; yaw: number }> {
     return this.sites
@@ -626,8 +665,8 @@ export class Building {
 
   private finish(site: Site): void {
     site.complete = true;
-    this.sites.push(site);
-    this.site = null;
+    if (!this.sites.includes(site)) this.sites.push(site);
+    if (this.site === site) this.site = null;
     if (!this.restoring) this.built[site.bp.id] = (this.built[site.bp.id] ?? 0) + 1;
     const unlocked: string[] = [];
     for (const bp of BLUEPRINTS) {

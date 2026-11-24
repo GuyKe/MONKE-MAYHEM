@@ -3,6 +3,8 @@ import type { FoodState, PieceKind } from './world/sticks';
 
 /** One piece lying in the world, as saved. */
 export interface SavedPiece {
+  /** Network id, so pieces keep their names when a player joins. */
+  n?: string;
   k: PieceKind;
   p: [number, number, number];
   q: [number, number, number, number];
@@ -43,6 +45,8 @@ export interface SaveData {
   logger?: [number, number, number];
   found: number[];
   crocsDead: number[];
+  /** Animals that have been killed (their ids), for a player joining. */
+  animalsDead?: number[];
 }
 
 const KEY = 'monke.save';

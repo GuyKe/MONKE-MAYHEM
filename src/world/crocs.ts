@@ -28,7 +28,11 @@ export interface CrocOptions {
   surfaceAt(x: number, z: number): number;
   waterLevelAt(x: number, z: number): number | null;
   /** The croc bit you. */
-  onBite(damage: number, at: THREE.Vector3): void;
+  onBite(damage: number, at: THREE.Vector3, target: string): void;
+  /** A joined player hit a crocodile (its lake index): tell the host. */
+  onRemoteHit?(lake: number, amount: number): void;
+  /** One died (its lake index). */
+  onDied?(lake: number): void;
   /** A croc died here. */
   onKill(at: THREE.Vector3): void;
 }
@@ -104,6 +108,8 @@ export class Crocs {
   private time = 0;
   /** Lakes whose crocodile has been killed (by index), for the save. */
   killed: number[] = [];
+  /** Joined players do not simulate: they follow the host. */
+  remote = false;
   private readonly lakes: ReadonlyArray<ForestLake>;
 
   constructor(
@@ -113,6 +119,42 @@ export class Crocs {
   ) {
     this.lakes = lakes;
     for (const lake of lakes) if (lake.croc) this.spawn(lake);
+  }
+
+  lakeIndex(c: Croc): number {
+    return this.lakes.indexOf(c.lake);
+  }
+
+  /** What the host sends: [lake, x, z, heading, state, bite, hp] for each. */
+  snapshot(): number[][] {
+    return this.list.map((c) => [this.lakes.indexOf(c.lake), Math.round(c.x * 100) / 100, Math.round(c.z * 100) / 100, Math.round(c.heading * 100) / 100, c.state === 'lurk' ? 0 : c.state === 'hunt' ? 1 : 2, Math.round(c.bite * 100) / 100, c.hp]);
+  }
+
+  applySnapshot(list: number[][]): void {
+    const states: CrocState[] = ['lurk', 'hunt', 'retreat'];
+    for (const [lake, x, z, heading, state, bite, hp] of list) {
+      const c = this.list.find((k) => this.lakes.indexOf(k.lake) === lake);
+      if (!c) continue;
+      c.tx = x;
+      c.tz = z;
+      c.heading = heading;
+      c.state = states[state];
+      c.bite = Math.max(c.bite, bite);
+      c.hp = hp;
+      if (Math.hypot(c.x - x, c.z - z) > 8) {
+        c.x = x;
+        c.z = z;
+      }
+    }
+  }
+
+  /** A crocodile died somewhere else. */
+  killRemote(lake: number): void {
+    const c = this.list.find((k) => this.lakes.indexOf(k.lake) === lake);
+    if (!c) return;
+    this.scene.remove(c.group);
+    this.list.splice(this.list.indexOf(c), 1);
+    this.killed.push(lake);
   }
 
   /** Removes the crocodiles of lakes where one was killed before. */
@@ -165,6 +207,10 @@ export class Crocs {
 
   /** Hurts a croc; returns true if that killed it. */
   damage(c: Croc, amount: number): boolean {
+    if (this.remote) {
+      this.o.onRemoteHit?.(this.lakes.indexOf(c.lake), amount);
+      return false;
+    }
     c.hp -= amount;
     if (c.hp > 0) {
       if (c.hp < HP * 0.3) {
@@ -176,17 +222,43 @@ export class Crocs {
     this.scene.remove(c.group);
     this.list.splice(this.list.indexOf(c), 1);
     this.killed.push(this.lakes.indexOf(c.lake));
+    this.o.onDied?.(this.lakes.indexOf(c.lake));
     this.o.onKill(new THREE.Vector3(c.x, c.y + 0.2, c.z));
     return true;
   }
 
   /** `player` is the head position; `inWater` is whether the player is in a lake. */
-  update(dt: number, player: THREE.Vector3, inWater: boolean): void {
+  update(dt: number, player: THREE.Vector3, inWater: boolean, others: ReadonlyArray<{ pos: THREE.Vector3; inWater: boolean; id: string }> = []): void {
     this.time += dt;
     for (const c of this.list) {
-      const dx = player.x - c.x;
-      const dz = player.z - c.z;
-      const dist = Math.hypot(dx, dz);
+      // It goes for whichever player is nearest.
+      let tp = player;
+      let tw = inWater;
+      let tid = 'me';
+      let dist = Math.hypot(player.x - c.x, player.z - c.z);
+      for (const o of others) {
+        const d = Math.hypot(o.pos.x - c.x, o.pos.z - c.z);
+        if (d < dist) {
+          dist = d;
+          tp = o.pos;
+          tw = o.inWater;
+          tid = o.id;
+        }
+      }
+      if (this.remote) {
+        // Follow the host's crocodile.
+        const k = Math.min(1, dt * 8);
+        c.x += (c.tx - c.x) * k;
+        c.z += (c.tz - c.z) * k;
+        const level = this.o.waterLevelAt(c.x, c.z);
+        c.y += ((level !== null ? level - (c.state === 'hunt' ? 0.08 : 0.15) : this.o.surfaceAt(c.x, c.z) + 0.02) - c.y) * Math.min(1, dt * 6);
+        c.bite = Math.max(0, c.bite - dt * 3);
+        c.group.visible = dist < 140;
+        c.group.position.set(c.x, c.y, c.z);
+        c.group.rotation.set(0, c.heading, 0);
+        c.jaw.rotation.x = -c.bite * 0.55;
+        continue;
+      }
       c.cooldown = Math.max(0, c.cooldown - dt);
       c.bite = Math.max(0, c.bite - dt * 3);
       const lake = c.lake;
@@ -195,8 +267,8 @@ export class Crocs {
         continue;
       }
       c.group.visible = true;
-      const toLake = Math.hypot(player.x - lake.x, player.z - lake.z);
-      const reachable = inWater && toLake < lake.r + 8 ? true : toLake < lake.r + SHORE_REACH + 4;
+      const toLake = Math.hypot(tp.x - lake.x, tp.z - lake.z);
+      const reachable = tw && toLake < lake.r + 8 ? true : toLake < lake.r + SHORE_REACH + 4;
       const wants = reachable && dist < NOTICE;
 
       if (c.state === 'retreat') {
@@ -219,8 +291,8 @@ export class Crocs {
       let tx = c.tx;
       let tz = c.tz;
       if (c.state === 'hunt') {
-        tx = player.x;
-        tz = player.z;
+        tx = tp.x;
+        tz = tp.z;
         speed = WATER_SPEED;
       } else if (c.state === 'retreat') {
         speed = WATER_SPEED;
@@ -267,11 +339,11 @@ export class Crocs {
       // Snap at you.
       if (c.state === 'hunt' && c.cooldown <= 0) {
         _p.set(c.x + Math.sin(c.heading) * 1.2, c.y, c.z + Math.cos(c.heading) * 1.2);
-        const reach = Math.hypot(player.x - _p.x, player.z - _p.z);
-        if (reach < BITE_REACH && Math.abs(player.y - (c.y + 0.3)) < 1.4) {
+        const reach = Math.hypot(tp.x - _p.x, tp.z - _p.z);
+        if (reach < BITE_REACH && Math.abs(tp.y - (c.y + 0.3)) < 1.4) {
           c.cooldown = 1.8;
           c.bite = 1;
-          this.o.onBite(BITE_DAMAGE, _p.clone());
+          this.o.onBite(BITE_DAMAGE, _p.clone(), tid);
         }
       }
 

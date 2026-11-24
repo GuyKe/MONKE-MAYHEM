@@ -65,7 +65,7 @@ export class Fire {
   }
 
   restoreCampfires(list: Array<[number, number, number]>): void {
-    for (const [x, z, scale] of list) this.addCampfire(x, z, scale);
+    for (const [x, z, scale] of list) this.addCampfire(x, z, scale, true);
   }
 
   /** Metres to the nearest campfire (Infinity if none). */
@@ -96,7 +96,11 @@ export class Fire {
    * Builds a campfire on the ground at (x, z) and returns where it is. `scale` makes it bigger or smaller;
    * a campfire made from a bigger pile of sticks is a bigger fire.
    */
-  addCampfire(x: number, z: number, scale = 1): THREE.Vector3 {
+  /** A campfire was built here, to tell other players. */
+  onCampfire: ((x: number, z: number, scale: number) => void) | null = null;
+
+  addCampfire(x: number, z: number, scale = 1, quiet = false): THREE.Vector3 {
+    if (!quiet) this.onCampfire?.(x, z, scale);
     const y = this.surfaceAt(x, z);
     const group = new THREE.Group();
     group.position.set(x, y, z);

@@ -36,6 +36,10 @@ import { Spits } from './world/spit';
 import { Perf } from './perf';
 import { Comfort } from './comfort';
 import { Quality } from './quality';
+import { Net, type Msg } from './net/net';
+import { RemotePlayers, type PoseMsg } from './net/avatars';
+import { Voice } from './net/voice';
+import { Sync } from './net/sync';
 import { MEAT_COLOR } from './player/survival';
 import { SaveStore, type SaveData } from './save';
 import type { DesktopEmulator } from './debug/desktop';
@@ -49,7 +53,18 @@ async function main(): Promise<void> {
 
   // The main menu comes first: it shows while the forest is built, and again whenever you leave VR.
   // Hooks that need things created later are filled in below.
-  const actions = { play: () => {}, resetArms: () => {}, resetBook: () => {}, save: () => false as boolean };
+  const actions = {
+    play: () => {},
+    resetArms: () => {},
+    resetBook: () => {},
+    save: () => false as boolean,
+    host: async (): Promise<string> => '',
+    leave: () => {},
+    mic: async (): Promise<void> => {},
+  };
+  // Multiplayer: a joiner connects first (it needs the host's seed to build the same forest).
+  const net = new Net();
+  const syncRef: { current: Sync | null } = { current: null };
   // A saved game is carried on whenever the page is opened without asking for a particular forest.
   const saved = SaveStore.load();
   const menu = new Menu(settings, {
@@ -63,6 +78,15 @@ async function main(): Promise<void> {
     onResetBook: () => actions.resetBook(),
     onSave: () => actions.save(),
     onDeleteSave: () => SaveStore.clear(),
+    onHost: () => actions.host(),
+    onJoin: (code) => {
+      const url = new URL(location.href);
+      url.searchParams.set('join', code);
+      url.searchParams.delete('seed');
+      location.href = url.toString();
+    },
+    onLeaveGame: () => actions.leave(),
+    onMic: () => actions.mic(),
   });
   const skipMenu = params.has('play') || params.has('arena');
   if (skipMenu) menu.hide();
@@ -74,6 +98,22 @@ async function main(): Promise<void> {
   const emulator: DesktopEmulator | null = hasRealVR
     ? null
     : new (await import('./debug/desktop')).DesktopEmulator(); // loaded only when needed
+
+  // Joining: connect to the host and wait for its world.
+  let welcome: Msg | null = null;
+  let joinError = '';
+  const joinCode = params.get('join');
+  if (joinCode) {
+    menu.setLoading(`Joining ${joinCode.toUpperCase()}…`);
+    try {
+      const wanted = net.waitFor('welcome');
+      await net.join(joinCode);
+      welcome = await wanted;
+    } catch (e) {
+      joinError = `Could not join ${joinCode.toUpperCase()}: ${e instanceof Error ? e.message : String(e)}`;
+      net.leave();
+    }
+  }
 
   const world = await createPhysicsWorld();
 
@@ -96,9 +136,9 @@ async function main(): Promise<void> {
 
   // The forest is the game: a new random one every visit (`?seed=123` repeats one).
   // `?arena` loads the small flat movement test course instead.
-  const seed = params.has('seed') ? Number(params.get('seed')) || 1 : saved ? saved.seed : Math.floor(Math.random() * 0x7fffffff);
+  const seed = welcome ? (welcome.seed as number) : params.has('seed') ? Number(params.get('seed')) || 1 : saved ? saved.seed : Math.floor(Math.random() * 0x7fffffff);
   // Pick up the saved game if this is its forest, unless a particular forest was asked for without `continue`.
-  const useSave = !!saved && saved.seed === seed && !params.has('arena') && !params.has('fresh') && (params.has('continue') || !params.has('seed'));
+  const useSave = !welcome && !!saved && saved.seed === seed && !params.has('arena') && !params.has('fresh') && (params.has('continue') || !params.has('seed'));
   if (useSave) menu.setSaveInfo(SaveStore.describe(saved!));
   const spawn = new THREE.Vector3(SPAWN.x, SPAWN.y, SPAWN.z);
   let worldStats = 'test arena';
@@ -138,6 +178,8 @@ async function main(): Promise<void> {
   const animals = forestRef
     ? new Animals(scene, {
         onKill: (species, at) => refs.survival?.dropMeat(at, species === 'deer' ? 3 : 1),
+        onDied: (id) => syncRef.current?.animalDied(id),
+        onRemoteHit: (id, amount) => syncRef.current?.hitAnimal(id, amount),
         seed,
         surfaceAt: forestRef.surfaceAt,
         isBlocked: forestRef.isBlocked,
@@ -282,6 +324,7 @@ async function main(): Promise<void> {
     },
     onGrab: (stick) => {
       audio.play('click');
+      syncRef.current?.claim(stick);
       if (stick.kind === 'stick') {
         const type = stickType(stick.length);
         if (!seenSticks.has(type)) {
@@ -369,12 +412,18 @@ async function main(): Promise<void> {
     ? new Crocs(scene, forestRef.lakes, {
         surfaceAt: forestRef.surfaceAt,
         waterLevelAt: forestRef.waterLevelAt,
-        onBite: (damage, at) => {
+        onBite: (damage, at, target) => {
           audio.play('snap', at);
+          if (target !== 'me') {
+            net.bite(target, damage);
+            return;
+          }
           vitals.hurt(damage, 'crocodile');
           book.say('The crocodile bit you!');
         },
         onKill: (at) => refs.survival?.dropMeat(at, 4),
+        onDied: (lake) => syncRef.current?.crocDied(lake),
+        onRemoteHit: (lake, amount) => syncRef.current?.hitCroc(lake, amount),
       })
     : null;
   const survival = new Survival(scene, sticks, grab, hands, locomotion, vitals, vitalsView, building, spawn, {
@@ -433,6 +482,7 @@ async function main(): Promise<void> {
       pieces: [...sticks.list
         .filter((s) => !s.hidden)
         .map((s) => ({
+          n: s.nid,
           k: s.kind,
           p: [Math.round(s.pos.x * 1000) / 1000, Math.round(s.pos.y * 1000) / 1000, Math.round(s.pos.z * 1000) / 1000] as [number, number, number],
           q: [Math.round(s.quat.x * 1000) / 1000, Math.round(s.quat.y * 1000) / 1000, Math.round(s.quat.z * 1000) / 1000, Math.round(s.quat.w * 1000) / 1000] as [number, number, number, number],
@@ -456,13 +506,14 @@ async function main(): Promise<void> {
       logger: loggerRef.current ? [loggerRef.current.x, loggerRef.current.z, loggerRef.current.heading] : undefined,
       found: poisRef.current ? poisRef.current.export() : [],
       crocsDead: crocs ? crocs.killed : [],
+      animalsDead: animals ? [...animals.deadIds] : [],
     };
   };
-  const applySave = (data: SaveData): void => {
+  const applySave = (data: SaveData, joining = false): void => {
     // Everything lying about is replaced by what was lying about when you saved.
     for (const s of sticks.list) if (!s.hidden) sticks.stash(s);
     for (const p of data.pieces) {
-      const piece = sticks.craft(p.k, new V3(...p.p), new THREE.Quaternion(...p.q), { length: p.l, radius: p.r, wrap: p.w, state: p.s, age: p.a, color: p.c });
+      const piece = sticks.craft(p.k, new V3(...p.p), new THREE.Quaternion(...p.q), { length: p.l, radius: p.r, wrap: p.w, state: p.s, age: p.a, color: p.c, nid: p.n });
       if (piece) piece.durability = p.d;
     }
     building.restore(data.sites);
@@ -478,21 +529,26 @@ async function main(): Promise<void> {
     }
     poisRef.current?.restore(data.found);
     crocs?.restore(data.crocsDead);
-    journal.stash = data.stash;
-    journal.version++;
+    for (const id of data.animalsDead ?? []) animals?.killRemote(id);
     survival.days = data.days;
-    survival.respawnAt = data.respawn;
+    if (!joining) {
+      journal.stash = data.stash;
+      journal.version++;
+      survival.respawnAt = data.respawn;
+    }
     if (atmosphere) {
       atmosphere.time = data.time;
       atmosphere.day = data.day;
     }
     locomotion.respawn({ x: data.player[0], y: data.player[1], z: data.player[2] });
-    vitals.health = Math.max(5, data.health);
-    vitals.poison = data.poison;
+    if (!joining) {
+      vitals.health = Math.max(5, data.health);
+      vitals.poison = data.poison;
+    }
   };
   if (useSave) applySave(saved!);
   // Asking for another forest by seed does not quietly overwrite your saved game; only Save Game does.
-  const autosaveOn = !saved || useSave;
+  const autosaveOn = !welcome && (!saved || useSave);
   const saveNow = (): boolean => {
     if (!vitals.alive || params.has('arena')) return false;
     const data = collect();
@@ -512,6 +568,80 @@ async function main(): Promise<void> {
   // With a headset the quality follows the frame rate; the desktop emulator is too slow to judge by (unless asked: ?autoquality).
   const quality = new Quality(forestRef, sticks, animals, leaves);
   quality.fixed = !!emulator && !params.has('autoquality');
+  // --- Multiplayer: the other players, voices, and keeping everyone's world the same ---------------------
+  const avatars = new RemotePlayers(scene);
+  const voice = new Voice(net, audio, (id, level) => avatars.talk(id, level));
+  const _pq = new THREE.Quaternion();
+  const poseNow = (): PoseMsg => {
+    const h = locomotion.headWorld(new V3());
+    camera.getWorldQuaternion(_pq);
+    const r = (n: number) => Math.round(n * 1000) / 1000;
+    const hand = (i: 0 | 1): { p: [number, number, number] | null; q: [number, number, number, number] } => {
+      const q = hands.all[i].tracked ? hands.all[i].worldQuaternion(new THREE.Quaternion()) : new THREE.Quaternion();
+      const p = locomotion.hands[i].position;
+      return { p: hands.all[i].tracked ? [r(p.x), r(p.y), r(p.z)] : null, q: [r(q.x), r(q.y), r(q.z), r(q.w)] };
+    };
+    const l = hand(0);
+    const rt = hand(1);
+    return { h: [r(h.x), r(h.y), r(h.z)], q: [r(_pq.x), r(_pq.y), r(_pq.z), r(_pq.w)], l: l.p, r: rt.p, lq: l.q, rq: rt.q };
+  };
+  let netMessage = joinError;
+  const netStatus = (): void =>
+    menu.setNet({
+      role: net.role,
+      code: net.code,
+      players: [...(syncRef.current?.roster.values() ?? [])].sort((a, b) => a.index - b.index).map((p) => p.name + (p.index === (syncRef.current?.index ?? -1) ? ' (you)' : '')),
+      mic: voice.mic,
+      muted: voice.muted,
+      message: netMessage,
+    });
+  const sync = new Sync({
+    net, sticks, animals, crocs, forest: forestRef, ropes: treeRopes, fruits, fire, building, atmosphere, survival, logger: loggerRef, avatars, voice, vitals, seed,
+    say, collect, pose: poseNow, onRoster: () => netStatus(),
+  });
+  syncRef.current = sync;
+  actions.host = async (): Promise<string> => {
+    const code = await net.host();
+    sync.start(0);
+    netMessage = '';
+    netStatus();
+    void voice.startMic().then(netStatus);
+    say(`Hosting. Your code is ${code}.`);
+    return code;
+  };
+  actions.leave = () => {
+    if (net.role === 'client') {
+      const url = new URL(location.href);
+      url.searchParams.delete('join');
+      location.href = url.toString();
+      return;
+    }
+    sync.stop();
+    netMessage = '';
+    netStatus();
+  };
+  actions.mic = async (): Promise<void> => {
+    if (voice.mic !== 'on') await voice.startMic();
+    else voice.setMuted(!voice.muted);
+    netStatus();
+  };
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyM' && net.connected && voice.mic === 'on') {
+      voice.setMuted(!voice.muted);
+      say(voice.muted ? 'Microphone muted.' : 'Microphone on.');
+      netStatus();
+    }
+  });
+  window.addEventListener('pagehide', () => net.leave());
+  if (welcome) {
+    applySave(welcome.snapshot as unknown as SaveData, true);
+    sync.start(welcome.index as number);
+    sync.adoptRoster(welcome.roster as Array<{ id: string; index: number }>);
+    say(`Joined ${net.code}. Press Play to enter.`);
+  }
+  netStatus();
+  if (params.has('host')) void actions.host();
+
   const vrButton = VRButton.createButton(renderer);
   if (emulator) vrButton.textContent = 'ENTER VR (DESKTOP EMULATOR)';
   document.body.appendChild(vrButton);
@@ -525,6 +655,7 @@ async function main(): Promise<void> {
   actions.resetBook = () => journal.reset();
   renderer.xr.addEventListener('sessionstart', () => {
     menu.hide();
+    if (net.connected) void voice.startMic().then(netStatus); // pressing Play is the click that lets the browser ask for the microphone
     const rate = (renderer.xr.getSession() as unknown as { frameRate?: number } | null)?.frameRate;
     if (rate && rate > 30) quality.targetMs = 1000 / rate;
     audio.start(); // sound may only begin after a click, and pressing Play is one
@@ -697,7 +828,13 @@ async function main(): Promise<void> {
         saveNow();
       }
       perf.lap('body+survival');
-      crocs?.update(dt, headNow, locomotion.inWater);
+      if (net.connected) sync.update(dt);
+      crocs?.update(
+        dt,
+        headNow,
+        locomotion.inWater,
+        avatars.heads().map((h) => ({ pos: h.pos, inWater: (forestRef?.waterLevelAt(h.pos.x, h.pos.z) ?? -Infinity) > h.pos.y - 0.9, id: h.id })),
+      );
       vitalsView.update(dt, hands.left.tracked ? body.forearm[0] : null, headNow, locomotion.headUnderwater);
       audio.listen(headNow, _hq);
       comfort.update(dt, Math.max(locomotion.velocity.length(), Math.abs(loggerRef.current?.rider !== null ? (loggerRef.current?.speed ?? 0) : 0)), _hq);
@@ -731,7 +868,7 @@ async function main(): Promise<void> {
     perf.lap('forest');
     atmosphere?.update(dt, viewer);
     perf.lap('atmosphere');
-    animals?.update(dt, viewer, atmosphere?.night ?? 0);
+    animals?.update(dt, viewer, atmosphere?.night ?? 0, avatars.heads().map((h) => h.pos));
     perf.lap('animals');
     mapView?.explore(viewer.x, viewer.z);
     poisRef.current?.update(viewer);
@@ -771,7 +908,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { settings, quality, comfort, perf, spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
+  Object.assign(window, { __monke: { net, sync, voice, avatars, settings, quality, comfort, perf, spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(

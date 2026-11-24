@@ -115,6 +115,10 @@ export interface Forest {
   bushes: ReadonlyArray<Bush>;
   /** Chops a tree down (it falls away from `fromX, fromZ`); `done` is called once it has landed. */
   fellTree(tree: Tree, fromX: number, fromZ: number, done: (landed: FellInfo) => void): boolean;
+  /** Called when a tree is chopped down here (its index and where from), to tell other players. */
+  setOnFell(fn: ((index: number, fromX: number, fromZ: number) => void) | null): void;
+  /** A tree another player felled: it falls here too, with no logs (they made those). */
+  fellRemote(index: number, fromX: number, fromZ: number): boolean;
   /** Indices (into `trees`) of the felled trees, for the save. */
   felledIndices(): number[];
   restoreFelled(list: number[]): void;
@@ -900,9 +904,11 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     }
     for (const c of touched) bakeTrees(c);
   };
-  const fellTree = (tree: Tree, fromX: number, fromZ: number, done: (landed: FellInfo) => void): boolean => {
+  let onFellHandler: ((index: number, fromX: number, fromZ: number) => void) | null = null;
+  const fellTree = (tree: Tree, fromX: number, fromZ: number, done: (landed: FellInfo) => void, silent = false): boolean => {
     const t = tree as TreeData;
-    if (!trees.includes(t) || t.felled) return false;
+    if (t.felled || !trees.includes(t)) return false;
+    if (!silent) onFellHandler?.(trees.indexOf(t), fromX, fromZ);
     applyFelled(t);
 
     // It falls away from you.
@@ -1007,6 +1013,11 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     waterLevelAt,
     bushes,
     fellTree,
+    setOnFell: (fn) => void (onFellHandler = fn),
+    fellRemote: (index, fromX, fromZ) => {
+      const t = trees[index];
+      return !!t && fellTree(t, fromX, fromZ, () => {}, true);
+    },
     felledIndices: () => trees.flatMap((t, i) => (t.felled ? [i] : [])),
     restoreFelled,
     update,

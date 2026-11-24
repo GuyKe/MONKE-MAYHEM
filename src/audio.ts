@@ -88,6 +88,60 @@ export class GameAudio {
     void ctx.resume();
   }
 
+  /** The audio context once sound has started (null before the first click). */
+  get context(): AudioContext | null {
+    return this.ctx;
+  }
+
+  /**
+   * Plays another player's voice from a place in the world (move it with `setPosition` as they move). `level()` is how loud
+   * they are speaking right now, 0 to 1.
+   */
+  attachStream(stream: MediaStream): { setPosition(p: THREE.Vector3): void; level(): number; dispose(): void } | null {
+    const ctx = this.ctx;
+    if (!ctx) return null;
+    // Some browsers only let a remote stream flow if it is also attached to a (silent) element.
+    const el = document.createElement('audio');
+    el.srcObject = stream;
+    el.muted = true;
+    void el.play().catch(() => undefined);
+    const src = ctx.createMediaStreamSource(stream);
+    const panner = ctx.createPanner();
+    panner.panningModel = 'HRTF';
+    panner.distanceModel = 'inverse';
+    panner.refDistance = 2;
+    panner.rolloffFactor = 1.1;
+    panner.maxDistance = 120;
+    const gain = ctx.createGain();
+    gain.gain.value = 1.6;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    const buf = new Uint8Array(analyser.fftSize);
+    src.connect(analyser);
+    src.connect(panner);
+    panner.connect(gain).connect(this.filter);
+    return {
+      setPosition: (p) => {
+        if (panner.positionX) {
+          panner.positionX.value = p.x;
+          panner.positionY.value = p.y;
+          panner.positionZ.value = p.z;
+        }
+      },
+      level: () => {
+        analyser.getByteTimeDomainData(buf);
+        let peak = 0;
+        for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+        return Math.min(1, peak / 40);
+      },
+      dispose: () => {
+        src.disconnect();
+        panner.disconnect();
+        el.srcObject = null;
+      },
+    };
+  }
+
   /** The listener is your head. */
   listen(head: THREE.Vector3, quat: THREE.Quaternion): void {
     const ctx = this.ctx;

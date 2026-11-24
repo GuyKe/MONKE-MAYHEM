@@ -13,9 +13,27 @@ export interface MenuHooks {
   onSave(): boolean;
   /** Throws the saved game away. */
   onDeleteSave(): void;
+  /** Starts hosting this world for others. Resolves to the code. */
+  onHost(): Promise<string>;
+  /** Joins a game by its code (reloads into the host's world). */
+  onJoin(code: string): void;
+  /** Stops hosting or leaves. */
+  onLeaveGame(): void;
+  /** Turns the microphone on (asks permission) or mutes it. */
+  onMic(): Promise<void>;
 }
 
-type Screen = 'home' | 'settings' | 'controls';
+/** What the multiplayer screen shows. */
+export interface NetStatus {
+  role: 'host' | 'client' | null;
+  code: string;
+  players: string[];
+  mic: 'off' | 'on' | 'denied';
+  muted: boolean;
+  message: string;
+}
+
+type Screen = 'home' | 'settings' | 'controls' | 'multi';
 
 interface ChoiceRow {
   kind: 'choice';
@@ -149,6 +167,8 @@ export class Menu {
   private saveInfo: string | null = null;
   private saveStatus = '';
   private confirmNew = false;
+  private net: NetStatus = { role: null, code: '', players: [], mic: 'off', muted: false, message: '' };
+  private busy = false;
 
   constructor(
     private readonly settings: Settings,
@@ -190,6 +210,13 @@ export class Menu {
     this.render();
   }
 
+  /** What the multiplayer screen shows (call whenever it changes). */
+  setNet(status: NetStatus): void {
+    this.net = status;
+    this.busy = false;
+    if (this.screen === 'multi') this.render();
+  }
+
   /** Describes the saved game (or null when there is none) so the menu can offer to continue it. */
   setSaveInfo(text: string | null): void {
     this.saveInfo = text;
@@ -211,6 +238,7 @@ export class Menu {
     this.panel.replaceChildren();
     if (this.screen === 'home') this.renderHome();
     else if (this.screen === 'settings') this.renderSettings();
+    else if (this.screen === 'multi') this.renderMulti();
     else this.renderControls();
   }
 
@@ -238,6 +266,7 @@ export class Menu {
     this.panel.append(
       play,
       this.button('SETTINGS', () => this.go('settings'), 'big'),
+      this.button('MULTIPLAYER', () => this.go('multi'), 'big'),
       this.button('CONTROLS', () => this.go('controls'), 'big'),
     );
     if (this.saveInfo) this.panel.append(this.el('p', this.saveInfo, 'status'));
@@ -315,6 +344,76 @@ export class Menu {
       this.hooks.onDeleteSave();
       this.hooks.onNewWorld();
     }));
+    this.panel.append(footer);
+  }
+
+  private renderMulti(): void {
+    const n = this.net;
+    this.panel.append(this.el('h2', 'Multiplayer'));
+    if (n.role === null) {
+      this.panel.append(this.el('p', 'Host this forest for friends, or join theirs with the four-letter code. Everything is shared: the animals, the things lying about, what is built. You can talk to each other.', 'status'));
+      const host = this.button(this.busy ? 'Starting…' : 'HOST A GAME', async () => {
+        this.busy = true;
+        this.render();
+        try {
+          await this.hooks.onHost();
+        } catch (e) {
+          this.net = { ...this.net, message: `Could not host: ${String(e instanceof Error ? e.message : e)}` };
+        }
+        this.busy = false;
+        this.render();
+      }, 'big primary');
+      host.id = 'menuHost';
+      host.disabled = this.busy || this.loadingText !== null;
+      this.panel.append(host);
+      this.panel.append(this.el('h3', 'Join a game'));
+      const row = this.el('div', '', 'row');
+      const input = document.createElement('input');
+      input.id = 'menuCode';
+      input.type = 'text';
+      input.maxLength = 4;
+      input.placeholder = 'CODE';
+      input.autocapitalize = 'characters';
+      input.style.cssText = 'font: bold 28px monospace; letter-spacing: 0.3em; text-transform: uppercase; width: 8em; padding: 8px 12px; border-radius: 10px; border: 1px solid #5d8a62; background: #10201a; color: #f1e7c4;';
+      const join = this.button('JOIN', () => {
+        const code = input.value.trim().toUpperCase();
+        if (code.length === 4) this.hooks.onJoin(code);
+      }, 'primary');
+      join.id = 'menuJoin';
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') join.click();
+      });
+      row.append(input, join);
+      this.panel.append(row);
+      this.panel.append(this.el('p', 'Joining opens the host’s forest, starting where they are. Your own saved game is left alone.', 'status'));
+    } else {
+      if (n.role === 'host') {
+        this.panel.append(this.el('p', 'Your code. Tell your friends:', 'status'));
+        const code = this.el('div', n.code);
+        code.id = 'menuMyCode';
+        code.style.cssText = 'font: bold 64px monospace; letter-spacing: 0.25em; text-align: center; color: #f1e7c4; margin: 4px 0 8px; user-select: all;';
+        this.panel.append(code);
+      } else {
+        this.panel.append(this.el('p', `Playing in ${n.code}'s game.`, 'status'));
+      }
+      this.panel.append(this.el('h3', `Players (${n.players.length})`));
+      const list = this.el('ul');
+      list.id = 'menuPlayers';
+      list.style.cssText = 'margin: 0 0 8px; padding-left: 20px;';
+      for (const name of n.players) list.append(this.el('li', name));
+      this.panel.append(list);
+      const mic = this.button(n.mic === 'denied' ? 'Microphone blocked (allow it in your browser)' : n.mic === 'off' ? 'Turn microphone on' : n.muted ? 'Microphone muted: click to unmute' : 'Microphone on: click to mute', async () => {
+        await this.hooks.onMic();
+      }, n.mic === 'on' && !n.muted ? 'on' : '');
+      mic.id = 'menuMic';
+      this.panel.append(mic);
+      const leave = this.button(n.role === 'host' ? 'Stop hosting' : 'Leave game', () => this.hooks.onLeaveGame());
+      leave.id = 'menuLeave';
+      this.panel.append(leave);
+    }
+    if (n.message) this.panel.append(this.el('p', n.message, 'status'));
+    const footer = this.el('div', '', 'footer');
+    footer.append(this.button('Back', () => this.go('home')));
     this.panel.append(footer);
   }
 

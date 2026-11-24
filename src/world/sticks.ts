@@ -92,6 +92,10 @@ export function isWood(kind: PieceKind): boolean {
 
 export interface Stick {
   readonly id: number;
+  /** The same on every player's machine, so a piece can be named in a message. */
+  readonly nid: string;
+  /** Which player is in charge of its movement (null: the host). */
+  owner: string | null;
   kind: PieceKind;
   readonly shape: Shape;
   readonly body: RAPIER.RigidBody;
@@ -149,6 +153,8 @@ export interface PieceOptions {
   color?: THREE.ColorRepresentation;
   state?: FoodState;
   age?: number;
+  /** Network id, when it is a copy of a piece made on another machine. */
+  nid?: string;
 }
 
 /** Room in each mesh beyond the pieces scattered at the start, for crafted ones and loot. */
@@ -239,6 +245,14 @@ export class Sticks {
   /** How many pieces have fallen out of the world and been put back (should stay 0). */
   respawned = 0;
   private frame = 0;
+  private nextId = 0;
+  /** Network ids: pieces made here are named with this prefix and a counter, so no two machines make the same one. */
+  netPrefix = 'w';
+  private netCounter = 0;
+  readonly byNid = new Map<string, Stick>();
+  /** A piece was made / put away here (not when copying another machine). */
+  onCraft: ((stick: Stick) => void) | null = null;
+  onStash: ((stick: Stick) => void) | null = null;
   /** Pieces further than this from the player are not drawn (lowered when the frame rate is low). */
   drawDistance = DEFAULT_DRAW_DISTANCE;
   private readonly home: THREE.Vector3Like;
@@ -297,8 +311,9 @@ export class Sticks {
   }
 
   /** Takes a piece out of the world (into the book, or used up). */
-  stash(stick: Stick): void {
+  stash(stick: Stick, quiet = false): void {
     if (stick.hidden) return;
+    if (!quiet) this.onStash?.(stick);
     stick.hidden = true;
     stick.heldBy = null;
     stick.highlighted = false;
@@ -344,7 +359,10 @@ export class Sticks {
     // Pieces that have been put away stay in the list until now; dropping them keeps the loops short.
     if (this.frame % 600 === 0) {
       let w = 0;
-      for (const s of this.list) if (!s.hidden) this.list[w++] = s;
+      for (const s of this.list) {
+        if (!s.hidden) this.list[w++] = s;
+        else this.byNid.delete(s.nid);
+      }
       this.list.length = w;
     }
     for (const slots of Object.values(this.slots)) slots.used = 0;
@@ -483,7 +501,9 @@ export class Sticks {
     );
     const max = extra.durability ?? (kind === 'axe' ? 22 : kind === 'axe2' ? 60 : 0);
     const piece: Stick = {
-      id: this.list.length,
+      id: this.nextId++,
+      nid: extra.nid ?? `${this.netPrefix}${this.netCounter++}`,
+      owner: null,
       kind,
       shape: spec.shape,
       body,
@@ -507,7 +527,14 @@ export class Sticks {
       age: extra.age ?? 0,
     };
     if (extra.color !== undefined) baseColor.set(extra.color);
+    // A piece named by another machine (or an earlier game) must not clash with the next one made here.
+    if (extra.nid) {
+      const m = new RegExp(`^${this.netPrefix.replace(/[-]/g, '\\-')}(\\d+)$`).exec(extra.nid);
+      if (m) this.netCounter = Math.max(this.netCounter, Number(m[1]) + 1);
+    }
     this.list.push(piece);
+    this.byNid.set(piece.nid, piece);
+    if (!extra.nid) this.onCraft?.(piece);
     return piece;
   }
 

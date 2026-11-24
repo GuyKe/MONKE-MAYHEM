@@ -145,10 +145,13 @@ export class Body {
   /** How much of the body is drawn (off in the test arena if wanted). */
   armLength = 0.4;
 
-  constructor(scene: THREE.Scene) {
+  private readonly materials: THREE.MeshLambertMaterial[] = [];
+
+  /** `other`: another player's body, whose head you can see (your own is only in the mirror). */
+  constructor(scene: THREE.Scene, other = false) {
     const fur = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
     this.head = new THREE.Mesh(buildHead(), fur);
-    this.head.layers.set(MIRROR_LAYER);
+    this.head.layers.set(other ? 0 : MIRROR_LAYER);
     this.head.frustumCulled = false;
     this.torso = new THREE.Mesh(buildTorso(), fur);
     this.torso.frustumCulled = false;
@@ -167,6 +170,7 @@ export class Body {
       this.root.add(mesh);
       return mesh;
     };
+    this.materials.push(fur, upperMat, foreMat);
     this.upper = [make(armGeo, upperMat), make(armGeo, upperMat)];
     this.fore = [make(foreGeo, foreMat), make(foreGeo, foreMat)];
     this.elbows = [make(elbowGeo, upperMat), make(elbowGeo, upperMat)];
@@ -225,6 +229,17 @@ export class Body {
       this.bands[i].quaternion.setFromUnitVectors(UP, _v.normalize());
       this.forearm[i].copy(_elbow).lerp(_w, 0.55);
     }
+  }
+
+  /** Gives this body a colour of its own, so players can be told apart. */
+  tint(hue: number): void {
+    const c = new THREE.Color().setHSL(hue, 0.35, 0.62);
+    for (const m of this.materials) m.color.copy(c);
+  }
+
+  /** Takes the body out of the scene. */
+  dispose(scene: THREE.Scene): void {
+    scene.remove(this.root);
   }
 
   /** Whether the head is drawn at all (hidden unless something is looking in a mirror). */
