@@ -16,6 +16,7 @@ import { LOCOMOTION } from '../config';
  *   Shift+[ / ]  shorter / longer emulated arms (to test arm-span scaling)
  *   Z / X        hold the left / right trigger
  *   [ / ]        thumbstick left / right (flips book pages)
+ *   P            pause menu (poke it with a hand)
  *   R            respawn
  */
 /**

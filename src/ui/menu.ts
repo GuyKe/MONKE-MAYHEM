@@ -99,6 +99,7 @@ const CONTROLS_VR: Array<[string, string]> = [
   ['Grip', 'Squeeze to pick up sticks, stones, rope and your book. Let go to drop, or swing and let go to throw.'],
   ['Trigger', 'Hold it while you work: smashing a stone on a stick to make an axe, winding rope around something, placing a blueprint.'],
   ['The book', 'Reach to your hip and squeeze to take it out. Open pages face you. Flip them by swiping the free hand across the page edge, or push the thumbstick sideways.'],
+  ['Pause', 'Press B or Y (the upper face button on either controller) for the pause menu: resume, save, settings, quit.'],
   ['Turn', 'Push the right thumbstick sideways: snap or smooth turning, chosen in Settings. Turning your head always works. (Stash a stick: hold it to the book and let go.)'],
   ['Make fire', 'Rub two sticks together over a pile of five or more.'],
   ['Ropes', 'Some trees have a rope hanging down. Grab it and pull down hard to take it.'],
@@ -116,6 +117,7 @@ const CONTROLS_DESKTOP: Array<[string, string]> = [
   ['Z / X', 'Hold the left / right trigger.'],
   ['B', 'Take the book out or put it away.  [ and ] flip pages, or turn you when the book is closed.'],
   ['T', 'T-pose calibration.   [ ] with Shift change arm length.'],
+  ['P', 'Pause menu.'],
   ['R', 'Respawn.'],
 ];
 

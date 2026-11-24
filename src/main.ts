@@ -40,6 +40,7 @@ import { Net, type Msg } from './net/net';
 import { RemotePlayers, type PoseMsg } from './net/avatars';
 import { Voice } from './net/voice';
 import { Sync } from './net/sync';
+import { PauseMenu } from './ui/pause';
 import { MEAT_COLOR } from './player/survival';
 import { SaveStore, type SaveData } from './save';
 import type { DesktopEmulator } from './debug/desktop';
@@ -648,6 +649,26 @@ async function main(): Promise<void> {
   netStatus();
   if (params.has('host')) void actions.host();
 
+  // --- The pause menu (B or Y, or P on the desktop) ---------------------------------------------
+  const pause = new PauseMenu(scene, settings, {
+    save: () => saveNow(),
+    exit: () => void renderer.xr.getSession()?.end(),
+    net: () =>
+      net.connected && net.role
+        ? { role: net.role, code: net.code, players: [...sync.roster.values()].sort((a, b) => a.index - b.index).map((p) => p.name + (p.index === sync.index ? ' (you)' : '')), mic: voice.mic, muted: voice.muted }
+        : null,
+    toggleMic: () => void actions.mic(),
+  });
+  const togglePause = (): void => {
+    camera.getWorldQuaternion(_wq);
+    const f = new THREE.Vector3(0, 0, -1).applyQuaternion(_wq);
+    pause.toggle(locomotion.headWorld(new THREE.Vector3()), Math.atan2(-f.x, -f.z));
+  };
+  let lastPauseButton = false;
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyP' && renderer.xr.isPresenting) togglePause();
+  });
+
   const vrButton = VRButton.createButton(renderer);
   if (emulator) vrButton.textContent = 'ENTER VR (DESKTOP EMULATOR)';
   document.body.appendChild(vrButton);
@@ -661,6 +682,7 @@ async function main(): Promise<void> {
   actions.resetBook = () => journal.reset();
   renderer.xr.addEventListener('sessionstart', () => {
     menu.hide();
+    pause.hide();
     if (net.connected) void voice.startMic().then(netStatus); // pressing Play is the click that lets the browser ask for the microphone
     const rate = (renderer.xr.getSession() as unknown as { frameRate?: number } | null)?.frameRate;
     if (rate && rate > 30) quality.targetMs = 1000 / rate;
@@ -733,6 +755,9 @@ async function main(): Promise<void> {
       dt = Math.min(dt, 1 / 30); // keep emulator and simulation in step on slow machines
       emulator.update(dt);
     }
+    // Playing alone, the pause menu stops the world (others in a multiplayer game cannot be stopped).
+    const paused = pause.open && !net.connected;
+    if (paused) dt = 0;
     perf.lap('emulator');
 
     if (frame && renderer.xr.isPresenting) {
@@ -777,7 +802,12 @@ async function main(): Promise<void> {
       // The sky stays put in the world however you turn.
       if (atmosphere) atmosphere.sky.quaternion.copy(rig.quaternion).invert();
       perf.lap('arm span');
-      locomotion.update(dt, headLocal, [leftPos, rightPos]);
+      const pausePress = hands.all.some((h) => h.source?.gamepad?.buttons[5]?.pressed);
+      if (pausePress && !lastPauseButton) togglePause();
+      lastPauseButton = pausePress;
+      if (paused) locomotion.follow(headLocal, [leftPos, rightPos]);
+      else locomotion.update(dt, headLocal, [leftPos, rightPos]);
+      pause.update([hands.left.tracked ? locomotion.hands[0].position : null, hands.right.tracked ? locomotion.hands[1].position : null]);
       perf.lap('locomotion');
 
       hands.all.forEach((hand, i) => {
@@ -789,9 +819,11 @@ async function main(): Promise<void> {
         }
       });
 
-      grab.update(dt, locomotion.hands);
-      crafting.update(dt);
-      combat.update(dt);
+      if (!paused) {
+        grab.update(dt, locomotion.hands);
+        crafting.update(dt);
+        combat.update(dt);
+      }
       perf.lap('grab+craft');
       camForward.set(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(_wq));
       camForward.y = 0;
@@ -894,7 +926,7 @@ async function main(): Promise<void> {
     const physicsDt = Math.min(Math.max(dt, 1 / 144), 1 / 20);
     const substeps = Math.ceil(physicsDt / (1 / 60) - 1e-6);
     world.timestep = physicsDt / substeps;
-    for (let i = 0; i < substeps; i++) world.step();
+    if (!paused) for (let i = 0; i < substeps; i++) world.step();
     perf.lap('physics');
     sticks.sync(viewer, dt);
     perf.lap('sticks.sync');
@@ -914,7 +946,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { net, sync, voice, avatars, settings, quality, comfort, perf, spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
+  Object.assign(window, { __monke: { pause, net, sync, voice, avatars, settings, quality, comfort, perf, spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(
@@ -961,6 +993,7 @@ function hudText(
       '1-4     craft (book open)',
       'T       T-pose arm calibration',
       '[ ]     shorter / longer emulated arms',
+      'P       pause menu',
       'R       respawn',
     );
   }

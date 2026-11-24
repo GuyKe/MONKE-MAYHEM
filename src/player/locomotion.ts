@@ -130,6 +130,21 @@ export class Locomotion {
     return target.copy(this.headLocal).applyQuaternion(this.rig.quaternion).add(this.rig.position);
   }
 
+  /** While paused: the hands simply follow the controllers (no physics), and start afresh when play resumes. */
+  follow(headLocal: THREE.Vector3, handLocals: [THREE.Vector3 | null, THREE.Vector3 | null]): void {
+    this.headLocal.copy(headLocal);
+    const head = this.headWorld(new THREE.Vector3());
+    for (let i = 0; i < 2; i++) {
+      const hand = this.hands[i];
+      const local = handLocals[i];
+      if (!local) continue;
+      this.handWorld(local, head, hand.rawPosition);
+      hand.position.copy(hand.rawPosition);
+      hand.touching = hand.wasTouching = false;
+      hand.initialized = false;
+    }
+  }
+
   /** Turns the player about the vertical through the head (positive is to the left), keeping the head where it is. */
   turn(angle: number): void {
     const head = this.headWorld(_v).clone();

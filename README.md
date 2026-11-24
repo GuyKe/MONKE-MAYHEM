@@ -299,6 +299,15 @@ and host again to carry on with the same world. Guests never save.
 server). Birds, the meat on a roasting spit, particles and the map are not shared. Everything was tested with two browser pages on one machine, not across the
 internet or on headsets.
 
+## Pause menu
+
+Press **B or Y** (the upper face button on either controller; **P** on the desktop) and a panel floats in front of you: **Resume**, **Save game**, **Settings** (every
+setting, by group), **Multiplayer** (your code, who is here, mute the microphone), **Controls**, and **Quit to main menu** (which takes the headset back to the
+menu; Resume there picks up where you were). Poke a button with a hand to press it; press the button again to close it.
+
+Playing alone, the whole world stops while it is open: the clock, animals, physics and your hands' grip. In a multiplayer game it cannot stop (the others carry on), so
+the world keeps going while you use it.
+
 ## How the movement works
 
 Movement comes entirely from your hands. The avatar has no legs and there is no thumbstick walking.
