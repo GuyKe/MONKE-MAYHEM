@@ -15,7 +15,8 @@ Built with Three.js (WebXR), Rapier physics, Vite and TypeScript.
   blueprints you place and build, and ruins to find.
 - [x] **Third round:** lakes and hills, swimming, leeches and crocodiles, hunting and food, felling trees, more weapons and plans, shelters
   you wake up in, saving, a mirror, and a gorilla body in leaf pants.
-- [ ] Milestone 5: Sounds, particles, comfort options, performance pass.
+- [x] **Milestone 5, sounds:** all synthesised in the browser (no audio files), placed in 3D, with a volume setting.
+- [ ] Milestone 5, still to do: comfort options and a headset performance pass.
 
 ## Running it
 
@@ -194,6 +195,21 @@ structures, felled trees, taken ropes and berries, campfires, the map and the pl
 
 **Leaves.** Fallen leaves lie under the trees, drift down through the air near you, and the broadleaf trees are fuller, some hung with vines. Ferns and flowers
 grow among the grass.
+
+## Sound
+
+`src/audio.ts`. Everything is made on the spot with Web Audio from filtered noise and tones, so there is nothing to download. Sounds start when you press
+Play (browsers only allow audio after a click) and are positioned in 3D around your head.
+
+- **Hands:** a different sound for stone, ice, mud, wood, bark and ground, louder the harder you land.
+- **Tools:** chopping, stone on stone, a tree creaking, then crashing down; rope tearing; parts fitting into a structure; a tool breaking.
+- **Body:** a whoosh when you throw, a splash going into or out of water and strokes while swimming (everything is muffled under water), eating crunches, a
+  grunt when hurt, a snap when a crocodile bites, a squelch for leeches.
+- **Forest:** wind (louder when you fly), birds by day, crickets and the odd owl by night, lapping water near a lake, a crackling campfire, the rasp of
+  rubbing sticks.
+- **Book:** page turns, and chimes when something unlocks or you find a place.
+
+Volume is in Settings (menu or book).
 
 ## How the movement works
 

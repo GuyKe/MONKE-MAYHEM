@@ -464,13 +464,13 @@ function settingsPage(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null,
 }
 
 function startOver(c: Ctx, hits: Hit[], hover: string | null): void {
-  const y = 400 + 8;
+  const y = 450;
   c.fillStyle = '#7a5a2a';
   c.font = 'bold 16px system-ui, sans-serif';
   c.fillText('START OVER', 30, y + 14);
   button(c, hits, hover, 'reset:arms', 'Measure my arms again', 30, y + 28, FACE_W - 60, 46, { size: 19, color: '#8a5a3a' });
   button(c, hits, hover, 'reset:book', 'Forget unlocked recipes', 30, y + 84, FACE_W - 60, 46, { size: 19, color: '#8a3a22' });
-  para(c, 'World settings (trees, animals) apply to a new forest. Choose New forest on the main menu.', y + 160, 18, FAINT);
+  para(c, 'World settings apply to a new forest.', y + 150, 18, FAINT);
 }
 
 function controls(c: Ctx, title: string, items: Array<[string, string]>): void {
@@ -517,6 +517,6 @@ function backCover(c: Ctx): void {
 export function parseSettingValue(key: keyof SettingsData, text: string): boolean | number | string {
   if (text === 'true') return true;
   if (text === 'false') return false;
-  if (key === 'haptics') return Number(text);
+  if (key === 'haptics' || key === 'volume') return Number(text);
   return text;
 }

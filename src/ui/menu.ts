@@ -52,6 +52,7 @@ export const SETTING_ROWS: Array<{ title: string; rows: Array<ChoiceRow | Slider
     title: 'You',
     rows: [
       { kind: 'slider', key: 'haptics', label: 'Controller buzz' },
+      { kind: 'slider', key: 'volume', label: 'Sound volume' },
       { kind: 'choice', key: 'bookSide', label: 'Book on your', options: [['left', 'Left hip'], ['right', 'Right hip']] },
       { kind: 'choice', key: 'showDebug', label: 'Info readout (desktop)', options: [[true, 'On'], [false, 'Off']] },
     ],

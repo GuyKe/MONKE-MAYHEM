@@ -87,6 +87,8 @@ export interface GrabHooks {
   onRopePulled?(coil: Stick): void;
   /** Called when a squeezed empty hand has nothing else to take: may make something to hold (a berry). */
   pick?(handPos: THREE.Vector3): Stick | null;
+  /** A piece was thrown with this speed (m/s). */
+  onThrow?(speed: number, at: THREE.Vector3): void;
   /** Something was picked up. */
   onGrab?(stick: Stick, side: 'left' | 'right'): void;
 }
@@ -347,6 +349,7 @@ export class Grab {
     if (throwIt) {
       this.hands.all[i].pulse(Math.min(1, 0.2 + lin.length() / 12), 30);
       if (lin.length() > 4) this.flights.push({ stick, from: stick.pos.clone(), time: 0 });
+      if (lin.length() > 2.5) this.hooks.onThrow?.(lin.length(), stick.pos);
     }
   }
 

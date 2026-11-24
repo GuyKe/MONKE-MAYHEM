@@ -68,6 +68,13 @@ export class Fire {
     for (const [x, z, scale] of list) this.addCampfire(x, z, scale);
   }
 
+  /** Metres to the nearest campfire (Infinity if none). */
+  nearestCampfire(p: THREE.Vector3): number {
+    let best = Infinity;
+    for (const c of this.campfires) best = Math.min(best, Math.hypot(c.pos.x - p.x, c.pos.y - p.y, c.pos.z - p.z));
+    return best;
+  }
+
   get campfireCount(): number {
     return this.campfires.length;
   }

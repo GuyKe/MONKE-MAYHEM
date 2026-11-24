@@ -23,6 +23,7 @@ import { Animals } from './world/animals';
 import { FrictionFire } from './world/friction';
 import { Sticks } from './world/sticks';
 import { Body } from './player/body';
+import { GameAudio } from './audio';
 import { Vitals, VitalsView } from './player/vitals';
 import { Survival } from './player/survival';
 import { Combat } from './player/combat';
@@ -151,6 +152,7 @@ async function main(): Promise<void> {
 
   const hands = new Hands(renderer, rig, scene);
   const body = new Body(scene);
+  const audio = new GameAudio();
   const mirror = new MirrorView(scene, body);
 
   // The field journal on your hip: stash sticks in it, craft from it, unlock recipes as you go.
@@ -197,15 +199,19 @@ async function main(): Promise<void> {
       resetArms: () => armSpan.reset(),
     },
   );
+  const say = (text: string): void => {
+    book.say(text);
+    audio.messageSound(text);
+  };
   // Rub two sticks together to make fire; over a pile of sticks it becomes a campfire.
   const friction = new FrictionFire(scene, sticks, fire, forestRef ? forestRef.surfaceAt : () => 0, {
-    onMessage: (text) => book.say(text),
+    onMessage: say,
     pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
   });
   // The old places to find, with things lying about inside them.
   if (forestRef) {
     poisRef.current = new Pois(forestRef.pois, sticks, {
-      say: (text) => book.say(text),
+      say: say,
       pulse: (strength, ms) => hands.all.forEach((h) => h.pulse(strength, ms)),
     });
   }
@@ -224,7 +230,12 @@ async function main(): Promise<void> {
     stash: (stick, handPos) => book.acceptStash(stick, handPos) || (buildingRef.current?.accept(stick) ?? false),
     onFarThrow: () => void journal.notify('throw'),
     ropes: treeRopes ?? undefined,
-    onRopePulled: () => book.say('Rope! Keep it: wind it round an axe head, or use it to tie things.'),
+    onRopePulled: () => {
+      say('Rope! Keep it: wind it round an axe head, or use it to tie things.');
+      audio.play('rope');
+    },
+    onGrab: () => audio.play('click'),
+    onThrow: (speed, at) => audio.play('whoosh', at, speed / 8),
   });
 
   // Structures: pick a plan in the book, place it, then bring the parts and tie them together.
@@ -235,7 +246,14 @@ async function main(): Promise<void> {
     forestRef ?? { surfaceAt: () => 0, isBlocked: () => false },
     hands,
     grab,
-    { say: (text) => book.say(text), pulse: (side, strength, ms) => hands[side].pulse(strength, ms) },
+    {
+      say,
+      pulse: (side, strength, ms) => {
+        hands[side].pulse(strength, ms);
+        // The pulses a part fitting in, a joint tied and a structure finished give.
+        if (ms === 90 || ms === 150 || ms === 250) audio.play('build');
+      },
+    },
     {
       // (The player is created below; these are only used once the game is running.)
       get handsIgnoreStructures() {
@@ -260,8 +278,13 @@ async function main(): Promise<void> {
       nearestTree: (x, z, pad) => arenaTrees.find((t) => Math.hypot(t.x - x, t.z - z) - t.radius < pad) ?? null,
     },
     {
-      say: (text) => book.say(text),
-      burst: (at, count) => friction.burst(at, count),
+      say: say,
+      burst: (at, count) => {
+        friction.burst(at, count);
+        // Chips, smashes and falling trees all throw sparks; how many says which it was.
+        const sound = count === 5 ? 'chop' : count === 6 ? 'smash' : count === 12 ? 'break' : count === 24 ? 'crash' : count === 14 || count === 8 ? 'build' : null;
+        if (sound) audio.play(sound, at);
+      },
       pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
       notify: (event) => void journal.notify(event),
       onFelled: (tree) => {
@@ -291,7 +314,8 @@ async function main(): Promise<void> {
     ? new Crocs(scene, forestRef.lakes, {
         surfaceAt: forestRef.surfaceAt,
         waterLevelAt: forestRef.waterLevelAt,
-        onBite: (damage) => {
+        onBite: (damage, at) => {
+          audio.play('snap', at);
           vitals.hurt(damage, 'crocodile');
           book.say('The crocodile bit you!');
         },
@@ -299,18 +323,31 @@ async function main(): Promise<void> {
       })
     : null;
   const survival = new Survival(scene, sticks, grab, hands, locomotion, vitals, vitalsView, building, spawn, {
-    say: (text) => book.say(text),
+    say: say,
     pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
     cycleSeconds: () => (atmosphere && !atmosphere.frozenAt ? atmosphere.cycleSeconds : 600),
     surfaceAt: forestRef ? forestRef.surfaceAt : () => 0,
   });
   refs.survival = survival;
   const combat = new Combat(sticks, grab, animals, crocs, {
+    onHit: () => audio.play('thud'),
     pulse: (side, strength, ms) => hands[side].pulse(strength, ms),
     burst: (at, count) => friction.burst(at, count),
-    say: (text) => book.say(text),
+    say: say,
   });
   let swimTime = 0;
+  let lastPage = 0;
+  let lastOpen = false;
+  const hurtBefore = vitals.onHurt;
+  vitals.onHurt = (amount, cause) => {
+    hurtBefore?.(amount, cause);
+    audio.play(cause === 'crocodile' ? 'thud' : 'hurt');
+  };
+  const deathBefore = vitals.onDeath;
+  vitals.onDeath = () => {
+    deathBefore?.();
+    audio.play('die');
+  };
   const armSpan = new ArmSpan();
   let calibrationTick = 0;
   locomotion.respawn(spawn);
@@ -408,11 +445,15 @@ async function main(): Promise<void> {
 
   // Menu wiring: Play starts the VR session; leaving VR brings the menu back so you can resume.
   Hand.hapticScale = settings.data.haptics;
+  audio.setVolume(settings.data.volume);
   if (!skipMenu) document.body.classList.add('has-menu'); // the menu's Play button replaces the VR button
   actions.play = () => vrButton.click();
   actions.resetArms = () => armSpan.reset();
   actions.resetBook = () => journal.reset();
-  renderer.xr.addEventListener('sessionstart', () => menu.hide());
+  renderer.xr.addEventListener('sessionstart', () => {
+    menu.hide();
+    audio.start(); // sound may only begin after a click, and pressing Play is one
+  });
   renderer.xr.addEventListener('sessionend', () => {
     if (autosaveOn) saveNow();
     menu.setResuming(true);
@@ -425,6 +466,7 @@ async function main(): Promise<void> {
   const hudEl = document.getElementById('hud')!;
   const applySetting = () => {
     Hand.hapticScale = settings.data.haptics;
+    audio.setVolume(settings.data.volume);
     forestRef?.setViewRadius(VIEW_DISTANCE_M[settings.data.viewDistance]);
     forestRef?.setGrass(settings.data.grass);
     if (atmosphere) {
@@ -505,7 +547,10 @@ async function main(): Promise<void> {
       hands.all.forEach((hand, i) => {
         const contact = locomotion.hands[i];
         hand.updateVisual(contact.position, contact.rawPosition, contact.touching);
-        if (contact.justTouched) hand.pulse(0.3, 25);
+        if (contact.justTouched) {
+          hand.pulse(0.3, 25);
+          if (!locomotion.handsIgnoreStructures) audio.slap(contact.surface.name, locomotion.velocity.length() / 5 + 0.25, contact.position);
+        }
       });
 
       grab.update(dt, locomotion.hands);
@@ -528,6 +573,11 @@ async function main(): Promise<void> {
         view.stickX = hand.stickX;
       });
       book.update(dt, { head: locomotion.headWorld(_viewer), hands: handViews, phase: atmosphere?.phase ?? null });
+      if (book.page !== lastPage || book.isOpen !== lastOpen) {
+        audio.play(book.isOpen !== lastOpen ? 'click' : 'page');
+        lastPage = book.page;
+        lastOpen = book.isOpen;
+      }
 
       camera.getWorldQuaternion(_hq);
       const headNow = locomotion.headWorld(_viewer);
@@ -544,6 +594,19 @@ async function main(): Promise<void> {
       }
       crocs?.update(dt, headNow, locomotion.inWater);
       vitalsView.update(dt, hands.left.tracked ? body.forearm[0] : null, headNow, locomotion.headUnderwater);
+      audio.listen(headNow, _hq);
+      const lakeEdge = forestRef ? Math.min(...forestRef.lakes.map((l) => Math.hypot(l.x - headNow.x, l.z - headNow.z) - l.r), Infinity) : Infinity;
+      audio.update(dt, {
+        night: atmosphere?.night ?? 0,
+        lakeDistance: lakeEdge,
+        fireDistance: fire.nearestCampfire(headNow),
+        rub: friction.heat,
+        inWater: locomotion.inWater,
+        underwater: locomotion.headUnderwater,
+        swimSpeed: locomotion.swimming ? Math.hypot(locomotion.velocity.x, locomotion.velocity.z) : 0,
+        airSpeed: !locomotion.grounded && !locomotion.anyTouching ? locomotion.velocity.length() : 0,
+        crocDistance: Infinity,
+      });
       swimTime = locomotion.swimming ? swimTime + dt : 0;
       if (swimTime > 4) {
         swimTime = 0;
@@ -588,7 +651,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
+  Object.assign(window, { __monke: { audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(

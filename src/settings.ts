@@ -12,6 +12,8 @@ export interface SettingsData {
   dayLength: 'short' | 'normal' | 'long' | 'always-day';
   /** 0 (off) to 1 (full). */
   haptics: number;
+  /** Sound volume, 0 (off) to 1. */
+  volume: number;
   /** Which hip the book hangs on. */
   bookSide: 'left' | 'right';
   /** The text readout at the top left of the screen (desktop only). */
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: SettingsData = {
   atmosphere: 'normal',
   dayLength: 'normal',
   haptics: 1,
+  volume: 0.8,
   bookSide: 'left',
   showDebug: true,
 };
