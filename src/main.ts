@@ -92,6 +92,12 @@ async function main(): Promise<void> {
     },
     onLeaveGame: () => actions.leave(),
     onMic: () => actions.mic(),
+    onLobby: () => {
+      const keep = new URLSearchParams();
+      for (const k of ['emulate', 'signal', 'netdebug']) if (new URLSearchParams(location.search).has(k)) keep.set(k, new URLSearchParams(location.search).get(k) ?? '');
+      keep.set('mode', 'hub');
+      location.search = keep.toString();
+    },
   });
   const skipMenu = params.has('play') || params.has('arena');
   if (skipMenu) menu.hide();
@@ -1104,7 +1110,19 @@ function surfaceLabel(loco: Locomotion, i: 0 | 1): string {
   return hand.touching ? `${hand.surface.name} ${Math.round(hand.surface.slip * 100)}%` : '-';
 }
 
-main().catch((err) => {
+/**
+ * Which mode this page runs: the lobby, the jungle game, or the horror facility. Opening the site starts in the lobby; the jungle's
+ * own addresses (anything that names a forest, a game to join, `?play`...) go straight to the jungle.
+ */
+const pageParams = new URLSearchParams(location.search);
+const pageMode = pageParams.get('mode') ?? (['play', 'seed', 'arena', 'join', 'continue', 'fresh', 'host'].some((k) => pageParams.has(k)) ? 'jungle' : 'hub');
+const start: Promise<void> =
+  pageMode === 'hub'
+    ? import('./hub/hub').then((m) => m.runHub())
+    : pageMode === 'horror'
+      ? import('./horror/horror').then((m) => m.runHorror())
+      : main();
+start.catch((err) => {
   console.error(err);
   document.body.insertAdjacentHTML('beforeend', `<pre style="color:#900;padding:16px">${String(err)}</pre>`);
 });

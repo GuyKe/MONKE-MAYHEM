@@ -3,7 +3,7 @@ import * as THREE from 'three';
 /** Every sound the game makes, for tests and for calling from other systems. */
 export type SoundName =
   | 'click' | 'whoosh' | 'chop' | 'smash' | 'creak' | 'crash' | 'rope' | 'splash' | 'snap' | 'thud' | 'hurt' | 'die'
-  | 'scrape' | 'eat' | 'chime' | 'page' | 'squelch' | 'unlock' | 'build' | 'break' | 'bird' | 'owl' | 'ignite';
+  | 'growl' | 'thump' | 'sting' | 'step' | 'scrape' | 'eat' | 'chime' | 'page' | 'squelch' | 'unlock' | 'build' | 'break' | 'bird' | 'owl' | 'ignite';
 
 export interface AmbientState {
   /** 0 by day, 1 at night. */
@@ -285,6 +285,18 @@ export class GameAudio {
       case 'squelch': this.burst(undefined, 0.25, 'bandpass', 400, 150, 4, 0.5); this.tone(undefined, 0.2, 'sine', 180, 90, 0.2); break;
       case 'build': this.tone(at, 0.1, 'triangle', 220, 160, 0.5); this.burst(at, 0.12, 'lowpass', 1500, 300, 1, 0.5); this.tone(at, 0.1, 'triangle', 330, 240, 0.2, 0.08); break;
       case 'break': this.burst(at, 0.2, 'bandpass', 2000, 600, 2, 0.8); this.tone(at, 0.2, 'sawtooth', 300, 90, 0.4); break;
+      case 'growl':
+        this.tone(at, 1.3, 'sawtooth', 62, 42, 0.5 * v);
+        this.tone(at, 1.2, 'sawtooth', 67, 38, 0.35 * v, 0.05);
+        this.burst(at, 1.1, 'lowpass', 500, 120, 3, 0.45 * v);
+        break;
+      case 'thump': this.tone(at, 0.16, 'sine', 70, 38, 0.9 * v); break;
+      case 'sting':
+        this.tone(undefined, 1.0, 'sawtooth', 1480, 1320, 0.28);
+        this.tone(undefined, 1.0, 'sawtooth', 1567, 1180, 0.25);
+        this.tone(undefined, 1.0, 'square', 220, 55, 0.3);
+        break;
+      case 'step': this.tone(at, 0.2, 'sine', 90, 45, 0.7 * v); this.burst(at, 0.08, 'lowpass', 600, 150, 1, 0.35 * v); break;
       case 'scrape': this.burst(at, 0.1, 'bandpass', 3000, 2000, 3, 0.3 * v); break;
       case 'ignite': this.burst(at, 0.5, 'bandpass', 900, 3000, 1, 0.5); break;
       case 'bird': {

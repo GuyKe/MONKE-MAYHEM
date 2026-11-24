@@ -363,3 +363,16 @@ All of the feel settings are in `src/config.ts`.
 
 `.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to `main`.
 Turn it on in **Settings → Pages → Source: GitHub Actions**.
+
+## Lobby and modes
+
+The game now opens in a **lobby**: you spawn on a long black platform. Walk (or swing) up it to the statues:
+
+- **Jungle** – a stone statue of the jungle player holding a stick. Press **PLAY** to enter the jungle game (its main menu appears).
+- **Horror** – to its right, a statue of a scared player with a flashlight, with a smiling bloody monster standing behind it. Press **PLAY** to enter the horror facility.
+
+Press the world-space buttons by poking them or with the laser pointer.
+
+**Horror facility**: a dark maze with a green *safe room* (the monster never enters; it lurks at the door, then wanders off). Find the **exit lift** to escape. Your flashlight (right hand) slows the monster when you shine it on it. **BACK TO LOBBY** is on the wall at the start; the jungle main menu has one too.
+
+URLs: `?mode=hub` (default), `?mode=jungle` (older `?play`/`?seed=`/`?join=` links still open the jungle), `?mode=horror`.

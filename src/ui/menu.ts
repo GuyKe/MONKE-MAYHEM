@@ -23,6 +23,8 @@ export interface MenuHooks {
   onLeaveGame(): void;
   /** Turns the microphone on (asks permission) or mutes it. */
   onMic(): Promise<void>;
+  /** Back to the lobby. */
+  onLobby?(): void;
 }
 
 /** What the multiplayer screen shows. */
@@ -275,6 +277,7 @@ export class Menu {
       this.button('MULTIPLAYER', () => this.go('multi'), 'big'),
       this.button('CONTROLS', () => this.go('controls'), 'big'),
     );
+    if (this.hooks.onLobby) this.panel.append(this.button('BACK TO LOBBY', () => this.hooks.onLobby?.(), 'big'));
     if (this.saveInfo) this.panel.append(this.el('p', this.saveInfo, 'status'));
     const status = this.el('p', this.playMessage, 'status');
     this.panel.append(status);
