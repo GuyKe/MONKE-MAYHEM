@@ -81,7 +81,7 @@ function buildTorso(): THREE.BufferGeometry {
     const a = Math.PI + 0.3 + (i / 8) * (Math.PI - 0.6);
     put(b, cone, [Math.cos(a) * 0.12, -0.285 - 0.02 * Math.sin((i / 8) * Math.PI), -0.04 + Math.sin(a) * 0.1], [0.008, 0.032, 0.008], BONE, [Math.PI, 0, 0]);
   }
-  // Leaf pants: two rings of hanging leaves, and short legs under them.
+  // Leaf pants: two rings of hanging leaves, (no legs, like a gorilla tag model).
   for (let ring = 0; ring < 2; ring++) {
     const count = 14;
     for (let i = 0; i < count; i++) {
@@ -91,10 +91,6 @@ function buildTorso(): THREE.BufferGeometry {
     }
   }
   put(b, cyl, [0, -0.44, 0.04], [0.165, 0.025, 0.165], 0x6a4a28); // a vine belt
-  for (const sx of [-1, 1]) {
-    put(b, blob, [sx * 0.1, -0.5, -0.02], [0.07, 0.08, 0.1], FUR); // thighs
-    put(b, blob, [sx * 0.12, -0.58, -0.07], [0.06, 0.05, 0.1], SKIN); // feet
-  }
   return b.build();
 }
 

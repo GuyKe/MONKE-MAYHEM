@@ -167,7 +167,7 @@ function buildGorillaHand(parent: THREE.Object3D, at: THREE.Vector3, sx: number,
 
 /**
  * The gorilla-tag style ape, built from simple shapes: a round head with a muzzle, brow and ears, a barrel chest, long arms
- * with proper hands, short bent legs, and fur tufts. Faces -Z, feet at the origin, about 1.2 tall.
+ * with proper hands, no legs, and fur tufts. Faces -Z, the body floats just above the origin.
  * `dummy` stands plain and calm; `scared` is wide-eyed with a hand up and one holding out a torch; `monster` is bigger,
  * hunched, clawed, bloody, and smiling.
  */
@@ -179,25 +179,13 @@ export function buildGorilla(kind: GorillaKind, o: GorillaOptions): Human {
   group.scale.setScalar(size);
   outer.add(group);
   const monster = kind === 'monster';
-  const hip = 0.45;
+  const hip = 0.32;
   const lean = monster ? -0.42 : kind === 'scared' ? -0.12 : -0.3;
   const legs: [THREE.Group, THREE.Group] = [new THREE.Group(), new THREE.Group()];
   const arms: [THREE.Group, THREE.Group] = [new THREE.Group(), new THREE.Group()];
   group.add(...legs, ...arms);
 
-  // Legs: short and bent, with a broad foot. The scared one is knock-kneed.
-  [-1, 1].forEach((sx, i) => {
-    const leg = legs[i];
-    leg.position.set(sx * 0.13, hip, 0);
-    const knee = kind === 'scared' ? p3(-sx * 0.01, -0.22, -0.11) : p3(sx * 0.04, -0.21, -0.1);
-    const foot = kind === 'scared' ? p3(sx * 0.05, -0.43, -0.02) : p3(sx * 0.05, -0.43, -0.03);
-    part(leg, blob, o.fur, [0, -0.04, 0], [0.1, 0.1, 0.1]);
-    limb(leg, p3(0, 0, 0), knee, 0.085, o.fur);
-    limb(leg, knee, foot, 0.068, o.fur);
-    furTufts(leg, [knee.x / 2, knee.y / 2, knee.z / 2], [0.09, 0.14, 0.09], 8, o.fur, 0.045);
-    part(leg, blob, SKIN_DARK, [foot.x, foot.y - 0.012, foot.z - 0.05], [0.065, 0.032, 0.095]); // the foot
-    for (let t = -1; t <= 1; t++) part(leg, blob, SKIN_DARK, [foot.x + t * 0.03, foot.y - 0.014, foot.z - 0.14], [0.018, 0.02, 0.03]); // toes
-  });
+  // No legs: like the gorilla tag models, the body floats. (The empty leg groups stay so poses and animations still work.)
 
   // Torso: a barrel chest with a pale front, a hump of shoulders and a lot of fur.
   const torso = new THREE.Group();
