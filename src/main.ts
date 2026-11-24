@@ -744,6 +744,13 @@ async function main(): Promise<void> {
     pause.toggle(locomotion.headWorld(new THREE.Vector3()), Math.atan2(-f.x, -f.z));
   };
   let lastPauseButton = false;
+  // The controllers' pointing rays (three.js gives them to us as 'controllers', apart from the 'grips' the hands use).
+  const controllers = [renderer.xr.getController(0), renderer.xr.getController(1)];
+  controllers.forEach((c) => rig.add(c));
+  const rayOrigin = [new THREE.Vector3(), new THREE.Vector3()];
+  const rayDir = [new THREE.Vector3(), new THREE.Vector3()];
+  const rays: [import('./ui/pause').PointerRay | null, import('./ui/pause').PointerRay | null] = [null, null];
+  pause.onPress = (hand) => hands.all[hand].pulse(0.5, 40);
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyP' && renderer.xr.isPresenting) togglePause();
   });
@@ -886,7 +893,20 @@ async function main(): Promise<void> {
       lastPauseButton = pausePress;
       if (paused) locomotion.follow(headLocal, [leftPos, rightPos]);
       else locomotion.update(dt, headLocal, [leftPos, rightPos]);
-      pause.update([hands.left.tracked ? locomotion.hands[0].position : null, hands.right.tracked ? locomotion.hands[1].position : null]);
+      // Laser pointers: each controller's pointing ray, for the pause menu.
+      if (pause.open) {
+        for (let i = 0; i < 2; i++) {
+          // The controller that goes with this hand (the same index as its grip).
+          const c = controllers[renderer.xr.getControllerGrip(1) === hands.all[i].grip ? 1 : 0];
+          if (hands.all[i].tracked) {
+            c.updateWorldMatrix(true, false);
+            c.getWorldPosition(rayOrigin[i]);
+            rayDir[i].set(0, 0, -1).transformDirection(c.matrixWorld);
+            rays[i] = { origin: rayOrigin[i], dir: rayDir[i], trigger: hands.all[i].triggered };
+          } else rays[i] = null;
+        }
+      }
+      pause.update([hands.left.tracked ? locomotion.hands[0].position : null, hands.right.tracked ? locomotion.hands[1].position : null], rays);
       perf.lap('locomotion');
 
       hands.all.forEach((hand, i) => {

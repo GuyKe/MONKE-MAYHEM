@@ -301,7 +301,8 @@ internet or on headsets.
 
 ## Pause menu
 
-Press **B or Y** (the upper face button on either controller; **P** on the desktop) and a panel floats in front of you: **Resume**, **Save game**, **Settings** (every
+Press **B or Y** (the upper face button on either controller; **P** on the desktop) and a panel floats in front of you. Point at it with the **laser** that comes out of each
+controller (the button under the dot lights up; pull the **trigger** to press it), or just poke it with a hand. It offers: **Resume**, **Save game**, **Settings** (every
 setting, by group), **Multiplayer** (your code, who is here, mute the microphone), **Controls**, and **Quit to main menu** (which takes the headset back to the
 menu; Resume there picks up where you were). Poke a button with a hand to press it; press the button again to close it.
 

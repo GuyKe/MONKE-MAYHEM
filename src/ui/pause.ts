@@ -28,6 +28,13 @@ interface Hit {
 
 const W = 512;
 const H = 680;
+/** A hand's pointing ray, for the laser. */
+export interface PointerRay {
+  origin: THREE.Vector3;
+  dir: THREE.Vector3;
+  trigger: boolean;
+}
+
 /** The panel's size in the world (metres). */
 const PANEL_W = 0.62;
 const PANEL_H = (PANEL_W * H) / W;
@@ -61,6 +68,17 @@ export class PauseMenu {
   private codeMessage = '';
   private amount = 1;
   private readonly armed = [true, true];
+  /** The laser pointers: a beam and a dot for each hand. */
+  private readonly beams: THREE.Mesh[] = [];
+  private readonly dots: THREE.Mesh[] = [];
+  private readonly lastTrigger = [false, false];
+  private readonly _plane = new THREE.Plane();
+  private readonly _hit = new THREE.Vector3();
+  private readonly _normal = new THREE.Vector3();
+  private readonly _ray = new THREE.Ray();
+  /** Set when a hand's laser last pressed something (for a buzz). */
+  onPress: ((hand: 0 | 1) => void) | null = null;
+  onHoverChange: ((hand: 0 | 1) => void) | null = null;
   open = false;
   private readonly _p = new THREE.Vector3();
 
@@ -79,6 +97,20 @@ export class PauseMenu {
     this.mesh.visible = false;
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
+    for (let i = 0; i < 2; i++) {
+      // A thin tube (a one-pixel line would be nearly invisible in a headset), one metre long along +Z, stretched to reach.
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.0025, 0.0025, 1, 6).rotateX(Math.PI / 2).translate(0, 0, 0.5), new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.85, depthTest: false }));
+      beam.renderOrder = 996;
+      beam.frustumCulled = false;
+      beam.visible = false;
+      scene.add(beam);
+      this.beams.push(beam);
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
+      dot.renderOrder = 997;
+      dot.visible = false;
+      scene.add(dot);
+      this.dots.push(dot);
+    }
   }
 
   /** Opens the panel in front of `head`, facing `yaw` (the way you are looking). */
@@ -96,6 +128,8 @@ export class PauseMenu {
   hide(): void {
     this.open = false;
     this.mesh.visible = false;
+    for (const b of this.beams) b.visible = false;
+    for (const d of this.dots) d.visible = false;
   }
 
   toggle(head: THREE.Vector3, yaw: number): void {
@@ -103,11 +137,63 @@ export class PauseMenu {
     else this.show(head, yaw);
   }
 
-  /** Per frame, with where the hands are (world positions, or null). */
-  update(hands: [THREE.Vector3 | null, THREE.Vector3 | null]): void {
+  /**
+   * Points a laser from `origin` along `dir` at the panel. Returns the button under the dot (or -1) and where the dot is
+   * (null if the beam misses the panel). Pull the trigger (`trigger`) to press it.
+   */
+  pointAt(hand: 0 | 1, origin: THREE.Vector3, dir: THREE.Vector3, trigger: boolean): { over: number; point: THREE.Vector3 | null } {
+    this.mesh.updateWorldMatrix(true, false);
+    this._normal.set(0, 0, 1).transformDirection(this.mesh.matrixWorld);
+    this._plane.setFromNormalAndCoplanarPoint(this._normal, this.mesh.position);
+    this._ray.set(origin, dir);
+    const hit = dir.dot(this._normal) < 0 ? this._ray.intersectPlane(this._plane, this._hit) : null;
+    let over = -1;
+    let point: THREE.Vector3 | null = null;
+    if (hit) {
+      const local = this.mesh.worldToLocal(this._p.copy(hit));
+      const px = (local.x / PANEL_W + 0.5) * W;
+      const py = (0.5 - local.y / PANEL_H) * H;
+      if (Math.abs(local.x) <= PANEL_W / 2 + 0.05 && Math.abs(local.y) <= PANEL_H / 2 + 0.05) {
+        point = hit;
+        over = this.hits.findIndex((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
+      }
+    }
+    const beam = this.beams[hand];
+    const dot = this.dots[hand];
+    beam.visible = true;
+    const end = point ?? this._p.copy(origin).addScaledVector(dir, 1.5);
+    beam.position.copy(origin);
+    beam.lookAt(end);
+    beam.scale.set(1, 1, origin.distanceTo(end));
+    dot.visible = !!point;
+    if (point) dot.position.copy(point);
+    (dot.material as THREE.MeshBasicMaterial).color.set(over >= 0 ? 0xfff3b0 : 0xffffff);
+    (beam.material as THREE.MeshBasicMaterial).color.set(over >= 0 ? 0xfff3b0 : 0x9fe8ff);
+    if (trigger && !this.lastTrigger[hand] && over >= 0) {
+      this.hits[over].act();
+      this.dirty = true;
+      this.onPress?.(hand);
+    }
+    this.lastTrigger[hand] = trigger;
+    return { over, point };
+  }
+
+  /** Per frame, with where the hands are (world positions, or null) and, for lasers, each hand's pointing ray. */
+  update(hands: [THREE.Vector3 | null, THREE.Vector3 | null], rays: [PointerRay | null, PointerRay | null] = [null, null]): void {
     if (!this.open) return;
     this.mesh.updateWorldMatrix(true, false);
     let hover = -1;
+    for (let i = 0; i < 2; i++) {
+      const r = rays[i];
+      if (!this.open) break;
+      if (!r) {
+        this.beams[i].visible = false;
+        this.dots[i].visible = false;
+        continue;
+      }
+      const { over } = this.pointAt(i as 0 | 1, r.origin, r.dir, r.trigger);
+      if (over >= 0) hover = over;
+    }
     for (let i = 0; i < 2; i++) {
       const p = hands[i];
       if (!p) continue;
