@@ -20,7 +20,7 @@ export interface SettingsData {
   showDebug: boolean;
   /** The screen darkens round the edges when you move fast, which helps with motion sickness. */
   vignette: 'off' | 'low' | 'medium' | 'high';
-  /** The host's game saves by itself every 40 seconds (as a single-player game does). */
+  /** The host's game saves by itself every five minutes (as a single-player game does). */
   hostAutosave: boolean;
   /** Turning with the thumbstick: not at all, in jumps, or smoothly. (Turning your head always works.) */
   turning: 'off' | 'snap' | 'smooth';

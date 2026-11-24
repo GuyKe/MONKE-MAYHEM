@@ -560,6 +560,8 @@ async function main(): Promise<void> {
     return ok;
   };
   actions.save = saveNow;
+  /** The game saves by itself this often (seconds of play), as well as when you leave VR or close the tab. */
+  const AUTOSAVE_SECONDS = 300;
   let autosave = 0;
   window.addEventListener('pagehide', () => {
     if (renderer.xr.isPresenting && autosaveOn) saveNow();
@@ -827,7 +829,7 @@ async function main(): Promise<void> {
       spitsRef.current?.update(dt, 0);
       mirror.update(sticks, headNow);
       autosave += dt;
-      if (autosave > 40 && autosaveOn && (net.role !== 'host' || settings.data.hostAutosave)) {
+      if (autosave > AUTOSAVE_SECONDS && autosaveOn && (net.role !== 'host' || settings.data.hostAutosave)) {
         autosave = 0;
         saveNow();
       }

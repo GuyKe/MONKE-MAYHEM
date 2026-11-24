@@ -189,7 +189,7 @@ and sticks lie along it. Birds leave a felled tree, and any rope hanging on it c
 
 **Your body.** Gorilla arms with elbows, long fingers, leaf bands on the wrists, a chest with a tooth necklace and a skirt of leaves.
 
-**Saving.** The game saves every 40 seconds while you play, and when you leave VR or close the tab. The main menu then offers **Continue** (with how far you
+**Saving.** The game saves every five minutes while you play, and when you leave VR or close the tab. The main menu then offers **Continue** (with how far you
 got), **Save Game**, and **New forest**, which asks twice before deleting the save. What is saved: where you are, health, the time, every piece lying in the world,
 structures, felled trees, taken ropes and berries, campfires, the map and the places found, shelters and the crocodiles you killed. Opening the page with
 `?seed=123` gives that forest fresh without touching your save (add `&continue` to load the save if it matches); `?fresh` ignores the save.
@@ -289,7 +289,7 @@ save). After that:
   vehicle's position. Health, hunger-style effects, the book, the map and recipes belong to each player.
 
 **Saving as host.** The multiplayer screen has **Save the game now** (it saves the whole shared world, including what your guests built, made and moved, and tells them),
-and **Autosave while hosting** (on by default, every 40 seconds; turn it off if you would rather save by hand). Stopping the host saves too. Next time, press Continue
+and **Autosave while hosting** (on by default, every five minutes; turn it off if you would rather save by hand). Stopping the host saves too. Next time, press Continue
 and host again to carry on with the same world. Guests never save.
 
 **Voice.** Press Play and the browser (or headset) asks for the microphone. Each pair of players has a direct call; a voice comes from where that player's head is
