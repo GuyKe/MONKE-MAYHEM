@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RAPIER, WORLD_GROUPS } from '../physics';
 import { SURFACES, setSurface } from './materials';
 import { Noise2D, lerp, smoothstep } from './noise';
+import { groundTexture } from './textures';
 
 /** The playable square is WORLD_SIZE metres on a side, centred on the origin. */
 export const WORLD_SIZE = 420;
@@ -11,6 +12,8 @@ export const CHUNK_SIZE = 60;
 export const CHUNKS = WORLD_SIZE / CHUNK_SIZE;
 /** Distance between terrain grid points. */
 const CELL = 2;
+/** The ground texture repeats every this many metres. */
+const TEXTURE_METRES = 5;
 const N = WORLD_SIZE / CELL + 1;
 const CELLS_PER_CHUNK = CHUNK_SIZE / CELL;
 
@@ -178,7 +181,7 @@ export function createTerrain(noise: Noise2D, spawn: { x: number; z: number }): 
       }
 
       // 3. One mesh per chunk.
-      const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+      const material = new THREE.MeshLambertMaterial({ vertexColors: true, map: groundTexture(1) });
       const meshes: Array<Array<{ high: THREE.Mesh; low: THREE.Mesh }>> = [];
       const side = CELLS_PER_CHUNK + 1;
       for (let cz = 0; cz < CHUNKS; cz++) {
@@ -186,6 +189,7 @@ export function createTerrain(noise: Noise2D, spawn: { x: number; z: number }): 
         for (let cx = 0; cx < CHUNKS; cx++) {
           const pos = new Float32Array(side * side * 3);
           const col = new Float32Array(side * side * 3);
+          const uvs = new Float32Array(side * side * 2);
           const nor = new Float32Array(side * side * 3);
           for (let j = 0; j < side; j++) {
             for (let i = 0; i < side; i++) {
@@ -196,6 +200,8 @@ export function createTerrain(noise: Noise2D, spawn: { x: number; z: number }): 
               pos[l] = -WORLD_HALF + gi * CELL;
               pos[l + 1] = heights[gj * N + gi];
               pos[l + 2] = -WORLD_HALF + gj * CELL;
+              uvs[(j * side + i) * 2] = pos[l] / TEXTURE_METRES;
+              uvs[(j * side + i) * 2 + 1] = pos[l + 2] / TEXTURE_METRES;
               col[l] = colors[g];
               col[l + 1] = colors[g + 1];
               col[l + 2] = colors[g + 2];
@@ -221,6 +227,7 @@ export function createTerrain(noise: Noise2D, spawn: { x: number; z: number }): 
           geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
           geometry.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
           geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+          geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
           geometry.setIndex(new THREE.BufferAttribute(idx, 1));
           const mesh = new THREE.Mesh(geometry, material);
           mesh.frustumCulled = false; // chunks are shown or hidden by distance instead
@@ -277,11 +284,14 @@ function lowResChunk(cx: number, cz: number, heights: Float32Array, colors: Floa
   const pos = new Float32Array(verts * 3);
   const col = new Float32Array(verts * 3);
   const nor = new Float32Array(verts * 3);
+  const uvs = new Float32Array(verts * 2);
   const write = (v: number, gi: number, gj: number, drop: number) => {
     const g = (gj * N + gi) * 3;
     pos[v * 3] = -WORLD_HALF + gi * CELL;
     pos[v * 3 + 1] = heights[gj * N + gi] - drop;
     pos[v * 3 + 2] = -WORLD_HALF + gj * CELL;
+    uvs[v * 2] = pos[v * 3] / TEXTURE_METRES;
+    uvs[v * 2 + 1] = pos[v * 3 + 2] / TEXTURE_METRES;
     col.set([colors[g], colors[g + 1], colors[g + 2]], v * 3);
     nor.set([normals[g], normals[g + 1], normals[g + 2]], v * 3);
   };
@@ -324,6 +334,7 @@ function lowResChunk(cx: number, cz: number, heights: Float32Array, colors: Floa
   geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geometry.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geometry.setIndex(idx);
   return geometry;
 }

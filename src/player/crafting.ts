@@ -26,11 +26,11 @@ export interface CraftingWorld {
 }
 
 /** How many good smashes of a stone against the outline turn a stick into an axe. */
-export const SMASHES_FOR_AXE = 3;
+export const SMASHES_FOR_AXE = 2;
 /** How fast (m/s) the stone and stick must come together for a smash to count. */
-const SMASH_SPEED = 1.6;
+const SMASH_SPEED = 1.0;
 /** Surface-to-surface distance (metres) at which they count as touching. */
-const SMASH_GAP = 0.04;
+const SMASH_GAP = 0.06;
 /** Hits on a trunk before each log comes loose, for a stone axe and a lashed one. */
 const HITS_PER_LOG = { axe: 3, axe2: 2 };
 /** A tree gives this many logs before it is spent. */
@@ -54,6 +54,7 @@ const _w = new THREE.Vector3();
 const _axis = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _hp = new THREE.Vector3();
+const _b = new THREE.Vector3();
 const _hq = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
 
@@ -140,21 +141,21 @@ export class Crafting {
       return;
     }
     const stick = held[stickHand as 0 | 1]!;
-    const trigger = (stickHand === 0 ? this.hands.left : this.hands.right).triggered;
+    const trigger = this.hands.left.triggered || this.hands.right.triggered;
 
     if (!trigger) {
       if (stoneHand >= 0 && this.guideCooldown === 0 && this.smashes === 0) {
         this.guideCooldown = 25;
-        this.hooks.say('Hold the trigger on the hand with the stick: an outline of a stone appears. Smash a stone into it.');
+        this.hooks.say('Hold a trigger and smash the stone against the stick.');
       }
       return;
     }
 
-    // The outline of a stone, on the tip of the stick.
+    // A hint: the outline of a stone on the tip of the stick (the smash works anywhere along it).
     this.sticks.headPosition(stick, _hp);
     this.ghostTime += dt;
     const stone = stoneHand >= 0 && stoneHand !== stickHand ? held[stoneHand as 0 | 1]! : null;
-    const near = stone ? stone.pos.distanceTo(_hp) < 0.3 : false;
+    const near = stone ? this.sticks.distanceTo(stick, stone.pos) < 0.3 : false;
     if (this.ghost) {
       this.ghost.visible = true;
       this.ghost.position.copy(_hp);
@@ -167,10 +168,15 @@ export class Crafting {
     if (this.sinceSmash > 6) this.smashes = 0;
     if (this.smashCooldown > 0) return;
 
-    // Is the stone at the outline, and coming at it fast?
-    const gap = stone.pos.distanceTo(_hp) - stone.radius - 0.04;
+    // Is the stone against the stick, and coming at it?
+    const gap = this.sticks.distanceTo(stick, stone.pos) - stone.radius;
     if (gap > SMASH_GAP) return;
-    _n.subVectors(_hp, stone.pos).normalize(); // from the stone to the outline
+    _a.set(0, stick.length / 2, 0).applyQuaternion(stick.quat);
+    _b.copy(stick.pos).sub(_a);
+    _n.copy(_a).multiplyScalar(2);
+    const along = THREE.MathUtils.clamp(_w.subVectors(stone.pos, _b).dot(_n) / _n.lengthSq(), 0, 1);
+    _b.addScaledVector(_n, along); // the closest point on the stick
+    _n.subVectors(_b, stone.pos).normalize(); // from the stone to the stick
     this.grab.velocity(stickHand as 0 | 1, _v);
     this.grab.velocity(stoneHand as 0 | 1, _w);
     const closing = _w.sub(_v).dot(_n);
@@ -179,7 +185,7 @@ export class Crafting {
     this.smashCooldown = 0.3;
     this.sinceSmash = 0;
     this.smashes++;
-    this.hooks.burst(_hp, 6);
+    this.hooks.burst(_b, 6);
     this.hooks.pulse('left', 0.9, 70);
     this.hooks.pulse('right', 0.9, 70);
 

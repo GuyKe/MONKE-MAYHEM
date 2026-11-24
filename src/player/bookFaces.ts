@@ -94,7 +94,7 @@ export function drawFace(index: number, c: Ctx, f: FaceContext, hover: string | 
     case FACE.recipesB: recipes(c, f, hits, hover, 4); break;
     case FACE.tools: tools(c, f); break;
     case FACE.plansA: structures(c, f, hits, hover, 0); break;
-    case FACE.plansB: structures(c, f, hits, hover, 3); break;
+    case FACE.plansB: structures(c, f, hits, hover, 4); break;
     case FACE.plan: plan(c, f, hits, hover); break;
     case FACE.ropes: ropesAndTies(c); break;
     case FACE.survival: survival(c); break;
@@ -284,7 +284,7 @@ function tools(c: Ctx, f: FaceContext): void {
   c.font = 'bold 25px Georgia, serif';
   c.fillText('Stone axe', 30, y);
   y += 12;
-  y = para(c, 'Hold a stick and squeeze its trigger: an outline of a stone appears on the tip. Smash a stone against the outline.', y + 12, 20);
+  y = para(c, 'Take a stone in one hand and a stick in the other. Hold a trigger and smash the stone against the stick, twice. An outline shows on the stick as a hint.', y + 12, 20);
   c.fillStyle = f.craft.smashes > 0 ? GREEN : FAINT;
   c.font = 'bold 21px Georgia, serif';
   c.fillText(`Smashes: ${f.craft.smashes} of ${f.craft.smashesNeeded}`, 30, y + 6);
@@ -311,27 +311,27 @@ function structures(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null, s
     return;
   }
   if (start === 0) para(c, 'Choose a plan. It is placed in the world where you point, then you gather what it needs and put it together.', 100, 19, SOFT);
-  bp.list.slice(start, start + 3).forEach((plan, i) => {
-    const top = (start === 0 ? 168 : 100) + i * 144;
+  bp.list.slice(start, start + 4).forEach((plan, i) => {
+    const top = (start === 0 ? 168 : 100) + i * 112;
     const id = `bp:select:${plan.id}`;
     const chosen = bp.active?.id === plan.id;
     c.fillStyle = plan.locked ? '#cdbf9f' : hover === id ? '#f6ecd0' : '#f1e6c8';
-    roundRect(c, 22, top, FACE_W - 44, 134, 14);
+    roundRect(c, 22, top, FACE_W - 44, 104, 14);
     c.fill();
     c.strokeStyle = chosen ? GOLD : '#a99468';
     c.lineWidth = chosen ? 5 : 2;
     c.stroke();
     c.fillStyle = plan.locked ? FAINT : INK;
     c.textAlign = 'left';
-    c.font = 'bold 29px Georgia, serif';
-    c.fillText(plan.name, 40, top + 38);
+    c.font = 'bold 25px Georgia, serif';
+    c.fillText(plan.name, 38, top + 30);
     c.fillStyle = SOFT;
-    c.font = '18px Georgia, serif';
-    let y = wrap(c, plan.blurb, 40, top + 64, 300, 23);
+    c.font = '15px Georgia, serif';
+    const y = wrap(c, plan.blurb, 38, top + 52, 310, 18);
     c.fillStyle = FAINT;
-    c.font = 'italic 17px Georgia, serif';
-    wrap(c, plan.needs, 40, y + 2, 300, 22);
-    if (!plan.locked) button(c, hits, hover, id, chosen ? 'ACTIVE' : 'SET PLAN', 352, top + 36, 140, 62, { color: GREEN, on: chosen });
+    c.font = 'italic 14px Georgia, serif';
+    wrap(c, plan.needs, 38, y + 2, 310, 17);
+    if (!plan.locked) button(c, hits, hover, id, chosen ? 'ACTIVE' : 'SET PLAN', 360, top + 24, 128, 56, { color: GREEN, on: chosen, size: 20 });
   });
 }
 
@@ -365,9 +365,10 @@ function plan(c: Ctx, f: FaceContext, hits: Hit[], hover: string | null): void {
 function ropesAndTies(c: Ctx): void {
   heading(c, 'Rope and ties');
   let y = 112;
-  y = para(c, 'Some trees have a rope hanging down their trunk. Grab the lower end and pull down hard, about a third of a metre. If you let go too soon it springs back up.', y, 21) + 14;
-  y = para(c, 'To tie a joint, hold the rope in one hand near it, hold the trigger and circle the rope around it with your hand, about one and a half times.', y, 21) + 14;
-  para(c, 'Rope is precious. The same rope can lash an axe or tie part of a structure, but not both.', y, 21, FAINT);
+  y = para(c, 'Some trees have a rope hanging down their trunk. Grab the lower end and pull down about a third of a metre. Let go too soon and it springs back.', y, 20) + 10;
+  y = para(c, 'To tie a joint, hold the rope in one hand near it, hold the trigger and circle the rope around it with your hand.', y, 20) + 10;
+  y = para(c, 'Building: stand an upright post in its place, then pound it into the ground with a stone or axe, three blows. Sideways pieces just rest where they go, and you tie them with rope. Roofs take leaves, torn from bushes; walls take mud, scooped from the banks of a lake.', y, 19) + 10;
+  para(c, 'Rope is precious: one rope lashes an axe or ties one joint.', y, 19, FAINT);
 }
 
 function survival(c: Ctx): void {

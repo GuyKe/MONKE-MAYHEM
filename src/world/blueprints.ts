@@ -1,5 +1,6 @@
 /** What a slot in a plan takes: a kind of piece, or a rope tie round a joint. */
-export type SlotKind = 'log' | 'pole' | 'stick' | 'tie';
+/** What a slot in a plan takes. Upright wood is pounded into the ground; leaves, mud and stones are just set down. */
+export type SlotKind = 'log' | 'pole' | 'stick' | 'tie' | 'leaf' | 'mud' | 'stone';
 
 /** One place in a structure where a part goes. Positions and axes are in the structure's own space (y up). */
 export interface Slot {
@@ -35,6 +36,8 @@ export interface Blueprint {
   shelter?: boolean;
   /** Meat left near it dries twice as fast. */
   rack?: boolean;
+  /** Meat left near it roasts six times as fast. */
+  oven?: boolean;
 }
 
 /** A rafter running from the ridge down to the ground behind the posts. */
@@ -64,7 +67,7 @@ const LEAN_TO: Blueprint = {
   unlockedBy: null,
   hint: '',
   steps: [
-    'Stand the two posts upright. Use logs, from chopping a tree.',
+    'Stand the two posts upright, then pound each into the ground with a stone. Use logs, from chopping a tree.',
     'Lay the ridge pole across the tops of the posts. Craft a lashed pole in the book.',
     'Lean five sticks from the ridge down to the ground behind.',
     'Tie the three joints with rope. Hold the rope at the joint, hold the trigger, and circle it.',
@@ -131,14 +134,14 @@ const tie = (id: string, x: number, y: number, z: number, requires: string[], st
 const HUT: Blueprint = {
   id: 'hut',
   name: 'Stick Hut',
-  blurb: 'Four posts, two beams and a roof of sticks. Roomier and drier than a lean-to.',
-  needs: '4 logs, 2 poles, 6 sticks, 4 ropes',
+  blurb: 'Four posts, two beams and a thatch of leaves. Roomier and drier than a lean-to.',
+  needs: '4 logs, 2 poles, 6 bundles of leaves, 4 ropes',
   unlockedBy: 'lean-to',
   hint: 'Finish a lean-to.',
   steps: [
-    'Stand the four posts upright at the corners.',
+    'Stand the four posts upright at the corners and pound each into the ground with a stone.',
     'Lay a pole across the top at the front and at the back.',
-    'Lay six sticks across for the roof.',
+    'Lay six bundles of leaves across for the roof. Take leaves from a bush.',
     'Tie the four corners with rope.',
   ],
   footprint: 1.6,
@@ -151,7 +154,7 @@ const HUT: Blueprint = {
     { id: 'beam-f', kind: 'pole', pos: [0, 1.24, 0.5], axis: [1, 0, 0], length: 2.0, radius: 0.04, requires: ['post-fl', 'post-fr'], step: 1 },
     { id: 'beam-b', kind: 'pole', pos: [0, 1.24, -0.5], axis: [1, 0, 0], length: 2.0, radius: 0.04, requires: ['post-bl', 'post-br'], step: 1 },
     ...[-0.75, -0.45, -0.15, 0.15, 0.45, 0.75].map(
-      (x, i): Slot => ({ id: `roof-${i}`, kind: 'stick', pos: [x, 1.33, 0], axis: [0, 0, 1], length: 1.1, radius: 0.025, requires: ['beam-f', 'beam-b'], step: 2 }),
+      (x, i): Slot => ({ id: `roof-${i}`, kind: 'leaf', pos: [x, 1.31, 0], axis: [0, 1, 0], length: 0.3, radius: 0.02, requires: ['beam-f', 'beam-b'], step: 2 }),
     ),
     tie('tie-fl', -0.85, 1.24, 0.5, ['post-fl', 'beam-f'], 3),
     tie('tie-fr', 0.85, 1.24, 0.5, ['post-fr', 'beam-f'], 3),
@@ -217,7 +220,55 @@ const BED: Blueprint = {
   ],
 };
 
-export const BLUEPRINTS: readonly Blueprint[] = [LEAN_TO, HUT, LOOKOUT, RACK, FENCE, BED];
+const WALL: Blueprint = {
+  id: 'wall',
+  name: 'Mud Wall',
+  blurb: 'Posts driven in, sticks tied across, and the gaps plastered with mud from the lake shore.',
+  needs: '4 logs, 2 sticks, 2 ropes, 6 lumps of mud',
+  unlockedBy: 'hut',
+  hint: 'Finish a stick hut.',
+  steps: [
+    'Stand four posts in a row and pound each into the ground with a stone.',
+    'Lay a stick across the posts, low and high.',
+    'Tie the sticks to the end posts with rope.',
+    'Press lumps of mud into the gaps. Pick mud up from the banks of a lake.',
+  ],
+  footprint: 1.4,
+  slots: [
+    ...[-0.6, -0.2, 0.2, 0.6].map((x, i): Slot => ({ id: `post-${i}`, kind: 'log', pos: [x, 0.5, 0], axis: [0, 1, 0], length: 1.0, radius: 0.11, requires: [], step: 0 })),
+    { id: 'rail-low', kind: 'stick', pos: [0, 0.3, 0.12], axis: [1, 0, 0], length: 1.2, radius: 0.025, requires: ['post-0', 'post-1', 'post-2', 'post-3'], step: 1 },
+    { id: 'rail-high', kind: 'stick', pos: [0, 0.7, 0.12], axis: [1, 0, 0], length: 1.2, radius: 0.025, requires: ['post-0', 'post-1', 'post-2', 'post-3'], step: 1 },
+    tie('tie-l', -0.6, 0.3, 0.12, ['post-0', 'rail-low'], 2),
+    tie('tie-r', 0.6, 0.7, 0.12, ['post-3', 'rail-high'], 2),
+    ...[-0.4, 0, 0.4].flatMap((x, i): Slot[] => [
+      { id: `mud-lo-${i}`, kind: 'mud', pos: [x, 0.3, 0], axis: [0, 0, 1], length: 0.3, radius: 0.1, requires: ['tie-l', 'tie-r'], step: 3 },
+      { id: `mud-hi-${i}`, kind: 'mud', pos: [x, 0.7, 0], axis: [0, 0, 1], length: 0.3, radius: 0.1, requires: ['tie-l', 'tie-r'], step: 3 },
+    ]),
+  ],
+};
+
+const OVEN: Blueprint = {
+  id: 'oven',
+  name: 'Mud Oven',
+  blurb: 'A ring of stones plastered with mud. Meat left near it roasts in a fraction of the time.',
+  needs: '6 stones, 6 lumps of mud',
+  unlockedBy: 'wall',
+  hint: 'Finish a mud wall.',
+  steps: ['Set six stones in a ring.', 'Plaster mud over the stones.'],
+  footprint: 1.0,
+  oven: true,
+  slots: [
+    ...[0, 1, 2, 3, 4, 5].map((k): Slot => ({ id: `stone-${k}`, kind: 'stone', pos: [Math.cos((k / 6) * Math.PI * 2) * 0.36, 0.09, Math.sin((k / 6) * Math.PI * 2) * 0.36], axis: [0, 1, 0], length: 0.2, radius: 0.1, requires: [], step: 0 })),
+    ...[0, 1, 2, 3, 4, 5].map((k): Slot => ({ id: `mud-${k}`, kind: 'mud', pos: [Math.cos((k / 6 + 1 / 12) * Math.PI * 2) * 0.33, 0.22, Math.sin((k / 6 + 1 / 12) * Math.PI * 2) * 0.33], axis: [0, 1, 0], length: 0.26, radius: 0.1, requires: ['stone-0', 'stone-1', 'stone-2', 'stone-3', 'stone-4', 'stone-5'], step: 1 })),
+  ],
+};
+
+export const BLUEPRINTS: readonly Blueprint[] = [LEAN_TO, HUT, LOOKOUT, RACK, FENCE, BED, WALL, OVEN];
+
+/** Upright wood has to be pounded into the ground. */
+export function isUpright(slot: Slot): boolean {
+  return (slot.kind === 'log' || slot.kind === 'pole') && Math.abs(slot.axis[1]) > 0.8;
+}
 
 export function blueprint(id: string): Blueprint {
   return BLUEPRINTS.find((b) => b.id === id)!;

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RAPIER, WORLD_GROUPS } from '../physics';
 import { Baker } from './baker';
+import { propTexture } from './textures';
 import { SURFACES, setSurface, type SurfaceMaterial } from './materials';
 import { axisQuaternion, designRuin, type Ruin, type RuinType } from './ruins';
 import type { PieceKind } from './sticks';
@@ -392,7 +393,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
     }
   }
   const chunkTrees = new Map<Chunk, TreeData[]>();
-  const propsMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const propsMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, map: propTexture(1) });
 
   const trunkGeo = new THREE.CylinderGeometry(0.72, 1, 1, 6, 1, true).translate(0, 0.5, 0); // open ended: both ends are hidden
   const stumpGeo = new THREE.CylinderGeometry(0.72, 1, 1, 6).translate(0, 0.5, 0);
@@ -735,7 +736,7 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
   }
 
   // --- Leaf litter, ferns, flowers and fruit bushes --------------------------------
-  const leafLitterGeo = new THREE.PlaneGeometry(0.13, 0.2).rotateX(-Math.PI / 2);
+  const leafLitterGeo = new THREE.CircleGeometry(0.1, 4).scale(0.8, 1.5, 1).rotateX(-Math.PI / 2);
   const fernGeo = mergeGeometries(
     [0, 1, 2].map((k) => {
       const g = new THREE.ConeGeometry(0.09, 0.8, 3, 1, true).scale(1, 1, 0.35).translate(0, 0.4, 0);
@@ -751,15 +752,15 @@ export function buildForest(scene: THREE.Scene, world: RAPIER.World, options: Fo
   const bushes: Bush[] = [];
   for (const row of chunks) {
     for (const chunk of row) {
-      for (let tries = 0, made = 0; made < 260 && tries < 600; tries++) {
+      for (let tries = 0, made = 0; made < 560 && tries < 1400; tries++) {
         const x = range(chunk.minX, chunk.maxX);
         const z = range(chunk.minZ, chunk.maxZ);
         if (!inside(x, z, 6) || inLake(x, z, -4) || slopeAt(x, z) > 0.6 || treeNear(x, z, 0.1)) continue;
         // Fallen leaves gather under the broadleaf trees.
         const under = !!nearestTree(x, z, 3);
-        if (!under && rand() < 0.55) continue;
+        if (!under && rand() < 0.4) continue;
         _q.setFromEuler(_e.set(range(-0.15, 0.15), rand() * 6.28, range(-0.15, 0.15)));
-        const sc = range(0.7, 1.5);
+        const sc = range(0.8, 1.9);
         _m.compose(_p.set(x, surfaceAt(x, z) + 0.015, z), _q, _s.set(sc, 1, sc));
         chunk.tufts.add(leafLitterGeo, _m, _c.set(LEAF_COLORS[Math.floor(rand() * LEAF_COLORS.length)]).offsetHSL(0, 0, range(-0.05, 0.05)));
         made++;

@@ -106,10 +106,15 @@ export class Survival {
     this.agingTimer = 0;
     const cycle = Math.max(1, this.hooks.cycleSeconds());
     const racks = this.building.completed('rack');
+    const ovens = this.building.completed('oven');
     for (const stick of this.sticks.list) {
       if (stick.kind !== 'meat' || stick.hidden) continue;
       const nearRack = racks.some((r) => Math.hypot(r.x - stick.pos.x, r.z - stick.pos.z) < 2.4);
-      stick.age += (step / cycle) * (nearRack ? 2 : 1);
+      const nearOven = ovens.some((r) => Math.hypot(r.x - stick.pos.x, r.z - stick.pos.z) < 1.6);
+      // An oven roasts meat quickly, but does not make it rot any faster afterwards.
+      const before = stick.age;
+      stick.age += (step / cycle) * (nearOven && before < 1 ? 6 : nearRack ? 2 : 1);
+      if (nearOven && before < 1 && stick.age > 1) stick.age = 1;
       const state: FoodState = stick.age >= 2 ? 'rotten' : stick.age >= 1 ? 'roast' : 'raw';
       if (state !== stick.state) {
         stick.state = state;

@@ -223,9 +223,31 @@ async function main(): Promise<void> {
   const grab = new Grab(sticks, hands, {
     pick: (handPos) => {
       const f = fruits?.nearest(handPos, 0.2);
-      if (!f || !fruits) return null;
-      fruits.take(f, refs.survival?.days ?? 0);
-      return sticks.craft('fruit', handPos.clone(), new THREE.Quaternion(), { color: fruits.colour(f, new THREE.Color()) });
+      if (f && fruits) {
+        fruits.take(f, refs.survival?.days ?? 0);
+        return sticks.craft('fruit', handPos.clone(), new THREE.Quaternion(), { color: fruits.colour(f, new THREE.Color()) });
+      }
+      if (!forestRef) return null;
+      // Leaves: a handful torn off a bush.
+      for (const b of forestRef.bushes) {
+        if (Math.abs(b.x - handPos.x) > b.r + 0.3 || Math.abs(b.z - handPos.z) > b.r + 0.3) continue;
+        if (Math.hypot(b.x - handPos.x, b.y + b.r * 0.5 - handPos.y, b.z - handPos.z) < b.r + 0.15) {
+          say('A handful of leaves. Lay them on a roof.');
+          return sticks.craft('leaf', handPos.clone(), new THREE.Quaternion(), { color: new THREE.Color().setHSL(0.28 + Math.random() * 0.06, 0.55, 0.26 + Math.random() * 0.08) });
+        }
+      }
+      // Mud: scooped from the ground along a lake's banks.
+      const ground = forestRef.surfaceAt(handPos.x, handPos.z);
+      if (handPos.y - ground < 0.3) {
+        for (const l of forestRef.lakes) {
+          const d = Math.hypot(handPos.x - l.x, handPos.z - l.z);
+          if (d < l.r + 7 && ground < l.level + 1.2) {
+            say('A lump of mud from the lake shore.');
+            return sticks.craft('mud', handPos.clone(), new THREE.Quaternion(), { color: new THREE.Color().setHSL(0.07, 0.35, 0.16 + Math.random() * 0.05) });
+          }
+        }
+      }
+      return null;
     },
     stash: (stick, handPos) => book.acceptStash(stick, handPos) || (buildingRef.current?.accept(stick) ?? false),
     onFarThrow: () => void journal.notify('throw'),

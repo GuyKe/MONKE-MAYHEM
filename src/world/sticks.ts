@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { RAPIER, STICK_GROUPS } from '../physics';
 import { mulberry32 } from './noise';
+import { propTexture, woodTexture } from './textures';
 
 export type Side = 'left' | 'right';
 
 /** What a piece is. Everything you can pick up is a piece; sticks and stones are the raw materials. */
-export type PieceKind = 'stick' | 'pole' | 'torch' | 'spear' | 'stone' | 'rope' | 'log' | 'axe' | 'axe2' | 'club' | 'knife' | 'mirror' | 'fruit' | 'meat';
+export type PieceKind = 'stick' | 'pole' | 'torch' | 'spear' | 'stone' | 'rope' | 'log' | 'axe' | 'axe2' | 'club' | 'knife' | 'mirror' | 'fruit' | 'meat' | 'leaf' | 'mud';
 
 /** Food goes through these as the days pass. */
 export type FoodState = 'raw' | 'roast' | 'rotten';
@@ -36,6 +37,8 @@ const KINDS: Record<PieceKind, KindSpec> = {
   knife: { shape: 'prism', length: [0.34, 0.34], radius: [0.014, 0.014], density: 450, color: [0.08, [0.3, 0.4], [0.3, 0.36]] },
   mirror: { shape: 'prism', length: [0.32, 0.32], radius: [0.016, 0.016], density: 450, color: [0.09, [0.3, 0.4], [0.3, 0.36]] },
   fruit: { shape: 'stone', length: [0.07, 0.09], radius: [0.035, 0.05], density: 900, color: [0.0, [0.7, 0.8], [0.45, 0.55]] },
+  leaf: { shape: 'stone', length: [0.14, 0.16], radius: [0.09, 0.11], density: 150, color: [0.3, [0.5, 0.6], [0.26, 0.34]] },
+  mud: { shape: 'stone', length: [0.12, 0.14], radius: [0.06, 0.08], density: 1300, color: [0.07, [0.3, 0.4], [0.16, 0.22]] },
   meat: { shape: 'stone', length: [0.14, 0.16], radius: [0.075, 0.095], density: 1000, color: [0.0, [0.55, 0.6], [0.42, 0.48]] },
 };
 
@@ -213,7 +216,8 @@ export class Sticks {
     const sticks = options.count ?? 280;
     const stones = options.stones ?? 120;
     const rand = mulberry32((options.seed ?? 99) + 7);
-    const material = new THREE.MeshLambertMaterial({ flatShading: true });
+    const material = new THREE.MeshLambertMaterial({ flatShading: true, map: propTexture(2) });
+    const wood = new THREE.MeshLambertMaterial({ flatShading: true, map: woodTexture(3) });
     const torus = new THREE.TorusGeometry(0.1, 0.03, 5, 12).rotateX(Math.PI / 2); // lies flat; axis is Y
     const make = (geometry: THREE.BufferGeometry, capacity: number, mat: THREE.Material = material): Slots => {
       const mesh = new THREE.InstancedMesh(geometry, mat, capacity);
@@ -223,7 +227,7 @@ export class Sticks {
       return { mesh, used: 0 };
     };
     this.slots = {
-      prism: make(new THREE.CylinderGeometry(TAPER, 1, 1, 6), sticks + SPARE),
+      prism: make(new THREE.CylinderGeometry(TAPER, 1, 1, 6), sticks + SPARE, wood),
       stone: make(DODECA, stones + SPARE),
       coil: make(torus, SPARE),
       head: make(DODECA, 64),

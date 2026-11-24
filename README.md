@@ -211,6 +211,22 @@ Play (browsers only allow audio after a click) and are positioned in 3D around y
 
 Volume is in Settings (menu or book).
 
+## Building and materials (latest)
+
+**Axe.** Take a stone in one hand and a stick in the other, hold either trigger and smash the stone against the stick twice. The outline on the stick tip is only
+a hint now: the smash works anywhere along it.
+
+**Building.** Choose a plan in the book and place it. Then, by kind of part:
+- **Upright wood** (posts): stand it in its place, then pound it into the ground by hitting the top three times with a stone, an axe, a club or a log.
+- **Sideways wood** (beams, rails, sticks): just lay it where it goes, then **tie** it with rope.
+- **Leaves** (thatch roofs, such as the stick hut): tear a handful from a bush with your grip and lay it in place.
+- **Mud** (walls, ovens): scoop it from the ground along a lake's banks with your grip and press it into place.
+
+New plans: **Mud Wall**, and the **Mud Oven**, which roasts meat near it six times as fast (it does not rot it any faster afterwards).
+
+**Textures.** The ground, bark, rock, foliage and wood now have procedural textures (grain, cracks, patches), and there is a much thicker carpet of fallen leaves,
+especially under the broadleaf trees.
+
 ## How the movement works
 
 Movement comes entirely from your hands. The avatar has no legs and there is no thumbstick walking.
