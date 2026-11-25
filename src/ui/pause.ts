@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import type { Settings, SettingsData } from '../settings';
 import { SETTING_ROWS } from './menu';
-import { ADMIN_ITEMS, type AdminActions } from '../admin';
 import type { PointerRay } from './laser';
 
 export interface PauseHooks {
@@ -12,11 +11,9 @@ export interface PauseHooks {
   /** Multiplayer state, or null when playing alone. */
   net(): { role: 'host' | 'client'; code: string; players: string[]; mic: 'off' | 'on' | 'denied'; muted: boolean } | null;
   toggleMic(): void;
-  /** Admin tools: whether they are unlocked, how to redeem a code, and what they do. */
-  admin: { unlocked(): boolean; redeem(code: string): { ok: boolean; message: string }; actions: AdminActions };
 }
 
-type Screen = 'main' | 'settings' | 'controls' | 'multi' | 'code' | 'admin' | 'animals' | 'build' | 'powers' | { group: number } | { items: number };
+type Screen = 'main' | 'settings' | 'controls' | 'multi' | { group: number };
 
 interface Hit {
   label: string;
@@ -60,9 +57,6 @@ export class PauseMenu {
   private hover = -1;
   private dirty = true;
   private status = '';
-  private typed = '';
-  private codeMessage = '';
-  private amount = 1;
   private readonly armed = [true, true];
   /** The laser pointers: a beam and a dot for each hand. */
   private readonly beams: THREE.Mesh[] = [];
@@ -240,12 +234,6 @@ export class PauseMenu {
     else if (s === 'settings') this.drawSettingsIndex();
     else if (s === 'controls') this.drawControls();
     else if (s === 'multi') this.drawMulti(net);
-    else if (s === 'code') this.drawCode();
-    else if (s === 'admin') this.drawAdmin();
-    else if (s === 'animals') this.drawAnimals();
-    else if (s === 'build') this.drawBuild();
-    else if (s === 'powers') this.drawPowers();
-    else if ('items' in s) this.drawItems(s.items);
     else this.drawGroup(s.group);
     this.texture.needsUpdate = true;
   }
@@ -332,8 +320,6 @@ export class PauseMenu {
     row('Settings', () => this.go('settings'));
     row(net ? `Multiplayer: ${net.role === 'host' ? net.code : 'joined'}` : 'Multiplayer', () => this.go('multi'));
     row('Controls', () => this.go('controls'));
-    if (this.hooks.admin.unlocked()) row('Admin', () => this.go('admin'), { color: '#8a6a1a' });
-    else row('Enter code', () => this.go('code'));
     row('Quit to main menu', () => this.hooks.exit(), { color: '#8a3a22' });
     if (net) this.note('The world carries on while you are in this menu.', y + 6, 18);
   }
@@ -403,119 +389,6 @@ export class PauseMenu {
       y += size * 1.3;
     }
     return y;
-  }
-
-  // --- Code entry and the admin tools ------------------------------------------------------------
-
-  private drawCode(): void {
-    this.title('Enter code');
-    const c = this.ctx;
-    c.fillStyle = '#10201a';
-    this.round(40, 100, W - 80, 54, 12);
-    c.fill();
-    c.fillStyle = INK;
-    c.font = 'bold 30px monospace';
-    c.textAlign = 'center';
-    c.fillText(this.typed || '…', W / 2, 138);
-    c.textAlign = 'left';
-    const keys = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const size = 58;
-    const gap = 6;
-    const x0 = (W - (6 * size + 5 * gap)) / 2;
-    for (let i = 0; i < keys.length; i++) {
-      const ch = keys[i];
-      this.button(ch, x0 + (i % 6) * (size + gap), 196 + Math.floor(i / 6) * (size - 6 + gap), size, size - 6, () => {
-        if (this.typed.length < 16) this.typed += ch;
-        this.codeMessage = '';
-      }, false, '#2d4a35', 26);
-    }
-    const y = 196 + 6 * (size - 6 + gap) + 4;
-    this.button('Del', 40, y, 120, 50, () => (this.typed = this.typed.slice(0, -1)), false, '#6a3e22', 22);
-    this.button('Clear', 168, y, 120, 50, () => (this.typed = ''), false, '#6a3e22', 22);
-    this.button('Redeem', 296, y, 176, 50, () => {
-      const result = this.hooks.admin.redeem(this.typed);
-      this.codeMessage = result.message;
-      if (result.ok) {
-        this.typed = '';
-        this.go('admin');
-      }
-    }, false, GREEN, 24);
-    if (this.codeMessage) this.note(this.codeMessage, 180, 17);
-    this.button('Back', 50, H - 64, W - 100, 44, () => this.go('main'), false, '#6a3e22', 22);
-  }
-
-  private drawAdmin(): void {
-    this.title('Admin');
-    let y = 112;
-    const row = (label: string, act: () => void) => {
-      this.button(label, 50, y, W - 100, 62, act, false, '#4a3b1a');
-      y += 74;
-    };
-    row('Spawn items', () => this.go({ items: 0 }));
-    row('Spawn animals', () => this.go('animals'));
-    row('Build a structure', () => this.go('build'));
-    row('Car (wood-cutting vehicle)', () => {
-      this.hooks.admin.actions.vehicle();
-      this.status = '';
-    });
-    row('Powers', () => this.go('powers'));
-    this.button('Back', 50, H - 88, W - 100, 56, () => this.go('main'), false, '#6a3e22');
-  }
-
-  private drawItems(page: number): void {
-    this.title('Spawn items');
-    const per = 12;
-    const items = ADMIN_ITEMS.slice(page * per, page * per + per);
-    const w = (W - 100 - 10) / 2;
-    items.forEach((item, i) => {
-      this.button(item.label, 50 + (i % 2) * (w + 10), 108 + Math.floor(i / 2) * 68, w, 58, () => this.hooks.admin.actions.spawnItem(item, this.amount), false, '#2d4a35', 21);
-    });
-    const y = 108 + 6 * 68 + 6;
-    this.button(`Amount: ${this.amount}`, 50, y, 160, 52, () => (this.amount = this.amount === 1 ? 5 : this.amount === 5 ? 10 : 1), false, '#4a3b1a', 20);
-    if (page > 0) this.button('‹ Prev', 220, y, 120, 52, () => this.go({ items: page - 1 }), false, '#6a3e22', 20);
-    if ((page + 1) * per < ADMIN_ITEMS.length) this.button('Next ›', 352, y, 110, 52, () => this.go({ items: page + 1 }), false, '#6a3e22', 20);
-    this.button('Back', 50, H - 76, W - 100, 52, () => this.go('admin'), false, '#6a3e22');
-  }
-
-  private drawAnimals(): void {
-    this.title('Spawn animals');
-    let y = 118;
-    for (const [label, species] of [['Rabbit', 'rabbit'], ['Deer', 'deer']] as const) {
-      this.button(label, 50, y, W - 100, 62, () => {
-        this.status = this.hooks.admin.actions.spawnAnimal(species) ? `${label} spawned` : 'Not available here';
-      }, false, '#2d4a35');
-      y += 74;
-    }
-    this.button('Campfire', 50, y, W - 100, 62, () => this.hooks.admin.actions.campfire(), false, '#8a4a1a');
-    y += 74;
-    if (this.status) this.note(this.status, y + 10, 22);
-    this.button('Back', 50, H - 88, W - 100, 56, () => this.go('admin'), false, '#6a3e22');
-  }
-
-  private drawBuild(): void {
-    this.title('Build a structure');
-    const plans = this.hooks.admin.actions.buildable();
-    const w = (W - 100 - 10) / 2;
-    plans.forEach((p, i) => {
-      this.button(p.name, 50 + (i % 2) * (w + 10), 108 + Math.floor(i / 2) * 68, w, 58, () => this.hooks.admin.actions.build(p.id), false, '#2d4a35', 19);
-    });
-    this.note('Appears finished, in front of you.', 108 + Math.ceil(plans.length / 2) * 68 + 14, 19);
-    this.button('Back', 50, H - 88, W - 100, 56, () => this.go('admin'), false, '#6a3e22');
-  }
-
-  private drawPowers(): void {
-    this.title('Powers');
-    let y = 112;
-    const row = (label: string, act: () => void) => {
-      this.button(label, 50, y, W - 100, 60, act, false, '#4a3b1a');
-      y += 70;
-    };
-    const a = this.hooks.admin.actions;
-    row('Heal fully', () => a.heal());
-    row('Unlock all recipes and plans', () => a.unlockAll());
-    row('Make it day', () => a.setTime(0.45));
-    row('Make it night', () => a.setTime(0.0));
-    this.button('Back', 50, H - 88, W - 100, 56, () => this.go('admin'), false, '#6a3e22');
   }
 
   private drawMulti(net: ReturnType<PauseHooks['net']>): void {

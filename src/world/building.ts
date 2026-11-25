@@ -253,7 +253,7 @@ export class Building {
     return this.placing !== null;
   }
 
-  /** Unlocks every plan (admin). */
+  /** Unlocks every plan. */
   unlockAll(): void {
     for (const bp of BLUEPRINTS) this.unlocked.add(bp.id);
     try {

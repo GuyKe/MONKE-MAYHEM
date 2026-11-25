@@ -41,8 +41,6 @@ import { RemotePlayers, type PoseMsg } from './net/avatars';
 import { Voice } from './net/voice';
 import { Sync } from './net/sync';
 import { PauseMenu } from './ui/pause';
-import { Admin, type AdminActions } from './admin';
-import { BLUEPRINTS } from './world/blueprints';
 import { MEAT_COLOR } from './player/survival';
 import { SaveStore, type SaveData } from './save';
 import type { DesktopEmulator } from './debug/desktop';
@@ -67,7 +65,6 @@ async function main(): Promise<void> {
   };
   // Multiplayer: a joiner connects first (it needs the host's seed to build the same forest).
   const net = new Net();
-  const admin = new Admin();
   const syncRef: { current: Sync | null } = { current: null };
   // A saved game is carried on whenever the page is opened without asking for a particular forest.
   const saved = SaveStore.load();
@@ -82,7 +79,6 @@ async function main(): Promise<void> {
     onResetBook: () => actions.resetBook(),
     onSave: () => actions.save(),
     onDeleteSave: () => SaveStore.clear(),
-    onCode: (code) => admin.redeem(code),
     onHost: () => actions.host(),
     onJoin: (code) => {
       const url = new URL(location.href);
@@ -662,80 +658,7 @@ async function main(): Promise<void> {
   if (params.has('host')) void actions.host();
 
   // --- The pause menu (B or Y, or P on the desktop) ---------------------------------------------
-  // What the admin tools do. Things appear a little way in front of you.
-  const inFront = (dist: number): { x: number; y: number; z: number; fx: number; fz: number } => {
-    camera.getWorldQuaternion(_wq);
-    const f = new THREE.Vector3(0, 0, -1).applyQuaternion(_wq);
-    f.y = 0;
-    if (f.lengthSq() < 1e-4) f.set(0, 0, -1);
-    f.normalize();
-    const h = locomotion.headWorld(new THREE.Vector3());
-    return { x: h.x + f.x * dist, y: h.y, z: h.z + f.z * dist, fx: f.x, fz: f.z };
-  };
-  const adminActions: AdminActions = {
-    spawnItem: (item, count) => {
-      const at = inFront(1.0);
-      for (let i = 0; i < count; i++) {
-        const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 6, Math.random() * 6, Math.random() * 6));
-        const hue = item.kind === 'fruit' ? [0, 0.07, 0.78, 0.14][i % 4] : item.kind === 'leaf' ? 0.3 : 0.07;
-        const color =
-          item.kind === 'meat' ? MEAT_COLOR[item.state ?? 'raw'].getHex() : item.kind === 'fruit' || item.kind === 'leaf' ? new THREE.Color().setHSL(hue, 0.7, item.kind === 'leaf' ? 0.3 : 0.5).getHex() : item.kind === 'mud' ? new THREE.Color().setHSL(0.07, 0.35, 0.18).getHex() : undefined;
-        sticks.craft(item.kind, new THREE.Vector3(at.x + (Math.random() - 0.5) * 0.4, at.y + 0.1 * i, at.z + (Math.random() - 0.5) * 0.4), quat, {
-          length: item.length,
-          state: item.state,
-          age: item.state === 'roast' ? 1.2 : item.state === 'rotten' ? 2.2 : 0,
-          color,
-        });
-      }
-      say(`${count > 1 ? count + ' × ' : ''}${item.label} spawned.`);
-    },
-    spawnAnimal: (species) => {
-      if (!animals || net.role === 'client') return false;
-      const at = inFront(4);
-      animals.spawn(species, at.x, at.z);
-      return true;
-    },
-    campfire: () => {
-      const at = inFront(2.2);
-      fire.addCampfire(at.x, at.z, 1);
-    },
-    build: (id) => {
-      const bp = BLUEPRINTS.find((b) => b.id === id);
-      if (!bp) return;
-      const at = inFront(3 + bp.footprint);
-      building.unlocked.add(id);
-      building.merge([{ id, x: at.x, z: at.z, yaw: Math.atan2(-at.fx, -at.fz), filled: bp.slots.map((s) => s.id) }]);
-      say(`${bp.name} built.`);
-    },
-    buildable: () => BLUEPRINTS.map((b) => ({ id: b.id, name: b.name })),
-    vehicle: () => {
-      if (!forestRef) return;
-      const at = inFront(3.5);
-      const yaw = Math.atan2(-at.fx, -at.fz);
-      if (loggerRef.current) {
-        loggerRef.current.x = at.x;
-        loggerRef.current.z = at.z;
-        loggerRef.current.heading = yaw;
-      } else loggerRef.current = makeLogger(at.x, at.z, yaw);
-      say('The wood-cutting vehicle is here. Squeeze its handlebar to climb on.');
-    },
-    heal: () => {
-      vitals.revive();
-      say('Healed.');
-    },
-    unlockAll: () => {
-      journal.unlockAll();
-      building.unlockAll();
-      say('Every recipe and plan is unlocked.');
-    },
-    setTime: (time) => {
-      if (!atmosphere) return;
-      atmosphere.time = time;
-      if (atmosphere.frozenAt !== null) atmosphere.frozenAt = time;
-    },
-  };
   const pause = new PauseMenu(scene, settings, {
-    admin: { unlocked: () => admin.unlocked, redeem: (code) => admin.redeem(code), actions: adminActions },
     save: () => saveNow(),
     exit: () => void renderer.xr.getSession()?.end(),
     net: () =>
@@ -1051,7 +974,7 @@ async function main(): Promise<void> {
   });
 
   // Handy for debugging from the console and for automated tests.
-  Object.assign(window, { __monke: { admin, adminActions, pause, net, sync, voice, avatars, settings, quality, comfort, perf, spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
+  Object.assign(window, { __monke: { pause, net, sync, voice, avatars, settings, quality, comfort, perf, spits: spitsRef, logger: loggerRef, audio, mirror, saveNow, collect, applySave, THREE, vitals, survival, combat, crocs, fruits, body, camera, locomotion, hands, world, rig, emulator, armSpan, renderer, scene, spawn, forest: forestRef, sticks, grab, RAPIER, atmosphere, journal, book, fire, friction, animals, treeRopes, crafting, building, pois: poisRef, mapView } });
 }
 
 function hudText(

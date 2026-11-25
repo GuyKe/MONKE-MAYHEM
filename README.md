@@ -312,19 +312,6 @@ the world keeps going while you use it.
 The same lasers work on the **book**: while it is open, aim a beam at a button on its pages (it lights up) and pull the trigger. Poking with a finger and swiping the page
 edge still work too.
 
-## Redeem code and admin tools
-
-The main menu has an **Enter code** box, and the pause menu has an **Enter code** button (a letter-and-number keypad you poke). Redeem **SECRETADMIN123** and an **Admin**
-button replaces it in the pause menu (it stays unlocked in this browser). Admin has:
-- **Spawn items:** every kind of piece (sticks of each size, pole, log, stone, rope, leaves, mud, torch, spear, both axes, club, knife, mirror, fruit, meat raw/roast/rotten),
-  one, five or ten at a time, in front of you.
-- **Spawn animals:** rabbit or deer (not on a joined player's machine, where the host runs the animals), and a campfire.
-- **Build a structure:** any plan, finished, in front of you (it is shared in multiplayer like anything else built).
-- **Car:** the wood-cutting vehicle, brought to you (or made, if the forest has none).
-- **Powers:** heal fully, unlock every recipe and plan, make it day or night.
-
-The code is checked in the browser, so it is a convenience, not security.
-
 ## How the movement works
 
 Movement comes entirely from your hands. The avatar has no legs and there is no thumbstick walking.

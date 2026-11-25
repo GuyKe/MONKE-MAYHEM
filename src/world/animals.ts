@@ -358,7 +358,7 @@ export class Animals {
     a.y += (this.o.surfaceAt(a.x, a.z) - a.y) * Math.min(1, dt * 14);
   }
 
-  /** Puts a new animal on the ground (admin). Returns it. */
+  /** Puts a new animal on the ground. Returns it. */
   spawn(species: Species, x: number, z: number): Ground {
     const a: Ground = {
       id: this.ground.reduce((m, g) => Math.max(m, g.id), -1) + 1,
