@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { skinById } from './avatar';
+import { FLOOR_Y } from './nav';
 import { itemById } from './cosmetics';
 import { Door } from './doors';
 import { createEngine, type Engine } from './engine';
-import { Facility } from './facility';
-import { Grabbables } from './grab';
+import { Facility, ROOM_Z } from './facility';
+import { CctvMap } from './map';
+import { Locker } from './lockers';
+import { Grabbables, type Item } from './grab';
 import { Fade, Toast, Wrist } from './hud';
-import type { ItemContext } from './items';
+import { makeFlashlight, makeGlowstick, makeLog, makeRadar, type ItemContext } from './items';
 import { Lobby } from './lobby';
 import { Monster, type MonsterKind, type Noise } from './monsters';
 import { PauseMenu } from './pause';
@@ -14,8 +17,20 @@ import { Save } from './save';
 import { rnd } from './shapes';
 import { Voice } from './voice';
 
+const LOGS = [
+  ['LOG 1 · SERVER ROOM', 'They told us the glass was for the visitors.', 'It was never for the visitors.'],
+  ['LOG 2 · COLD STORE', 'We stopped freezing them on day nine.', 'They do not like the cold. They like the quiet.'],
+  ['LOG 3 · BOILER ROOM', 'The relays hold the doors. Cut the power', 'and the doors stop listening to us.'],
+  ['LOG 4 · ARMORY', 'Guns do nothing. The only thing that hurt one', 'was a door. Remember that.'],
+  ['LOG 5 · MORGUE', 'The mimic wears our faces. It only moves', 'when nobody is looking. Never look away.'],
+  ['LOG 6 · POWER ROOM', 'If the lights die, stay still. They hear', 'a footstep from the next hall.'],
+  ['LOG 7 · SPECIMEN LAB', 'Tank 4 is empty. We did not open it.', 'It opened itself.'],
+  ['LOG 8 · BREAK ROOM', 'Lockers are not safe. They are only dark.', 'Hold still, hold your breath, and pray.'],
+];
+
 const LOBBY_SPAWN = new THREE.Vector3(0, 0, -3.2);
 const RED = new THREE.Color(1, 0.1, 0.05);
+const _v = new THREE.Vector3();
 const HALL_VIEW = new THREE.Vector3(0, -4, 26);
 const _f = new THREE.Vector3();
 
@@ -29,8 +44,9 @@ export async function runGame(): Promise<void> {
   const e = await createEngine({ background: 0x04060a, spawn: LOBBY_SPAWN, killY: -40 });
   const { scene } = e;
   scene.fog = new THREE.Fog(0x04060a, 12, 95);
-  scene.add(new THREE.HemisphereLight(0x8aa0c0, 0x202428, 0.7));
-  scene.add(new THREE.AmbientLight(0x303848, 0.5));
+  const hemi = new THREE.HemisphereLight(0x8aa0c0, 0x202428, 0.7);
+  const ambient = new THREE.AmbientLight(0x303848, 0.5);
+  scene.add(hemi, ambient);
 
   const toast = new Toast(e.camera);
   const fade = new Fade(e.camera, 0x000000);
@@ -52,10 +68,68 @@ export async function runGame(): Promise<void> {
     noise,
     monsters: () => monsters.map((m) => ({ pos: m.pos, kind: m.kind })),
     floorAt: (x, y, z) => facility.floorAt(x, y, z),
+    readLog: (id) => readLog(id),
   };
   const facility = new Facility(e);
   grab.floorAt = (x, y, z) => facility.floorAt(x, y, z);
   const lobby = new Lobby(e, save, ctx);
+
+  // A security monitor on the lobby wall.
+  const cctv = new CctvMap();
+  cctv.mesh.position.set(-7.25, 2.3, 6.55);
+  cctv.mesh.rotation.y = Math.PI;
+  scene.add(cctv.mesh);
+
+  // Lockers along the hall walls: hide in one and keep still.
+  const lockers: Locker[] = [];
+  for (const z of [26, 38, 50, 62]) {
+    lockers.push(new Locker(e, -19.3, z, 1), new Locker(e, 19.3, z, -1));
+    for (const x of [-19.4, 19.4]) {
+      facility.nav.setBlock(0, x - 0.7, x + 0.7, z - 0.6, z + 0.6, false);
+      facility.blockers.push({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 });
+    }
+  }
+
+  // Data logs on stands in every room.
+  const readLog = (id: number): void => {
+    const first = !save.data.logs.includes(id);
+    for (const [i, line] of LOGS[id].entries()) toast.show(line, i === 0 ? '#9ad8ff' : '#e8e8e8', 6);
+    if (first) {
+      save.data.logs.push(id);
+      save.addCredits(25);
+      toast.show(`+25 credits · ${save.data.logs.length}/8 logs`, '#e8d060', 4);
+      e.audio.play('chime');
+      lobby.refreshWardrobe();
+    }
+  };
+  ROOM_Z.forEach((zc, i) => {
+    for (const side of [1, -1]) {
+      const id = (side > 0 ? 0 : 4) + i;
+      const x = side * 21.3;
+      const z = zc + 4.5;
+      const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.0, 10), new THREE.MeshStandardMaterial({ color: 0x30363e, roughness: 0.5, metalness: 0.5 }));
+      stand.position.set(x, FLOOR_Y + 0.5, z);
+      scene.add(stand);
+      if (!save.data.logs.includes(id)) makeLog(ctx, new THREE.Vector3(x, FLOOR_Y + 1.08, z), id);
+    }
+  });
+
+  // Gear lying about the facility (fresh each run).
+  const worldGear: Item[] = [];
+  const spawnGear = (): void => {
+    for (const it of worldGear.splice(0)) {
+      if (it.held !== -1) continue;
+      grab.remove(it);
+      it.obj.parent?.remove(it.obj);
+    }
+    const spots = facility.gearSpots.slice().sort(() => Math.random() - 0.5).slice(0, 10);
+    spots.forEach((p, i) => {
+      const at = p.clone();
+      at.y += 0.15;
+      worldGear.push(i < 5 ? makeGlowstick(ctx, at, i) : i < 8 ? makeFlashlight(ctx, at) : makeRadar(ctx, at));
+    });
+  };
+  spawnGear();
 
   // --- Looks -----------------------------------------------------------------------------------------------------
   const worn: THREE.Object3D[] = [];
@@ -93,6 +167,9 @@ export async function runGame(): Promise<void> {
       o.traverse((c) => {
         if (c.userData.spin) c.rotation.y += dt * 20;
         if (c.userData.wing) c.rotation.z += Math.sin(e.time * 4) * 0.004 * c.userData.wing;
+        if (c.userData.pulse) c.scale.setScalar(1 + 0.25 * Math.sin(e.time * 6));
+        if (c.userData.ring) c.rotation.z += dt * c.userData.ring;
+        if (c.userData.swim) c.position.x = Math.sin(e.time * 1.4) * 0.12;
       });
     }
   });
@@ -104,7 +181,7 @@ export async function runGame(): Promise<void> {
   };
 
   // --- The things in the dark ------------------------------------------------------------------------------------------
-  const kinds: MonsterKind[] = ['stalker', 'skitter', 'warden'];
+  const kinds: MonsterKind[] = ['stalker', 'skitter', 'warden', 'mimic'];
   kinds.forEach((k, i) => monsters.push(new Monster(e, k, facility.spawns[i])));
   const resetMonsters = (): void => monsters.forEach((m, i) => m.place(facility.spawns[i % facility.spawns.length]));
 
@@ -135,6 +212,15 @@ export async function runGame(): Promise<void> {
   let relays = 0;
   const doorTimers = new Map<Door, number>();
 
+  let brokenFor = 0;
+  let blackout = 0;
+  let nextBlackout = rnd(90, 150);
+  let nextScare = rnd(10, 20);
+  let hideTimer = 0;
+  let hidden = false;
+  let findTimer = 0;
+  let hideLocker: Locker | null = null;
+  const fear = new Fade(e.camera, 0x500000);
   const inLobby = (): boolean => e.head.z < 7.3 && e.head.y > -1.5;
 
   const faceWindow = (): void => {
@@ -179,12 +265,16 @@ export async function runGame(): Promise<void> {
     facility.evacuate.enabled = false;
     resetMonsters();
     noises.length = 0;
+    blackout = 0;
+    nextBlackout = rnd(90, 150);
+    spawnGear();
   };
 
   const returnToLobby = (message: string): void => {
     e.respawn(LOBBY_SPAWN);
     faceWindow();
     resetRun();
+    lobby.glass.reset();
     dead = false;
     escaped = false;
     fade.setColor(0x000000);
@@ -273,8 +363,18 @@ export async function runGame(): Promise<void> {
     grab.update(dt);
 
     const lobbyNow = inLobby();
+    // Left alone, the broken window reseals itself after a while (the facility mends it).
+    if (lobby.glass.broken) {
+      brokenFor += dt;
+      const nearGlass = e.head.z > 5.4 && e.head.z < 8.4 && Math.abs(e.head.x) < 6.6 && e.head.y > -1;
+      if (brokenFor > 150 && !nearGlass) {
+        brokenFor = 0;
+        lobby.glass.reset(true);
+        toast.show('BLAST GLASS RESEALED', '#9ad8ff', 3);
+      }
+    } else brokenFor = 0;
     e.audio.setZone(facility.zoneAt(e.head));
-    facility.pulse(t);
+    facility.update(dt, t);
 
     // The hands, for doors and the window.
     const handInfo = [0, 1].map((i) => ({ pos: e.locomotion.hands[i].position, squeezed: e.hands.all[i].tracked && e.hands.all[i].squeezed }));
@@ -291,6 +391,7 @@ export async function runGame(): Promise<void> {
       lastItemPos.set(it, p.clone());
     }
     lobby.update(dt, t, handInfo.map((h) => h.pos), itemPos, itemSpeed);
+    cctv.update(dt, t, facility, monsters, lobbyNow ? null : e.feet);
 
     // The game proper: only while alive, and out of the lobby.
     const huntable = !lobbyNow && !dead && !escaped;
@@ -333,6 +434,37 @@ export async function runGame(): Promise<void> {
       }
     }
 
+    // Hiding in a locker: step in, keep still, and the door swings shut.
+    const still = e.locomotion.velocity.length() < 0.6;
+    let inLocker: Locker | null = null;
+    if (huntable) for (const l of lockers) if (l.contains(e.head)) inLocker = l;
+    if (inLocker && still) hideTimer += dt;
+    else hideTimer = 0;
+    const wasHidden = hidden;
+    hidden = !!inLocker && hideTimer > 0.7;
+    hideLocker = hidden ? inLocker : null;
+    if (hidden && !wasHidden) {
+      e.audio.play('doorLock', inLocker!.center, 0.8);
+      toast.show('HIDDEN', '#9ad8ff', 1.5);
+    }
+    for (const l of lockers) l.set(l.closed + ((l === hideLocker ? 1 : 0) - l.closed) * Math.min(1, dt * 6));
+    if (hideLocker) {
+      // Something hunting that comes right up to the locker may check it.
+      let close = false;
+      for (const m of monsters) if (m.state !== 'patrol' && m.state !== 'stunned' && Math.hypot(m.pos.x - hideLocker.center.x, m.pos.z - hideLocker.center.z) < 2.4) close = true;
+      if (close) {
+        findTimer += dt;
+        if (Math.floor(findTimer * 1.2) !== Math.floor((findTimer - dt) * 1.2)) {
+          e.audio.play('doorBang', hideLocker.center, 1);
+          e.buzz('both', 0.6, 110);
+        }
+        if (findTimer > 3.4) {
+          toast.show('FOUND', '#ff4040', 2);
+          die('caught');
+        }
+      } else findTimer = Math.max(0, findTimer - dt);
+    } else findTimer = 0;
+
     // The monsters.
     const torchOn = grab.items.some((it) => it.kind === 'torch' && it.held !== -1 && it.data.on === true);
     const layer: 0 | 1 = e.feet.y > -9 ? 1 : 0;
@@ -345,12 +477,19 @@ export async function runGame(): Promise<void> {
         feet: e.feet,
         head: e.head,
         huntable,
+        hidden,
         layer,
         lit: torchOn,
         noises,
         caught: () => die('caught'),
       });
     }
+
+    // The edges of your sight go red when something is on you.
+    let chaser = Infinity;
+    for (const m of monsters) if (m.state === 'hunt') chaser = Math.min(chaser, m.pos.distanceTo(e.head));
+    fear.target = huntable && chaser < 14 ? 0.5 * (1 - chaser / 14) : 0;
+    fear.update(dt, 3);
 
     // Heartbeat: it quickens when something hunting is near.
     let nearest = Infinity;
@@ -412,10 +551,38 @@ export async function runGame(): Promise<void> {
       }
     }
 
+    // The power fails now and then (stay still and use your own light), and things happen in the dark.
+    if (!dead && !escaped && !lobbyNow) {
+      nextBlackout -= dt;
+      if (nextBlackout <= 0 && lockdown <= 0 && blackout <= 0) {
+        nextBlackout = rnd(100, 170);
+        blackout = rnd(6, 9);
+        toast.show('POWER FAILURE', '#ff9a40', 4);
+        e.audio.play('static');
+        e.audio.play('thud', e.head, 1);
+        e.buzz('both', 0.5, 200);
+      }
+      nextScare -= dt;
+      if (nextScare <= 0) {
+        nextScare = rnd(12, 24);
+        const a = Math.random() * Math.PI * 2;
+        const far = _v.set(e.head.x + Math.cos(a) * rnd(10, 30), e.head.y, e.head.z + Math.sin(a) * rnd(10, 30)).clone();
+        const pick = Math.floor(Math.random() * 4);
+        if (pick === 0) e.audio.play('growl', far, 0.7);
+        else if (pick === 1) e.audio.play('doorBang', facility.doors[Math.floor(Math.random() * facility.doors.length)].center, 0.9);
+        else if (pick === 2) e.audio.play('static', far, 0.8);
+        else e.audio.play('skitter', far, 0.9);
+      }
+    }
+    if (blackout > 0) blackout -= dt;
+    hemi.intensity = blackout > 0 ? 0.08 : 0.7;
+    ambient.intensity = blackout > 0 ? 0.05 : 0.5;
+
     // Lights: the nearest fixtures really light, all of them flicker.
     for (const f of allFixtures) {
       const flick = Math.sin(t * 37 + f.phase) * Math.sin(t * 5.3 + f.phase * 2);
       let k = flick > 0.93 && f.pos.y < 3 ? 0.12 : 1;
+      if (blackout > 0) k = 0;
       if (lockdownRed > 0) k *= 0.45 + 0.55 * Math.abs(Math.sin(t * 5 + f.phase * 0.1));
       const col = (f.mesh.material as THREE.MeshBasicMaterial).color;
       if (lockdownRed > 0) col.copy(f.base).lerp(RED, lockdownRed * 0.8).multiplyScalar(k);
@@ -451,7 +618,8 @@ export async function runGame(): Promise<void> {
     __monke: { THREE, renderer: e.renderer, scene: e.scene, camera: e.camera, locomotion: e.locomotion, rig: e.rig, emulator: e.emulator, panels: e.panels },
     __game: {
       e, save, lobby, facility, monsters, grab, voice, noise, die, escape, pause,
-      state: () => ({ dead, escaped, lockdown, relays, runTime, runCredits, inLobby: inLobby() }),
+      state: () => ({ dead, escaped, lockdown, relays, runTime, runCredits, inLobby: inLobby(), hidden, blackout, logs: save.data.logs.length, gear: worldGear.length }),
+      readLog, lockers, startBlackout: () => (nextBlackout = 0.01),
       startLockdown: () => (nextLockdown = 0.01),
       faceWindow,
     },

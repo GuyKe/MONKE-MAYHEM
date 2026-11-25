@@ -9,6 +9,8 @@ export interface Profile {
   equipped: Record<Slot, string>;
   stats: { escapes: number; deaths: number; crushed: number; seconds: number };
   mic: boolean;
+  /** Data logs found (their numbers). */
+  logs: number[];
 }
 
 const KEY = 'lockdown.profile';
@@ -20,6 +22,7 @@ export const DEFAULT_PROFILE: Profile = {
   equipped: { hat: 'hat_none', skin: 'skin_orange', acc: 'acc_none' },
   stats: { escapes: 0, deaths: 0, crushed: 0, seconds: 0 },
   mic: false,
+  logs: [],
 };
 
 export class Save {

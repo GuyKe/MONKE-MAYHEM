@@ -6,6 +6,7 @@ import type { Engine } from './engine';
 import { CATWALK_Y, FLOOR_Y, Nav, colOf, rowOf, cellX, cellZ } from './nav';
 import { box, cyl, mat, part } from './shapes';
 import { slab, surface } from './textures';
+import { Dressing, ROOM_THEMES } from './rooms';
 
 export const HALL_TOP = 6;
 export const ROOM_Z = [20, 32, 44, 56];
@@ -53,8 +54,11 @@ export class Facility {
   /** Spots in rooms and the hall where gear lies. */
   readonly gearSpots: THREE.Vector3[] = [];
 
+  readonly dressing: Dressing;
+
   constructor(private readonly e: Engine) {
     e.scene.add(this.group);
+    this.dressing = new Dressing(e, this);
     this.buildShell();
     this.buildRooms();
     this.buildCatwalk();
@@ -62,6 +66,7 @@ export class Facility {
     this.buildExit();
     this.buildLights();
     this.buildNav();
+    this.dressing.dressHall();
   }
 
   // --- Pieces ----------------------------------------------------------------------------------------------------
@@ -137,17 +142,7 @@ export class Facility {
         this.lamp(new THREE.Vector3(side * 25, FLOOR_Y + 4.3, zc), 0xfff0d0, 0.9);
         this.gearSpots.push(new THREE.Vector3(side * 28.6, FLOOR_Y + 0.05, zc - 3));
         this.gearSpots.push(new THREE.Vector3(side * 28.6, FLOOR_Y + 0.05, zc + 3));
-        // Shelves and crates inside.
-        for (let k = 0; k < 3; k++) {
-          const sx = side * (22.5 + k * 2.6);
-          this.crate(sx, zc - 3.6 + (k % 2) * 0.3, 1.3, 1.3, 1.3, 0x3a4048, false);
-        }
-        this.crate(side * 27.5, zc + 3.7, 2.2, 1.6, 1.4, 0x5a4a30, false);
-        const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 4), surface('wall', 0.5, 3));
-        shelf.position.set(side * 29.7, FLOOR_Y + 1.5, zc);
-        this.group.add(shelf);
-        for (let sh = 0; sh < 3; sh++) part(this.group, box, 0x30363e, [side * 29.4, FLOOR_Y + 0.8 + sh * 0.9, zc], [0.5, 0.08, 4]);
-        for (let b = 0; b < 4; b++) part(this.group, cyl, [0xb02020, 0x2060b0, 0xe0b020][b % 3], [side * 28.6, FLOOR_Y + 0.55, zc - 1.5 + b * 1], [0.35, 0.5, 0.35]);
+        this.dressing.dressRoom(ROOM_THEMES[(side > 0 ? 0 : 4) + i], side, zc);
       });
     }
     // Two rooms hold the power relays.
@@ -358,6 +353,12 @@ export class Facility {
     for (const [x, z] of [[-16, 20], [16, 48], [0, 62.5]]) this.gearSpots.push(new THREE.Vector3(x, CATWALK_Y + 0.05, z));
     // Where monsters wake.
     this.spawns.push(new THREE.Vector3(-12, FLOOR_Y, 50), new THREE.Vector3(12, FLOOR_Y, 56), new THREE.Vector3(0, FLOOR_Y, 62), new THREE.Vector3(29, FLOOR_Y, 56), new THREE.Vector3(-29, FLOOR_Y, 44));
+  }
+
+  /** Everything in the facility that moves or blinks. */
+  update(dt: number, time: number): void {
+    this.pulse(time);
+    this.dressing.update(dt, time);
   }
 
   /** Spins the reactor glow. */

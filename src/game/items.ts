@@ -11,6 +11,8 @@ export interface ItemContext {
   /** The monsters, for the radar. */
   monsters(): Array<{ pos: THREE.Vector3; kind: string }>;
   floorAt(x: number, y: number, z: number): number;
+  /** A data log was read. */
+  readLog?(id: number): void;
 }
 
 export const GLOW_COLORS = [0x40ff60, 0xff3a3a, 0x40a0ff, 0xffd030, 0xff40e0];
@@ -189,6 +191,40 @@ export function makeRadar(ctx: ItemContext, at: THREE.Vector3): Item {
     },
     onImpact: (it, speed) => ctx.noise(it.obj.position, 2 + speed, 'radar drop'),
   });
+  ctx.grab.add(item);
+  return item;
+}
+
+/** A data log: a little tablet. Hold it for a moment and it plays what is on it. */
+export function makeLog(ctx: ItemContext, at: THREE.Vector3, id: number): Item {
+  const g = new THREE.Group();
+  part(g, box, 0x1a1e24, [0, 0, 0], [0.1, 0.008, 0.14], [0, 0, 0], 0, 0.3, 0.6);
+  const screen = part(g, box, 0x40ffa0, [0, 0.006, 0], [0.085, 0.003, 0.12], [0, 0, 0], 0x20c070);
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), new THREE.MeshBasicMaterial({ color: 0x40ffa0, transparent: true, opacity: 0.1, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  g.add(halo);
+  g.position.copy(at);
+  ctx.e.scene.add(g);
+  let held = 0;
+  const item = makeItem(g, 'log', 0.1, {
+    rest: 0.02,
+    gravity: 0,
+    holdQuat: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.6, 0, 0)),
+    onGrab: (it) => {
+      it.gravity = 9.8;
+      held = 0;
+    },
+    onHeld: (it, _h, _t, dt) => {
+      held += dt;
+      if (held > 0.9 && it.data.read !== true) {
+        it.data.read = true;
+        ctx.readLog?.(id);
+      }
+    },
+    tick: () => {
+      (screen.material as THREE.MeshStandardMaterial).emissiveIntensity = 1 + 0.5 * Math.sin(performance.now() / 300 + id);
+    },
+  });
+  item.data.id = id;
   ctx.grab.add(item);
   return item;
 }

@@ -24,6 +24,9 @@ export const SKINS: SkinDef[] = [
   { id: 'skin_crimson', name: 'CRIMSON', price: 200, suit: 0x9a1620, trim: 0x2a2a30, glow: 0xffd060, glove: 0x6a0e16 },
   { id: 'skin_neon', name: 'NEON RAVE', price: 400, suit: 0x6a2cff, trim: 0x20e0b0, glow: 0xff40d0, glove: 0x20e0b0 },
   { id: 'skin_gold', name: 'GOLD STANDARD', price: 1000, suit: 0xd8a820, trim: 0x2a2010, glow: 0xffffff, glove: 0xb88810 },
+  { id: 'skin_toxic', name: 'TOXIC GREEN', price: 250, suit: 0x4aa83a, trim: 0x1c2a18, glow: 0xd8ff40, glove: 0x2a7a20 },
+  { id: 'skin_ice', name: 'CRYO BLUE', price: 350, suit: 0xa8d8f0, trim: 0x3a5a78, glow: 0x80ffff, glove: 0x6aa8d0 },
+  { id: 'skin_void', name: 'VOID WALKER', price: 800, suit: 0x241838, trim: 0x0c0a14, glow: 0xc040ff, glove: 0x4a2a78 },
 ];
 
 export function skinById(id: string): SkinDef {
@@ -55,6 +58,8 @@ export function buildGloveGeometry(side: 1 | -1, radius: number, color: number):
     const len = f === 1 ? 0.062 : 0.052;
     put(b, sphere, at(x, -0.006, -0.08 - len * 0.15), sz(0.021, 0.022, len * 0.78), color, [0.25, 0, 0]);
     put(b, low, at(x, -0.02, -0.1 - len * 0.5), sz(0.017, 0.012, 0.016), dark);
+    put(b, cyl, at(x, -0.004, -0.095 - len * 0.2), sz(0.024, 0.006, 0.024), dark, [Math.PI / 2, 0, 0]); // a joint ring
+    put(b, box, at(x, 0.02, -0.085 - len * 0.3), sz(0.016, 0.006, 0.02), 0x303036); // a knuckle plate
   }
   put(b, sphere, at(0.055, 0.0, -0.03), sz(0.02, 0.02, 0.045), color, [0, -0.6, 0.2]);
   put(b, cyl, at(0, 0.006, 0.07), sz(0.05, 0.03, 0.05), dark, [Math.PI / 2, 0, 0]); // the cuff
@@ -66,26 +71,65 @@ const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 
 
 function buildTorsoGeo(skin: SkinDef): THREE.BufferGeometry {
   const b = new Baker();
-  put(b, cyl, [0, -0.19, 0.02], [0.075, 0.03, 0.075], skin.trim); // the neck ring
+  const metal = 0x50555e;
+  // A ribbed collar around the neck.
+  for (let i = 0; i < 3; i++) put(b, cyl, [0, -0.17 - i * 0.025, 0.02], [0.085 + i * 0.01, 0.012, 0.085 + i * 0.01], i % 2 ? metal : skin.trim);
   put(b, sphere, [0, -0.42, 0.03], [0.21, 0.2, 0.14], skin.suit); // chest
   put(b, sphere, [0, -0.56, 0.03], [0.17, 0.16, 0.12], skin.suit); // belly
   put(b, box, [0, -0.47, -0.105], [0.17, 0.12, 0.03], skin.trim); // chest plate
+  put(b, box, [0, -0.47, -0.122], [0.1, 0.05, 0.006], 0x14161a); // its window
+  // Chest vents.
+  for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) put(b, box, [sx * 0.13, -0.36 - i * 0.03, -0.1], [0.05, 0.008, 0.02], 0x14161a, [0, sx * 0.3, 0]);
+  // Shoulder pads with a stripe each, and a number plate.
   for (const sx of [-1, 1]) {
-    put(b, sphere, [sx * 0.25, -0.3, 0.03], [0.085, 0.07, 0.085], skin.trim); // shoulder pads
+    put(b, sphere, [sx * 0.25, -0.3, 0.03], [0.085, 0.07, 0.085], skin.trim);
+    put(b, box, [sx * 0.25, -0.26, 0.03], [0.06, 0.012, 0.075], skin.glove);
     put(b, box, [sx * 0.07, -0.58, -0.13], [0.04, 0.12, 0.012], skin.glove, [0, 0, sx * 0.2]);
   }
-  put(b, cone, [0, -0.78, 0.03], [0.17, 0.2, 0.17], skin.trim, [Math.PI, 0, 0]); // the taper to the hover unit
-  put(b, cyl, [0, -0.9, 0.03], [0.22, 0.045, 0.22], 0x1a1c22); // the hover unit
+  put(b, box, [0.13, -0.5, -0.12], [0.05, 0.035, 0.008], 0xe8e8e8); // a patch
+  // A belt with pouches.
+  put(b, cyl, [0, -0.66, 0.03], [0.175, 0.02, 0.145], 0x2a2a2e);
+  for (let i = 0; i < 7; i++) {
+    const a = -1.2 + (i / 6) * 2.4;
+    put(b, box, [Math.sin(a) * 0.17, -0.69, 0.03 - Math.cos(a) * 0.14], [0.04, 0.05, 0.03], i % 2 ? 0x4a4a52 : skin.trim, [0, a, 0]);
+  }
+  put(b, box, [0, -0.67, -0.17], [0.05, 0.035, 0.012], 0xd0c040); // a buckle
+  // The taper to the hover unit, fins and nozzles.
+  put(b, cone, [0, -0.78, 0.03], [0.17, 0.2, 0.17], skin.trim, [Math.PI, 0, 0]);
+  put(b, cyl, [0, -0.9, 0.03], [0.22, 0.045, 0.22], 0x1a1c22);
+  put(b, cyl, [0, -0.86, 0.03], [0.24, 0.015, 0.24], metal);
+  for (const sx of [-1, 1]) put(b, box, [sx * 0.2, -0.88, 0.1], [0.012, 0.07, 0.12], metal, [0, 0, sx * 0.4]);
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    put(b, cone, [Math.cos(a) * 0.17, -0.96, 0.03 + Math.sin(a) * 0.17], [0.035, 0.06, 0.035], 0x14161a, [Math.PI, 0, 0]);
+  }
+  // A power pack on the back, with two tanks and hoses.
+  put(b, box, [0, -0.44, 0.19], [0.24, 0.3, 0.1], metal);
+  put(b, box, [0, -0.44, 0.245], [0.2, 0.26, 0.015], skin.trim);
+  for (const sx of [-1, 1]) {
+    put(b, cyl, [sx * 0.085, -0.4, 0.27], [0.04, 0.2, 0.04], 0xcfd4d8);
+    put(b, cyl, [sx * 0.085, -0.28, 0.27], [0.045, 0.018, 0.045], 0x2a2a2e);
+    put(b, cyl, [sx * 0.15, -0.3, 0.12], [0.012, 0.11, 0.012], 0x14161a, [0, 0, sx * 0.9]); // a hose over the shoulder
+  }
   return b.build();
 }
 
 function buildHeadGeo(skin: SkinDef): THREE.BufferGeometry {
   const b = new Baker();
   put(b, sphere, [0, 0.0, 0.035], [0.165, 0.17, 0.175], skin.suit); // helmet
+  put(b, cyl, [0, 0.0, -0.075], [0.15, 0.012, 0.13], skin.trim, [Math.PI / 2, 0, 0]); // the visor rim
   put(b, box, [0, -0.115, -0.07], [0.09, 0.03, 0.05], skin.trim); // chin guard
-  for (const sx of [-1, 1]) put(b, cyl, [sx * 0.165, 0.0, 0.03], [0.045, 0.03, 0.045], skin.trim, [0, 0, Math.PI / 2]); // ear pods
+  put(b, cyl, [0.05, -0.12, -0.12], [0.006, 0.07, 0.006], 0x303036, [0.9, 0, 0.3]); // a microphone boom
+  put(b, sphere, [0.065, -0.135, -0.16], [0.012, 0.012, 0.012], 0x14161a);
+  for (const sx of [-1, 1]) {
+    put(b, cyl, [sx * 0.165, 0.0, 0.03], [0.045, 0.03, 0.045], skin.trim, [0, 0, Math.PI / 2]); // ear pods
+    put(b, cyl, [sx * 0.185, 0.0, 0.03], [0.025, 0.01, 0.025], 0x14161a, [0, 0, Math.PI / 2]);
+    for (let i = 0; i < 3; i++) put(b, box, [sx * 0.14, -0.05 - i * 0.02, -0.07], [0.012, 0.008, 0.04], 0x14161a, [0, sx * 0.5, 0]); // cheek vents
+  }
   put(b, cyl, [0.095, 0.2, 0.06], [0.008, 0.07, 0.008], 0x40444c); // antenna stalk
   put(b, sphere, [0, 0.17, 0.03], [0.07, 0.02, 0.07], skin.trim); // a crest
+  put(b, box, [0, 0.12, -0.12], [0.06, 0.012, 0.03], skin.glove, [0.5, 0, 0]); // a forehead lamp housing
+  put(b, cyl, [0, -0.03, 0.2], [0.03, 0.03, 0.03], 0x14161a, [Math.PI / 2, 0, 0]); // a cable port at the back
   return b.build();
 }
 
@@ -101,6 +145,10 @@ export class SubjectBody {
   private readonly elbows: [THREE.Mesh, THREE.Mesh];
   private visor!: THREE.Mesh;
   private glowParts: THREE.Mesh[] = [];
+  private blinkers: THREE.Mesh[] = [];
+  private thrusters: THREE.Mesh[] = [];
+  private hudLine: THREE.Mesh | null = null;
+  private clock = 0;
   private readonly armMat = new THREE.MeshStandardMaterial({ color: 0xe8731a, roughness: 0.5, metalness: 0.15 });
   private readonly foreMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.5, metalness: 0.3 });
   readonly forearm: [THREE.Vector3, THREE.Vector3] = [new THREE.Vector3(), new THREE.Vector3()];
@@ -124,7 +172,7 @@ export class SubjectBody {
     };
     const armGeo = new THREE.CylinderGeometry(0.05, 0.062, 1, 8);
     const foreGeo = new THREE.CylinderGeometry(0.042, 0.052, 1, 8);
-    const elbowGeo = new THREE.IcosahedronGeometry(0.058, 1);
+    const elbowGeo = new THREE.IcosahedronGeometry(0.062, 1);
     this.upper = [mk(armGeo, this.armMat), mk(armGeo, this.armMat)];
     this.fore = [mk(foreGeo, this.foreMat), mk(foreGeo, this.foreMat)];
     this.elbows = [mk(elbowGeo, this.foreMat), mk(elbowGeo, this.foreMat)];
@@ -156,7 +204,19 @@ export class SubjectBody {
     ring.rotation.x = Math.PI / 2;
     ring.position.set(0, -0.935, 0.03);
     this.torso.add(ring);
-    this.glowParts.push(this.visor, strip, bulb, chest, ring);
+    // The thrusters under the hover unit and two blinking lights on the pack, and a heads-up display across the visor.
+    const thrusters: THREE.Mesh[] = [];
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      thrusters.push(part(this.torso, cone, skin.glow, [Math.cos(a) * 0.17, -1.0, 0.03 + Math.sin(a) * 0.17], [0.02, 0.05, 0.02], [Math.PI, 0, 0], skin.glow));
+    }
+    const lampA = part(this.torso, sphere, 0xff3030, [-0.08, -0.33, 0.255], [0.014, 0.014, 0.01], [0, 0, 0], 0xff2020);
+    const lampB = part(this.torso, sphere, 0x30ff60, [0.08, -0.33, 0.255], [0.014, 0.014, 0.01], [0, 0, 0], 0x20c040);
+    const hud = part(this.head, box, skin.glow, [0, -0.025, -0.158], [0.07, 0.006, 0.006], [0, 0, 0], skin.glow);
+    this.blinkers = [lampA, lampB];
+    this.thrusters = thrusters;
+    this.hudLine = hud;
+    this.glowParts.push(this.visor, strip, bulb, chest, ring, ...thrusters, lampA, lampB, hud);
     this.applyLayers();
   }
 
@@ -171,6 +231,10 @@ export class SubjectBody {
   }
 
   update(dt: number, head: THREE.Vector3, headQuat: THREE.Quaternion, hands: [THREE.Vector3 | null, THREE.Vector3 | null]): void {
+    this.clock += dt;
+    this.blinkers.forEach((b, i) => (b.visible = Math.sin(this.clock * 4 + i * 3) > -0.2));
+    this.thrusters.forEach((t, i) => t.scale.set(0.02, 0.05 + 0.025 * Math.sin(this.clock * 20 + i), 0.02));
+    if (this.hudLine) this.hudLine.scale.x = 0.07 * (0.6 + 0.4 * Math.abs(Math.sin(this.clock * 1.7)));
     const fwd = _p.set(0, 0, -1).applyQuaternion(headQuat);
     if (Math.hypot(fwd.x, fwd.z) > 0.2) {
       const want = Math.atan2(-fwd.x, -fwd.z);

@@ -32,6 +32,9 @@ export class Glass {
   broken = false;
   cracks = 0;
   private readonly pane: THREE.Mesh;
+  private overlay!: THREE.Mesh;
+  private heal = 0;
+  private reform = 0;
   private readonly crackCanvas: HTMLCanvasElement;
   private readonly crackTex: THREE.CanvasTexture;
   private readonly hits: Array<{ u: number; v: number }> = [];
@@ -54,6 +57,7 @@ export class Glass {
     const overlay = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: this.crackTex, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
     overlay.position.set(0, (WIN_Y0 + WIN_Y1) / 2, WIN_Z - 0.01);
     this.group.add(overlay);
+    this.overlay = overlay;
     // A heavy frame, with a sign.
     const frameMat = surface('hazard', 1, 1);
     for (const [fw, fh, x, y] of [[w + 0.5, 0.25, 0, WIN_Y1 + 0.12], [w + 0.5, 0.25, 0, WIN_Y0 - 0.12], [0.25, h, -WIN_X - 0.12, (WIN_Y0 + WIN_Y1) / 2], [0.25, h, WIN_X + 0.12, (WIN_Y0 + WIN_Y1) / 2]] as Array<[number, number, number, number]>) {
@@ -127,7 +131,7 @@ export class Glass {
   private shatter(at: THREE.Vector3): void {
     this.broken = true;
     this.pane.visible = false;
-    (this.group.children[1] as THREE.Mesh).visible = false;
+    this.overlay.visible = false;
     if (this.collider) {
       this.e.removeSolid(this.collider);
       this.collider = null;
@@ -153,8 +157,45 @@ export class Glass {
     this.onShatter?.(at);
   }
 
+  /** The glass grows back: whole, uncracked, with a shimmer. */
+  reset(quiet = false): void {
+    if (!this.broken && this.cracks === 0) return;
+    this.broken = false;
+    this.cracks = 0;
+    this.hits.length = 0;
+    this.drawCracks();
+    this.pane.visible = true;
+    this.overlay.visible = true;
+    this.reform = 2.2;
+    if (!this.collider) this.collider = this.e.solid(0, (WIN_Y0 + WIN_Y1) / 2, WIN_Z, WIN_X, (WIN_Y1 - WIN_Y0) / 2, 0.05);
+    if (this.shards) {
+      this.e.scene.remove(this.shards);
+      this.shards = null;
+      this.shardData.length = 0;
+    }
+    if (!quiet) this.e.audio.play('unlock', new THREE.Vector3(0, 2.3, WIN_Z), 0.8);
+    this.onReset?.();
+  }
+
+  onReset: (() => void) | null = null;
+
   update(dt: number, hands: THREE.Vector3[], items: THREE.Vector3[], itemSpeeds: number[]): void {
     this.cooldown -= dt;
+    // New glass shimmers into place; small cracks mend if left alone.
+    const mat = this.pane.material as THREE.MeshStandardMaterial;
+    if (this.reform > 0) {
+      this.reform -= dt;
+      mat.opacity = 0.16 + Math.max(0, this.reform / 2.2) * 0.5 * (0.5 + 0.5 * Math.sin(this.reform * 30));
+    } else if (!this.broken) mat.opacity = 0.16;
+    if (!this.broken && this.cracks > 0) {
+      this.heal += dt;
+      if (this.heal > 25) {
+        this.heal = 0;
+        this.cracks--;
+        this.hits.shift();
+        this.drawCracks();
+      }
+    } else this.heal = 0;
     if (!this.broken) {
       for (let i = 0; i < hands.length; i++) {
         const p = hands[i];
@@ -403,7 +444,7 @@ export class Lobby {
     const s = this.save.data.stats;
     c.fillText(`CREDITS  ${this.save.data.credits}`, 24, 232);
     c.fillText(`ESCAPES  ${s.escapes}     DEATHS  ${s.deaths}`, 24, 264);
-    c.fillText(`CRUSHED  ${s.crushed}`, 24, 296);
+    c.fillText(`CRUSHED  ${s.crushed}     LOGS  ${this.save.data.logs.length}/8`, 24, 296);
     c.fillStyle = '#107a40';
     c.fillText(this.micCheck ? 'VOICE: LIVE (HEAR YOUR ECHO)' : 'VOICE CHAT: SPATIAL, ECHOES WITH THE ROOM', 24, 336);
     tex.needsUpdate = true;

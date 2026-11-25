@@ -77,6 +77,63 @@ export const HATS: Cosmetic[] = [
     },
   },
   {
+    id: 'hat_phones', slot: 'hat', name: 'HEADPHONES', price: 110, on: 'head',
+    build: () => group((g) => {
+      part(g, cyl, 0x2a2a30, [0, 0.17, 0.03], [0.17, 0.012, 0.02], [0, 0, Math.PI / 2]);
+      for (const sx of [-1, 1]) {
+        part(g, cyl, 0x303036, [sx * 0.185, 0.0, 0.03], [0.07, 0.04, 0.07], [0, 0, Math.PI / 2]);
+        part(g, cyl, 0xff4080, [sx * 0.21, 0.0, 0.03], [0.04, 0.01, 0.04], [0, 0, Math.PI / 2], 0xff2060);
+        part(g, cyl, 0x2a2a30, [sx * 0.17, 0.09, 0.03], [0.012, 0.1, 0.012]);
+      }
+    }),
+  },
+  {
+    id: 'hat_bunny', slot: 'hat', name: 'BUNNY EARS', price: 120, on: 'head',
+    build: () => group((g) => {
+      for (const sx of [-1, 1]) {
+        part(g, sphere, 0xf4f0f0, [sx * 0.07, 0.38, 0.03], [0.05, 0.2, 0.025], [0, 0, sx * 0.15]);
+        part(g, sphere, 0xff9ab0, [sx * 0.07, 0.38, 0.015], [0.03, 0.15, 0.01], [0, 0, sx * 0.15]);
+      }
+    }),
+  },
+  {
+    id: 'hat_mohawk', slot: 'hat', name: 'MOHAWK', price: 90, on: 'head',
+    build: () => group((g) => {
+      for (let i = 0; i < 9; i++) part(g, cone, [0xff2090, 0x20e0ff][i % 2], [0, 0.18 + Math.sin(i / 8 * Math.PI) * 0.06, 0.18 - i * 0.045], [0.02, 0.12 + Math.sin(i / 8 * Math.PI) * 0.1, 0.02], [0, 0, 0], [0xff2090, 0x20e0ff][i % 2]);
+    }),
+  },
+  {
+    id: 'hat_wizard', slot: 'hat', name: 'WIZARD HAT', price: 300, on: 'head',
+    build: () => group((g) => {
+      part(g, cyl, 0x3a2a80, [0, 0.13, 0.03], [0.24, 0.012, 0.24]);
+      part(g, cone, 0x3a2a80, [0, 0.34, 0.03], [0.14, 0.4, 0.14], [0.2, 0, 0.1]);
+      for (let i = 0; i < 4; i++) part(g, sphere, 0xffe060, [Math.sin(i * 1.6) * 0.07, 0.25 + i * 0.05, 0.03 + Math.cos(i * 1.6) * 0.07], [0.012, 0.012, 0.012], [0, 0, 0], 0xffd030);
+    }),
+  },
+  {
+    id: 'hat_dome', slot: 'hat', name: 'GLASS DOME', price: 220, on: 'head',
+    build: () => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.24, 18, 12), new THREE.MeshStandardMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.18, roughness: 0.05, metalness: 0.3, side: THREE.DoubleSide, depthWrite: false }));
+      m.position.set(0, 0, 0.03);
+      const g = new THREE.Group();
+      g.add(m);
+      part(g, cyl, 0xaaaaaa, [0, -0.2, 0.03], [0.22, 0.02, 0.22], [0, 0, 0], 0, 0.3, 0.8);
+      return g;
+    },
+  },
+  {
+    id: 'hat_fish', slot: 'hat', name: 'GOLDFISH BOWL', price: 260, on: 'head',
+    build: () => {
+      const g = new THREE.Group();
+      const m = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshStandardMaterial({ color: 0x80c0ff, transparent: true, opacity: 0.25, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false }));
+      m.position.set(0, 0.35, 0.03);
+      g.add(m);
+      const fish = part(g, sphere, 0xff8a20, [0, 0.35, 0.03], [0.04, 0.025, 0.02], [0, 0, 0], 0xff6a10);
+      fish.userData.swim = true;
+      return g;
+    },
+  },
+  {
     id: 'hat_prop', slot: 'hat', name: 'PROPELLER CAP', price: 150, on: 'head',
     build: () => {
       const g = group((gg) => {
@@ -134,6 +191,47 @@ export const ACCS: Cosmetic[] = [
           const f = part(g, box, i % 2 ? 0xdde8ff : 0xffffff, [sx * (0.15 + i * 0.07), -0.3 + i * 0.03, 0.2], [0.05, 0.5 - i * 0.04, 0.012], [0, 0, -sx * (0.5 + i * 0.1)], 0x304060);
           f.userData.wing = sx;
         }
+      }
+    }),
+  },
+  {
+    id: 'acc_reactor', slot: 'acc', name: 'CHEST REACTOR', price: 180, on: 'torso',
+    build: () => group((g) => {
+      part(g, cyl, 0x2a2e36, [0, -0.43, -0.13], [0.07, 0.02, 0.07], [Math.PI / 2, 0, 0], 0, 0.3, 0.8);
+      const core = part(g, sphere, 0x60ffff, [0, -0.43, -0.15], [0.04, 0.04, 0.02], [0, 0, 0], 0x20e0ff);
+      core.userData.pulse = true;
+    }),
+  },
+  {
+    id: 'acc_lamp', slot: 'acc', name: 'SHOULDER LAMP', price: 140, on: 'torso',
+    build: () => group((g) => {
+      part(g, cyl, 0x2a2e36, [0.27, -0.2, -0.02], [0.04, 0.04, 0.04], [Math.PI / 2, 0, 0]);
+      part(g, cyl, 0xfff6c0, [0.27, -0.2, -0.065], [0.032, 0.004, 0.032], [Math.PI / 2, 0, 0], 0xfff0a0);
+      part(g, cyl, 0x2a2e36, [0.27, -0.26, -0.02], [0.012, 0.06, 0.012]);
+    }),
+  },
+  {
+    id: 'acc_tail', slot: 'acc', name: 'CYBER TAIL', price: 160, on: 'torso',
+    build: () => group((g) => {
+      for (let i = 0; i < 8; i++) part(g, sphere, i % 2 ? 0x30343c : 0x505660, [0, -0.78 - i * 0.04, 0.2 + i * 0.07], [0.04 - i * 0.003, 0.04 - i * 0.003, 0.05], [0, 0, 0], i === 7 ? 0xff2060 : 0);
+    }),
+  },
+  {
+    id: 'acc_bandolier', slot: 'acc', name: 'BANDOLIER', price: 100, on: 'torso',
+    build: () => group((g) => {
+      part(g, box, 0x4a3a28, [0, -0.45, -0.1], [0.5, 0.05, 0.02], [0, 0, 0.7]);
+      for (let i = 0; i < 5; i++) part(g, cyl, 0xe0b020, [-0.12 + i * 0.06, -0.52 + i * 0.062 - 0.1, -0.12], [0.012, 0.035, 0.012], [0, 0, 0]);
+    }),
+  },
+  {
+    id: 'acc_jets', slot: 'acc', name: 'JET RINGS', price: 450, on: 'torso',
+    build: () => group((g) => {
+      for (let i = 0; i < 3; i++) {
+        const t = new THREE.Mesh(new THREE.TorusGeometry(0.26 + i * 0.05, 0.008, 6, 28), new THREE.MeshBasicMaterial({ color: [0x40e0ff, 0xff40d0, 0xffe040][i] }));
+        t.rotation.x = Math.PI / 2;
+        t.position.set(0, -0.9 - i * 0.05, 0.03);
+        t.userData.ring = i + 1;
+        g.add(t);
       }
     }),
   },
