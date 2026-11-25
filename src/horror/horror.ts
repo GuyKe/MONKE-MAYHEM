@@ -151,6 +151,7 @@ export async function runHorror(): Promise<void> {
     }
   };
 
+  rt.onA = () => goToMode('hub'); // A on the right controller
   const label = document.createElement('div');
   label.textContent = 'HORROR · find the EXIT. The green room is safe.';
   label.style.cssText = 'position:fixed;top:12px;left:12px;z-index:100000;color:#d04040;font:600 13px/1.4 system-ui;letter-spacing:.15em;pointer-events:none';

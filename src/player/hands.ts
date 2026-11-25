@@ -48,6 +48,11 @@ export class Hand {
     return this.source?.gamepad?.axes[2] ?? 0;
   }
 
+  /** True while the lower face button (A on the right controller, X on the left) is held. */
+  get faceButton(): boolean {
+    return this.source?.gamepad?.buttons[4]?.pressed ?? false;
+  }
+
   /** True while the grip button is held. */
   get squeezed(): boolean {
     return this.source?.gamepad?.buttons[1]?.pressed ?? false;

@@ -46,6 +46,8 @@ export interface Runtime {
   /** The right controller's object (a flashlight can be parented to it). */
   controllerFor(hand: 0 | 1): THREE.Object3D;
   respawn(): void;
+  /** Called when the A button (right controller) is pressed. */
+  onA: (() => void) | null;
   /** Called every frame after the player has moved. */
   onFrame: (dt: number) => void;
   /** Adds a static solid box to the physics world. */
@@ -108,6 +110,7 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
     controllerFor: (hand) => controllers[renderer.xr.getControllerGrip(1) === hands.all[hand].grip ? 1 : 0],
     respawn: () => locomotion.respawn(spawn),
     onFrame: () => {},
+    onA: null,
     solidBox: (cx, cy, cz, hx, hy, hz) => {
       const c = world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(cx, cy, cz).setCollisionGroups(WORLD_GROUPS).setFriction(0.9));
       setSurface(c, SURFACES.stone);
@@ -126,6 +129,7 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   const hud = document.getElementById('hud');
   if (hud) hud.style.display = 'none';
 
+  let wasA = false;
   const clock = new THREE.Clock();
   const killY = options.killY ?? -30;
   renderer.setAnimationLoop((_t, frame?: XRFrame) => {
@@ -168,6 +172,9 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
         } else rays[i] = null;
       }
       panels.update([hands.left.tracked ? locomotion.hands[0].position : null, hands.right.tracked ? locomotion.hands[1].position : null], rays);
+      const a = hands.right.tracked && hands.right.faceButton;
+      if (a && !wasA) runtime.onA?.();
+      wasA = a;
       if (rig.position.y < killY) locomotion.respawn(spawn);
     }
     runtime.onFrame(dt);

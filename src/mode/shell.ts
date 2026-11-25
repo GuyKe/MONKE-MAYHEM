@@ -13,6 +13,7 @@ export function addLobbyButton(rt: Runtime, at: THREE.Vector3, label = 'BACK TO 
 
 /** The title in the corner of the desktop window, the L key, and the debugging hook. */
 export function finishMode(rt: Runtime, title: string, color: string, hooks: Record<string, unknown>): void {
+  rt.onA = () => goToMode('hub'); // A on the right controller
   const label = document.createElement('div');
   label.textContent = title;
   label.style.cssText = `position:fixed;top:12px;left:12px;z-index:100000;color:${color};font:600 13px/1.4 system-ui;letter-spacing:.15em;pointer-events:none`;

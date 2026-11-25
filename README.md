@@ -365,5 +365,5 @@ The game opens in a **lobby**: a huge black platform. Walk (or swing) down it; t
 | **VACUUM** | a gorilla riding a vacuum like a cowboy | You are tiny in a giant house. A vacuum patrols and sucks you in; it can't fit under the couch. Escape through the mouse hole. |
 | **O ALGO** | the picture chasing a gorilla | On the moon (low gravity), the picture hunts you. Find three glowing rocket parts, install them, launch. Guns kill the picture, but it comes back. |
 
-URLs: `?mode=hub` (default), `?mode=jungle` (older `?play`/`?seed=`/`?join=` links still open the jungle), `?mode=horror`, `?mode=madness`, `?mode=cooking`, `?mode=huss`, `?mode=vacuum`, `?mode=algo`. **L** on the desktop emulator goes back to the lobby from any mode; each mode also has a BACK TO LOBBY button.
+URLs: `?mode=hub` (default), `?mode=jungle` (older `?play`/`?seed=`/`?join=` links still open the jungle), `?mode=horror`, `?mode=madness`, `?mode=cooking`, `?mode=huss`, `?mode=vacuum`, `?mode=algo`. Press **A** (right controller), or **L** on the desktop emulator, to go back to the lobby from any mode; each mode also has a BACK TO LOBBY button.
 Desktop emulator keys for the new modes: Q/E = left/right grip, Z/X = left/right trigger.
