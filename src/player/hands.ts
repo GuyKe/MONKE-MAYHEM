@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { LOCOMOTION } from '../config';
-import { buildHandGeometry } from './body';
+import { buildGloveGeometry } from '../game/avatar';
 
 export type Handedness = 'left' | 'right';
 
@@ -16,13 +16,13 @@ export class Hand {
   readonly ghost: THREE.Mesh;
 
   private readonly material: THREE.MeshLambertMaterial;
-  private readonly idleColor = new THREE.Color(0x4a3426);
-  private readonly contactColor = new THREE.Color(0x7a5a3e);
+  private readonly idleColor = new THREE.Color(0xffffff);
+  private readonly contactColor = new THREE.Color(0xbfe0ff);
 
   constructor(readonly handedness: Handedness, scene: THREE.Scene, private readonly rig: THREE.Object3D) {
     const r = LOCOMOTION.handRadius;
     this.material = new THREE.MeshLambertMaterial({ color: this.idleColor, vertexColors: true, flatShading: true });
-    this.mesh = new THREE.Mesh(buildHandGeometry(handedness === 'left' ? 1 : -1, r), this.material);
+    this.mesh = new THREE.Mesh(buildGloveGeometry(handedness === 'left' ? 1 : -1, r, 0xd05a10), this.material);
     this.mesh.visible = false;
     scene.add(this.mesh);
 
@@ -32,6 +32,12 @@ export class Hand {
     );
     this.ghost.visible = false;
     scene.add(this.ghost);
+  }
+
+  /** Changes the colour of the glove. */
+  setGlove(color: number, radius = LOCOMOTION.handRadius): void {
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = buildGloveGeometry(this.handedness === 'left' ? 1 : -1, radius, color);
   }
 
   get tracked(): boolean {
