@@ -177,8 +177,9 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
       const leftPos = left.localPosition(handLocals[0]);
       const rightPos = right.localPosition(handLocals[1]);
       armSpan.estimateFromHeight(headLocal.y);
-      armSpan.update(dt, headLocal, leftPos, rightPos, left.squeezed, right.squeezed);
-      locomotion.reachScale = armSpan.scale;
+      // (No T-pose calibration here: holding both grips with the arms out, as you do with a gun in each hand, must not quietly change your reach.)
+      // The reach stays within a sane range, so a bad saved span can never pull your hands in to your chest.
+      locomotion.reachScale = Math.min(1.12, Math.max(0.88, armSpan.scale));
       locomotion.update(dt, headLocal, [leftPos, rightPos]);
       hands.all.forEach((hand, i) => {
         const contact = locomotion.hands[i];
