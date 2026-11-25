@@ -3,7 +3,7 @@ import { sign } from '../mode/figures';
 import { goToMode } from '../mode/nav';
 import { createRuntime } from '../mode/runtime';
 import { addLobbyButton, Fade, finishMode } from '../mode/shell';
-import { vacuum } from '../mode/things';
+import { Screen, vacuum } from '../mode/things';
 import { WorldButton } from '../ui/panel';
 
 function rnd(a: number, b: number): number {
@@ -122,6 +122,69 @@ export async function runVacuum(): Promise<void> {
   leaves.position.set(52, 17, -34);
   scene.add(leaves);
 
+  // More of the house: a television, a lamp, pictures, pillows, a pencil, dust bunnies and cereal to collect.
+  const tv = new Screen(30, 17, 2);
+  tv.group.position.set(-12, 18, HZ - 2.6);
+  tv.group.rotation.y = Math.PI;
+  scene.add(tv.group);
+  box(40, 8, 9, 0x4a2c18, -12, 0, HZ - 6, true);
+  const tvLight = new THREE.PointLight(0x80a0ff, 120, 60, 1.6);
+  tvLight.position.set(-12, 14, HZ - 12);
+  scene.add(tvLight);
+  const lampPole = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 36, 8), new THREE.MeshLambertMaterial({ color: 0x2a2a2e }));
+  lampPole.position.set(-HX + 6, 18, 36);
+  const shade = new THREE.Mesh(new THREE.CylinderGeometry(5, 8, 8, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffe0a0, side: THREE.DoubleSide, fog: false }));
+  shade.position.set(-HX + 6, 38, 36);
+  scene.add(lampPole, shade);
+  rt.solidBox(-HX + 6, 18, 36, 0.8, 18, 0.8);
+  const lampLight = new THREE.PointLight(0xffd890, 220, 80, 1.5);
+  lampLight.position.set(-HX + 6, 36, 36);
+  scene.add(lampLight);
+  const frameColors = [0xc03030, 0x3070c0, 0x30a050, 0xe0b030];
+  for (let i = 0; i < 4; i++) {
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(12, 9, 0.6), trimMat);
+    frame.position.set(HX - 0.4, 30 + (i % 2) * 6, -30 + i * 18);
+    frame.rotation.y = -Math.PI / 2;
+    const art = new THREE.Mesh(new THREE.PlaneGeometry(10.4, 7.4), new THREE.MeshLambertMaterial({ color: frameColors[i] }));
+    art.position.copy(frame.position).add(new THREE.Vector3(-0.35, 0, 0));
+    art.rotation.y = -Math.PI / 2;
+    scene.add(frame, art);
+  }
+  for (let i = 0; i < 4; i++) {
+    const pil = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({ color: [0xe0b030, 0xc03030, 0x30a0a0, 0xe0e0d0][i], flatShading: true }));
+    pil.scale.set(5, 2.4, 4);
+    pil.position.set(couch.x - 15 + i * 9, couch.gap + 7.4, couch.z + 2);
+    pil.rotation.y = rnd(-0.5, 0.5);
+    scene.add(pil);
+  }
+  const pencil = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 44, 6), new THREE.MeshLambertMaterial({ color: 0xe0b020 }));
+  pencil.rotation.z = Math.PI / 2;
+  pencil.position.set(42, 1.1, 30);
+  pencil.rotation.y = 0.4;
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(1.1, 4, 6), new THREE.MeshLambertMaterial({ color: 0x303030 }));
+  tip.rotation.z = Math.PI / 2;
+  tip.position.set(42 - 24, 1.1, 30 + 24 * Math.sin(0.4) * 0.4);
+  scene.add(pencil);
+  void tip;
+  const bunnies: Array<{ m: THREE.Mesh; x: number; z: number; a: number }> = [];
+  for (let i = 0; i < 14; i++) {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4, 1), new THREE.MeshLambertMaterial({ color: 0x8a8a8e, flatShading: true }));
+    const b = { m, x: rnd(-HX + 8, HX - 8), z: rnd(-HZ + 8, HZ - 8), a: rnd(0, 6) };
+    m.position.set(b.x, 1.4, b.z);
+    scene.add(m);
+    bunnies.push(b);
+  }
+  const crumbs: Array<{ m: THREE.Mesh; x: number; z: number; alive: boolean }> = [];
+  for (let i = 0; i < 28; i++) {
+    const m = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.5, 6, 12), new THREE.MeshLambertMaterial({ color: [0xe0b050, 0xd08030, 0xc0a060][i % 3], flatShading: true }));
+    m.rotation.x = Math.PI / 2;
+    const c = { m, x: rnd(-HX + 6, HX - 6), z: rnd(-HZ + 6, HZ - 6), alive: true };
+    m.position.set(c.x, 0.6, c.z);
+    scene.add(m);
+    crumbs.push(c);
+  }
+  let crumbCount = 0;
+
   // The way out: a hole in the baseboard.
   const hole = { x: -HX + 0.5, z: -HZ + 14 };
   const arch = new THREE.Mesh(new THREE.CircleGeometry(5, 20, 0, Math.PI).rotateY(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xfff0b0, fog: false, side: THREE.DoubleSide }));
@@ -228,7 +291,7 @@ export async function runVacuum(): Promise<void> {
     let diff = want - vac.heading;
     diff -= Math.round(diff / (Math.PI * 2)) * Math.PI * 2;
     vac.heading += Math.max(-1.6 * dt, Math.min(1.6 * dt, diff));
-    const goal = won || respawning > 0 ? 0 : vac.state === 'chase' ? 6.2 : 3.6;
+    const goal = won || respawning > 0 ? 0 : vac.state === 'chase' ? 7.2 : 4.2;
     vac.speed += (goal * (Math.abs(diff) > 1.2 ? 0.3 : 1) - vac.speed) * Math.min(1, dt * 2);
     vac.x += -Math.sin(vac.heading) * vac.speed * dt;
     vac.z += -Math.cos(vac.heading) * vac.speed * dt;
@@ -255,6 +318,28 @@ export async function runVacuum(): Promise<void> {
     v.group.updateMatrixWorld(true);
     mouth.copy(mouthLocal);
     v.group.localToWorld(mouth);
+    // The house is alive: the television flickers, dust bunnies roll, cereal waits to be eaten.
+    tv.tick(time);
+    tvLight.intensity = 90 + Math.sin(time * 17) * 30 * Math.sin(time * 3);
+    for (const b of bunnies) {
+      b.a += (Math.random() - 0.5) * dt * 3;
+      b.x = Math.max(-HX + 4, Math.min(HX - 4, b.x + Math.cos(b.a) * dt * 2));
+      b.z = Math.max(-HZ + 4, Math.min(HZ - 4, b.z + Math.sin(b.a) * dt * 2));
+      b.m.position.set(b.x, 1.4, b.z);
+      b.m.rotation.x += dt * 2;
+      b.m.rotation.z += dt;
+    }
+    for (const cr of crumbs) {
+      if (!cr.alive) continue;
+      cr.m.rotation.z += dt;
+      if (Math.hypot(px - cr.x, pz - cr.z) < 2.2 && feet < 3) {
+        cr.alive = false;
+        cr.m.visible = false;
+        crumbCount++;
+        rt.award(2, 'cereal');
+        rt.audio.play('eat');
+      }
+    }
     // Its breath.
     if (!won) {
       const toX = mouth.x - px;
@@ -306,6 +391,7 @@ export async function runVacuum(): Promise<void> {
     // Out through the hole?
     if (!won && Math.hypot(px - hole.x, pz - hole.z) < 5) {
       won = true;
+      rt.award(250, 'ESCAPED!');
       escaped.mesh.visible = true;
       rt.audio.play('unlock');
     }
@@ -314,5 +400,5 @@ export async function runVacuum(): Promise<void> {
     status.setLabel(won ? 'Free!' : hidden ? 'Hidden under the couch' : vac.state === 'chase' ? 'IT SEES YOU' : `Find the hole · sucked ${deaths}x`);
   };
 
-  finishMode(rt, 'VACUUM · you are tiny. Avoid its mouth, hide under the couch, reach the mouse hole. L = lobby', '#ffb090', { vac, blocks, state: () => ({ won, deaths }), hole, couch });
+  finishMode(rt, 'VACUUM · you are tiny. Avoid its mouth, hide under the couch, reach the mouse hole. L = lobby', '#ffb090', { vac, blocks, state: () => ({ won, deaths, crumbs: crumbCount }), hole, couch });
 }

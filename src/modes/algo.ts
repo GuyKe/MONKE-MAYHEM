@@ -6,7 +6,7 @@ import { goToMode } from '../mode/nav';
 import { addGun, Grabbables, makeItem, raySphere, Tracers, type Item } from '../mode/props';
 import { createRuntime } from '../mode/runtime';
 import { addLobbyButton, Fade, finishMode, say } from '../mode/shell';
-import { earth, rocket } from '../mode/things';
+import { car, earth, rocket } from '../mode/things';
 import { WorldButton } from '../ui/panel';
 
 function rnd(a: number, b: number): number {
@@ -103,6 +103,95 @@ export async function runAlgo(): Promise<void> {
     scene.add(m);
     if (r > 2) rt.solidBox(x, r * 0.35, z, r * 0.6, r * 0.35, r * 0.6);
   }
+  // --- Details: craters, glowing crystals, a base, antennas, a wrecked rover, crates -----------------------------------
+  for (let i = 0; i < 16; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = rnd(25, 280);
+    const r = rnd(5, 20);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.78, r, 28).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xa8a8ae, side: THREE.DoubleSide }));
+    ring.position.set(Math.cos(a) * d, 0.04, Math.sin(a) * d);
+    const pit = new THREE.Mesh(new THREE.CircleGeometry(r * 0.78, 28).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x5a5a60 }));
+    pit.position.copy(ring.position);
+    pit.position.y = 0.03;
+    scene.add(ring, pit);
+  }
+  const crystalMats = [0x40e0ff, 0xff40d0, 0x80ff60].map((c) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.85, fog: false }));
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = rnd(15, 240);
+    const cx = Math.cos(a) * d;
+    const cz = Math.sin(a) * d;
+    const mat = crystalMats[i % 3];
+    for (let k = 0; k < 5; k++) {
+      const h = rnd(0.8, 3.2);
+      const cr = new THREE.Mesh(new THREE.ConeGeometry(rnd(0.15, 0.4), h, 5), mat);
+      cr.position.set(cx + rnd(-1, 1), h / 2, cz + rnd(-1, 1));
+      cr.rotation.set(rnd(-0.4, 0.4), 0, rnd(-0.4, 0.4));
+      scene.add(cr);
+    }
+    const lamp = new THREE.PointLight(mat.color, 8, 10, 1.8);
+    lamp.position.set(cx, 1.2, cz);
+    if (i < 3) scene.add(lamp);
+  }
+  // A base: a dome and a block, with a lit window.
+  const baseX = -65;
+  const baseZ = -60;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(9, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x9ad0e8, transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
+  dome.position.set(baseX, 0, baseZ);
+  scene.add(dome);
+  for (let i = 0; i < 6; i++) {
+    const rib = new THREE.Mesh(new THREE.TorusGeometry(9, 0.12, 5, 24, Math.PI), new THREE.MeshLambertMaterial({ color: 0xcfd2d6 }));
+    rib.position.set(baseX, 0, baseZ);
+    rib.rotation.y = (i / 6) * Math.PI;
+    scene.add(rib);
+  }
+  const block = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 9), new THREE.MeshLambertMaterial({ color: 0xcfd2d6 }));
+  block.position.set(baseX + 14, 2.5, baseZ);
+  scene.add(block);
+  rt.solidBox(baseX + 14, 2.5, baseZ, 6, 2.5, 4.5);
+  const windowLight = new THREE.Mesh(new THREE.PlaneGeometry(5, 1.6), new THREE.MeshBasicMaterial({ color: 0xffe9a0, fog: false }));
+  windowLight.position.set(baseX + 7.95, 3, baseZ);
+  windowLight.rotation.y = -Math.PI / 2;
+  scene.add(windowLight);
+  const baseLabel = sign('MOON BASE ALGO', '#ffe9a0', 8);
+  baseLabel.position.set(baseX + 7.9, 6.2, baseZ);
+  baseLabel.rotation.y = -Math.PI / 2;
+  scene.add(baseLabel);
+  // Antennas with blinking lights.
+  const blinkers: THREE.Mesh[] = [];
+  for (let i = 0; i < 5; i++) {
+    const ax = baseX + rnd(-20, 28);
+    const az = baseZ + rnd(-25, 25);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.18, 14, 6), new THREE.MeshLambertMaterial({ color: 0xcfd2d6 }));
+    mast.position.set(ax, 7, az);
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(1.4, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2.2), new THREE.MeshLambertMaterial({ color: 0xe0e0e4, side: THREE.DoubleSide }));
+    dish.position.set(ax, 11, az);
+    dish.rotation.x = Math.PI * 0.75;
+    const blink = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 0), new THREE.MeshBasicMaterial({ color: 0xff2020, fog: false }));
+    blink.position.set(ax, 14.2, az);
+    scene.add(mast, dish, blink);
+    blinkers.push(blink);
+  }
+  // A wrecked rover and supply crates.
+  const rover = car(0x8a8a90, true);
+  rover.scale.setScalar(1.7);
+  rover.position.set(34, 0.3, -42);
+  rover.rotation.set(0.12, 0.7, 0.25);
+  scene.add(rover);
+  rt.solidBox(34, 0.9, -42, 2.4, 0.9, 3.2);
+  for (let i = 0; i < 9; i++) {
+    const cx = baseX + 20 + rnd(-6, 6);
+    const cz = baseZ + 8 + rnd(0, 8);
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), new THREE.MeshLambertMaterial({ color: i % 2 ? 0xe0b020 : 0x3a3a40 }));
+    crate.position.set(cx, 0.7, cz);
+    crate.rotation.y = rnd(0, 3);
+    scene.add(crate);
+    rt.solidBox(cx, 0.7, cz, 0.7, 0.7, 0.7);
+  }
+  // Shooting stars.
+  const streak = new THREE.Mesh(new THREE.PlaneGeometry(40, 0.25), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, fog: false, side: THREE.DoubleSide }));
+  scene.add(streak);
+  let streakT = 5;
   // A flag where you landed, and your tracks.
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 3, 6), new THREE.MeshLambertMaterial({ color: 0xdddddd }));
   pole.position.set(2, 1.5, 3);
@@ -197,6 +286,7 @@ export async function runAlgo(): Promise<void> {
     best.pop = 0.5;
     best.respawn = rnd(7, 10);
     kills++;
+    rt.award(5, 'shot');
     rt.audio.play('pop', _a.set(best.x, 1.6, best.z), 1);
     return origin.clone().addScaledVector(dir, bestT);
   };
@@ -210,10 +300,10 @@ export async function runAlgo(): Promise<void> {
   // --- The picture -----------------------------------------------------------------------------------------------
   const pic = algoPicture();
   const makeEnemy = (): Enemy => {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: pic, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide, toneMapped: false, fog: false }));
-    mesh.scale.set(3.2, 3.2, 1);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: pic, transparent: true, alphaTest: 0.08, side: THREE.DoubleSide, toneMapped: false, fog: false }));
+    mesh.scale.set(3.4, 3.4, 1);
     scene.add(mesh);
-    const e: Enemy = { mesh, x: 0, z: 0, phase: Math.random() * 6, alive: true, respawn: 0, pop: 0, speed: rnd(3.6, 4.6) };
+    const e: Enemy = { mesh, x: 0, z: 0, phase: Math.random() * 6, alive: true, respawn: 0, pop: 0, speed: rnd(4.8, 6.2) };
     place(e);
     enemies.push(e);
     return e;
@@ -268,6 +358,7 @@ export async function runAlgo(): Promise<void> {
     p.item.obj.scale.setScalar(kind === 'chip' ? 1.5 : 2);
     scene.remove(p.beacon);
     installed++;
+    rt.award(40, 'part installed');
     rt.audio.play('unlock');
     rt.hands.all.forEach((h) => h.pulse(0.8, 150));
     if (installed === 3) {
@@ -283,6 +374,19 @@ export async function runAlgo(): Promise<void> {
     time += dt;
     grabbables.update(dt);
     tracers.update(dt);
+    blinkers.forEach((b, i) => (b.visible = Math.sin(time * 3 + i) > 0));
+    streakT -= dt;
+    if (streakT <= 0) {
+      streakT = rnd(4, 9);
+      streak.userData.life = 0.7;
+      streak.position.set(rt.head.x + rnd(-100, 100), rnd(80, 200), rt.head.z - 250);
+      streak.rotation.z = rnd(-0.6, 0.6);
+    }
+    if ((streak.userData.life ?? 0) > 0) {
+      streak.userData.life -= dt;
+      streak.position.x += 300 * dt;
+      (streak.material as THREE.MeshBasicMaterial).opacity = Math.max(0, streak.userData.life * 1.4);
+    }
     starPoints.position.set(rt.head.x, 0, rt.head.z);
     home.rotation.y += dt * 0.02;
     flag.rotation.y = Math.sin(time * 0.7) * 0.15;
@@ -345,7 +449,7 @@ export async function runAlgo(): Promise<void> {
         e.phase += dt * 3.2;
         // Hopping, in low gravity.
         e.mesh.position.set(e.x, 1.7 + Math.abs(Math.sin(e.phase)) * 1.6, e.z);
-        e.mesh.rotation.set(0, Math.atan2(dx, dz), Math.sin(e.phase * 0.5) * 0.12);
+        e.mesh.rotation.set(0, Math.atan2(dx, dz), 0);
         if (respawning <= 0 && d < 1.5 && Math.abs(rt.head.y - 1.7) < 3) {
           deaths++;
           respawning = 1.4;
@@ -387,6 +491,7 @@ export async function runAlgo(): Promise<void> {
       if (phaseTime > 8) {
         phase = 'home';
         phaseTime = 0;
+        rt.award(250, 'HOME!');
         rt.respawn();
         enemies.forEach((e) => (e.mesh.visible = false));
         ship.position.y = -50;

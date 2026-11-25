@@ -11,6 +11,8 @@ import type { DesktopEmulator } from '../debug/desktop';
 import type { PointerRay } from '../ui/laser';
 import { Panels } from '../ui/panel';
 import { Settings } from '../settings';
+import { Progress } from '../progress';
+import { Toast, wear, rankLine } from './rank';
 
 export interface RuntimeOptions {
   background: number;
@@ -21,6 +23,8 @@ export interface RuntimeOptions {
   killY?: number;
   /** Text under the VR button before entering VR. */
   title?: string;
+  /** How much faster than normal you walk (the lobby is quickest). */
+  walkSpeed?: number;
 }
 
 /**
@@ -46,6 +50,13 @@ export interface Runtime {
   /** The right controller's object (a flashlight can be parented to it). */
   controllerFor(hand: 0 | 1): THREE.Object3D;
   respawn(): void;
+  /** Your level and rank (kept in this browser). */
+  progress: Progress;
+  /** Gives XP, with a little banner (and a bigger one for a new level). */
+  award(xp: number, why?: string): void;
+  toast: Toast;
+  /** Things that run every frame before `onFrame`. */
+  updaters: Array<(dt: number) => void>;
   /** Called when the A button (right controller) is pressed. */
   onA: (() => void) | null;
   /** Called every frame after the player has moved. */
@@ -83,6 +94,9 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   const hands = new Hands(renderer, rig, scene);
   const body = new Body(scene);
   const locomotion = new Locomotion(world, rig);
+  locomotion.speedScale = options.walkSpeed ?? 1.6;
+  const progress = new Progress();
+  const toast = new Toast(camera);
   const armSpan = new ArmSpan();
   const audio = new GameAudio();
   audio.setVolume(settings.data.volume);
@@ -111,12 +125,25 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
     respawn: () => locomotion.respawn(spawn),
     onFrame: () => {},
     onA: null,
+    progress,
+    toast,
+    updaters: [],
+    award: (xp, why) => {
+      const levelled = progress.add(xp);
+      toast.show(`+${xp} XP${why ? ' · ' + why : ''}`, '#ffe9a0', 1.6);
+      if (levelled) {
+        toast.show(`LEVEL UP! ${rankLine(progress)}`, progress.rank.color, 4);
+        wear(runtime, progress.level);
+        audio.play('unlock');
+      }
+    },
     solidBox: (cx, cy, cz, hx, hy, hz) => {
       const c = world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(cx, cy, cz).setCollisionGroups(WORLD_GROUPS).setFriction(0.9));
       setSurface(c, SURFACES.stone);
     },
   };
 
+  wear(runtime, progress.level);
   const vrButton = VRButton.createButton(renderer);
   if (emulator) vrButton.textContent = 'ENTER VR (DESKTOP EMULATOR)';
   document.body.appendChild(vrButton);
@@ -177,6 +204,8 @@ export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
       wasA = a;
       if (rig.position.y < killY) locomotion.respawn(spawn);
     }
+    toast.update(dt);
+    for (const u of runtime.updaters) u(dt);
     runtime.onFrame(dt);
     const physicsDt = Math.min(Math.max(dt, 1 / 144), 1 / 20);
     world.timestep = physicsDt;

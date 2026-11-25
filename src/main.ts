@@ -46,6 +46,8 @@ import { SaveStore, type SaveData } from './save';
 import type { DesktopEmulator } from './debug/desktop';
 import { DAY_SECONDS, FOG_SCALE, SHARPNESS, Settings, TREE_SPACING_M, TURN_SPEED_DEG, VIEW_DISTANCE_M } from './settings';
 import { Menu } from './ui/menu';
+import { Progress } from './progress';
+import { wear } from './mode/rank';
 import { Hand } from './player/hands';
 
 async function main(): Promise<void> {
@@ -414,6 +416,9 @@ async function main(): Promise<void> {
     pulse: (strength: number, ms: number) => hand.pulse(strength, ms),
   })) as [HandView, HandView];
   const locomotion = new Locomotion(world, rig);
+  locomotion.speedScale = 1.35; // a little quicker on foot
+  const cosmetics = { body, hands, updaters: [] as Array<(dt: number) => void> };
+  wear(cosmetics as unknown as Parameters<typeof wear>[0], new Progress().level);
   locomotion.waterAt = forestRef ? forestRef.waterLevelAt : null;
   const vitals = new Vitals();
   const vitalsView = new VitalsView(scene, camera, vitals);
@@ -773,6 +778,7 @@ async function main(): Promise<void> {
     // Playing alone, the pause menu stops the world (others in a multiplayer game cannot be stopped).
     const paused = pause.open && !net.connected;
     if (paused) dt = 0;
+    for (const u of cosmetics.updaters) u(dt);
     perf.lap('emulator');
 
     if (frame && renderer.xr.isPresenting) {

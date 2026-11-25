@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { sign } from '../mode/figures';
+import { buildGorilla, plinth, sign } from '../mode/figures';
+import { cape, dressHead, wings } from '../mode/rank';
+import { accessoryTier, RANKS, xpCost, xpForLevel } from '../progress';
 import { STATUES, type Statue } from './statues';
 import { createRuntime } from '../mode/runtime';
 import { WorldButton } from '../ui/panel';
@@ -17,7 +19,7 @@ export async function runHub(): Promise<void> {
   const LENGTH = 176;
   const WIDTH = 46;
   const CENTER = -64;
-  const rt = await createRuntime({ background: 0x000000, spawn: new THREE.Vector3(0, 0, 18), killY: -8 });
+  const rt = await createRuntime({ background: 0x000000, spawn: new THREE.Vector3(0, 0, 18), killY: -8, walkSpeed: 2.6 });
   const { scene } = rt;
 
   // --- The platform ------------------------------------------------------------------
@@ -80,6 +82,78 @@ export async function runHub(): Promise<void> {
     buttons[spec.mode] = button;
     placed.push({ spec, statue, x, z, button });
   });
+
+  // --- Your rank: a board, the ladder of ranks, and a statue of you ---------------------------------------
+  const progress = rt.progress;
+  const board = rt.panels.add(new WorldButton(scene, `LEVEL ${progress.level} · ${progress.rank.name}`, 5.2, 0.8, '#1a2a44'));
+  board.enabled = false;
+  board.mesh.position.set(-9, 6.4, 6);
+  const level = progress.level;
+  board.setLabel(`LEVEL ${progress.level} · ${progress.rank.name}`);
+  if (progress.trusted) {
+    const trusted = rt.panels.add(new WorldButton(scene, '★ TRUSTED USER ★', 3.2, 0.5, '#8a6a10'));
+    trusted.enabled = false;
+    trusted.mesh.position.set(-9, 7.2, 6);
+    trusted.setLabel('★ TRUSTED USER ★');
+  }
+  const xpBoard = rt.panels.add(new WorldButton(scene, '', 4, 0.5, '#2a2a3a'));
+  xpBoard.enabled = false;
+  xpBoard.mesh.position.set(-9, 5.5, 6);
+  xpBoard.setLabel(`${progress.xp - xpForLevel(level)} / ${xpCost(level + 1)} XP to level ${level + 1}`);
+  const tier = accessoryTier(level);
+  const me = buildGorilla('dummy', { fur: 0x4a382c, face: 0xb48c6a, belly: 0x6c5442 });
+  me.group.scale.setScalar(2.2);
+  me.group.position.set(-9, 0.5, 6);
+  me.group.rotation.y = Math.PI; // facing you
+  dressHead(me.head, tier, 0.1);
+  if (tier >= 1) {
+    const c = cape();
+    c.position.set(0, 0.95, 0.2);
+    c.scale.setScalar(1.6);
+    me.group.add(c);
+  }
+  if (tier >= 2) {
+    const w = wings(1.6);
+    w.position.set(0, 0.85, 0.22);
+    me.group.add(w);
+  }
+  const mePlinth = plinth(2.6, 0.5, 2.6);
+  mePlinth.position.set(-9, 0.25, 6);
+  scene.add(mePlinth, me.group);
+  const lines = RANKS.slice().reverse();
+  const ladder = document.createElement('canvas');
+  ladder.width = 512;
+  ladder.height = 400;
+  const lc = ladder.getContext('2d')!;
+  lc.fillStyle = 'rgba(10,14,28,0.85)';
+  lc.fillRect(0, 0, 512, 400);
+  lc.strokeStyle = '#3a4a7a';
+  lc.lineWidth = 6;
+  lc.strokeRect(3, 3, 506, 394);
+  lc.font = 'bold 34px system-ui';
+  lc.textBaseline = 'middle';
+  lines.forEach((r, i) => {
+    const y = 36 + i * 50;
+    lc.fillStyle = r.color;
+    lc.textAlign = 'left';
+    lc.fillText(r.name, 28, y);
+    lc.textAlign = 'right';
+    lc.fillText(r.level === 0 ? '' : r.level >= 200 ? '200+' : `${r.level}`, 484, y);
+  });
+  lc.font = '22px system-ui';
+  lc.fillStyle = '#ffd860';
+  lc.textAlign = 'center';
+  lc.fillText('Level 50+ = TRUSTED USER: cool accessories', 256, 384);
+  const ladderTex = new THREE.CanvasTexture(ladder);
+  ladderTex.colorSpace = THREE.SRGBColorSpace;
+  const ladderMesh = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 3.28), new THREE.MeshBasicMaterial({ map: ladderTex, toneMapped: false }));
+  ladderMesh.position.set(9, 3.6, 6);
+  scene.add(ladderMesh);
+  const rankLight = new THREE.PointLight(0xfff0d0, 260, 28, 1.5);
+  rankLight.position.set(-6, 5, 10);
+  const ladderLight = new THREE.PointLight(0xd0e0ff, 120, 22, 1.6);
+  ladderLight.position.set(9, 4, 10);
+  scene.add(rankLight, ladderLight);
 
   // A few spotlights that follow you down the hall and light the nearest statues.
   const pool = [0, 1, 2, 3].map(() => {

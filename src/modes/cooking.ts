@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { bakeGroup } from '../mode/bake';
+import { bakeGorilla } from '../mode/bake';
 import { buildGorilla, sign, chefHat } from '../mode/figures';
 import { createRuntime } from '../mode/runtime';
 import { Grabbables, makeItem, type Item } from '../mode/props';
-import { addLobbyButton, finishMode } from '../mode/shell';
-import { blender, chainsaw, oven, stove } from '../mode/things';
+import { addLobbyButton, Fade, finishMode } from '../mode/shell';
+import { blender, chainsaw, oven, stove, hsl } from '../mode/things';
 import { WorldButton } from '../ui/panel';
 import { GORILLAS } from '../hub/statues';
 
@@ -141,6 +142,68 @@ export async function runCooking(): Promise<void> {
   scene.add(ovenGlow);
   const smokeMat = new THREE.MeshBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.5, depthWrite: false });
 
+  // --- Studio dressing: lights, cameras, a fridge, and two giant monsters flanking the stage -----------------------
+  const onAir = sign('ON AIR', '#ff3030', 6);
+  onAir.position.set(0, 9, -25.4);
+  scene.add(onAir);
+  const truss = new THREE.Mesh(new THREE.BoxGeometry(46, 0.4, 0.4), new THREE.MeshLambertMaterial({ color: 0x2a2a30 }));
+  truss.position.set(0, 14, 2);
+  scene.add(truss);
+  const lamps: THREE.Mesh[] = [];
+  for (let i = 0; i < 9; i++) {
+    const col = hsl(i / 9, 0.9, 0.6);
+    const lamp = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.2, 8, 1, true), new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide, fog: false }));
+    lamp.position.set(-20 + i * 5, 13.2, 2);
+    lamp.rotation.x = Math.PI;
+    scene.add(lamp);
+    lamps.push(lamp);
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 1.6, 12, 10, 1, true).translate(0, -6, 0), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.07, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }));
+    beam.position.copy(lamp.position);
+    scene.add(beam);
+  }
+  for (const sx of [-1, 1]) {
+    const cam = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.8, 1.4), new THREE.MeshLambertMaterial({ color: 0x24242a }));
+    body.position.y = 1.9;
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.7, 12).rotateX(Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x111116 }));
+    lens.position.set(0, 1.9, -1.0);
+    const rec = new THREE.Mesh(new THREE.IcosahedronGeometry(0.07, 0), new THREE.MeshBasicMaterial({ color: 0xff2020 }));
+    rec.position.set(0.3, 2.35, -0.4);
+    cam.add(body, lens, rec);
+    for (let i = 0; i < 3; i++) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.9, 5), new THREE.MeshLambertMaterial({ color: 0x555560 }));
+      const a = (i / 3) * Math.PI * 2;
+      leg.position.set(Math.cos(a) * 0.5, 0.95, Math.sin(a) * 0.5);
+      leg.rotation.set(Math.sin(a) * 0.25, 0, -Math.cos(a) * 0.25);
+      cam.add(leg);
+    }
+    cam.position.set(sx * 11, 0, 11);
+    cam.rotation.y = sx * -0.5;
+    scene.add(cam);
+  }
+  box1(scene, 2.2, 3.6, 1.6, 0xcfd2d6, -14, 1.8, -3);
+  box1(scene, 2.0, 0.12, 0.05, 0x888890, -14, 3.2, -2.18);
+  for (const sx of [-1, 1]) {
+    const m = bakeGorilla(buildGorilla('monster', GORILLAS.monster));
+    m.group.scale.setScalar(5.2);
+    m.group.position.set(sx * 21, 0, -3);
+    m.group.rotation.y = -sx * Math.PI * 0.5 + sx * 0.3;
+    m.arms[0].rotation.x = 2.2;
+    m.arms[1].rotation.x = 2.2;
+    const saw = chainsaw();
+    saw.group.scale.setScalar(2.4);
+    saw.group.position.set(0, 4.6, -1.8);
+    saw.group.rotation.set(-1.3, 0, 0);
+    saw.blood = 1;
+    m.group.add(saw.group);
+    scene.add(m.group);
+    rt.updaters.push((dt) => {
+      saw.update(dt, true);
+      m.group.rotation.z = Math.sin(performance.now() / 700 + sx) * 0.02;
+    });
+  }
+  rt.updaters.push(() => lamps.forEach((l, i) => ((l.material as THREE.MeshBasicMaterial).color.setHSL(((performance.now() / 4000) + i / 9) % 1, 0.9, 0.6))));
+
   // Where things can rest.
   const grabbables = new Grabbables(rt);
   grabbables.allowed = [true, false];
@@ -188,6 +251,40 @@ export async function runCooking(): Promise<void> {
     dropGeo.getAttribute('position').needsUpdate = true;
   };
   for (let i = 0; i < 25; i++) decal(rnd(-8, 8), 0, rnd(-4, 9), rnd(0.2, 0.8));
+
+  // Gore: chunks that fly, bleeding stumps, and blood on the lens.
+  interface Gib {
+    m: THREE.Mesh;
+    vel: THREE.Vector3;
+    spin: THREE.Vector3;
+    life: number;
+    landed: boolean;
+  }
+  const gibMats = [0x8a0c10, 0xb01418, 0xd04050, 0xe8a0a8, 0xece0d0, 0x5a0808].map((c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true }));
+  const gibGeos = [new THREE.BoxGeometry(1, 1, 1), new THREE.IcosahedronGeometry(0.7, 0), new THREE.CylinderGeometry(0.3, 0.3, 1.6, 6)];
+  const gibs: Gib[] = [];
+  for (let i = 0; i < 160; i++) {
+    const m = new THREE.Mesh(gibGeos[i % 3], gibMats[i % gibMats.length]);
+    m.visible = false;
+    scene.add(m);
+    gibs.push({ m, vel: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0, landed: false });
+  }
+  let gibCursor = 0;
+  const spawnGibs = (at: THREE.Vector3, n: number, power: number): void => {
+    for (let k = 0; k < n; k++) {
+      const g = gibs[gibCursor++ % gibs.length];
+      g.m.visible = true;
+      g.m.position.copy(at);
+      g.m.scale.setScalar(rnd(0.04, 0.14));
+      g.m.rotation.set(rnd(0, 6), rnd(0, 6), rnd(0, 6));
+      g.vel.set(rnd(-1, 1) * power, rnd(0.4, 1.4) * power, rnd(-1, 1) * power);
+      g.spin.set(rnd(-12, 12), rnd(-12, 12), rnd(-12, 12));
+      g.life = 14;
+      g.landed = false;
+    }
+  };
+  const bleeders: Array<{ piece: Piece; t: number }> = [];
+  const lens = new Fade(rt, 0x7a0408);
 
   // --- People and pieces ---------------------------------------------------------------------------------------------------
   const personGeos = PALETTES.map((p) => {
@@ -323,11 +420,16 @@ export async function runCooking(): Promise<void> {
       if (!old) break;
       dispose(old);
     }
-    splash(point, 70, 5, normal);
+    splash(point, 150, 6.5, normal);
+    spawnGibs(point, 22, 4.2);
+    for (const m of made) bleeders.push({ piece: m, t: rnd(1.5, 3.2) });
+    if (point.distanceTo(rt.head) < 4) lens.level = Math.min(0.7, lens.level + 0.45);
+    for (let w = 0; w < 4; w++) decal(point.x + rnd(-1.4, 1.4), grabbables.floorAt(point.x, point.z), point.z + rnd(-1.4, 1.4), rnd(0.2, 0.9));
     decal(point.x, grabbables.floorAt(point.x, point.z), point.z, rnd(0.3, 0.7));
     rt.audio.play('splat', point, 1);
     rt.audio.play('hurt', origin, 0.9);
     score.cuts++;
+    rt.award(3, 'slice');
     refreshScore();
     if (hand !== -1) rt.hands.all[hand].pulse(1, 120);
     for (const q of pieces) if (q.kind === 'person' && Math.random() < 0.25) rt.audio.play('hurt', q.root.position, 0.4);
@@ -421,8 +523,12 @@ export async function runCooking(): Promise<void> {
         p.root.scale.setScalar(s);
         if (s >= PERSON_SCALE) p.timer = 0;
       }
-      // Cheering in the stands.
+      // Cheering in the stands, all eyes on you.
       if (p.seat >= 0 && p.item.held === -1) {
+        const want = Math.atan2(-(rt.head.x - p.root.position.x), -(rt.head.z - p.root.position.z));
+        let dd = want - p.root.rotation.y;
+        dd -= Math.round(dd / (Math.PI * 2)) * Math.PI * 2;
+        p.root.rotation.y += dd * Math.min(1, dt * 4);
         p.root.position.y = p.base.y + Math.abs(Math.sin(time * 5 + p.phase)) * 0.12;
         p.root.rotation.z = Math.sin(time * 4 + p.phase) * 0.06;
       }
@@ -445,6 +551,7 @@ export async function runCooking(): Promise<void> {
           if (p.cook > 4 && p.item.data.cooked !== true) {
             p.item.data.cooked = true;
             score.cooked++;
+            rt.award(20, 'cooked');
             refreshScore();
             rt.audio.play('chime');
           }
@@ -469,6 +576,7 @@ export async function runCooking(): Promise<void> {
         if (Math.random() < dt * 8) rt.audio.play('whirr', _a, 0.6);
         if (p.timer <= 0) {
           score.blended++;
+          rt.award(15, 'blended');
           refreshScore();
           dispose(p);
           decal(-7, 1.1, -3, 0.4);
@@ -487,6 +595,7 @@ export async function runCooking(): Promise<void> {
           p.mat.color.setRGB(0.25, 0.15, 0.1);
           p.cook = 5;
           score.baked++;
+          rt.award(20, 'baked');
           refreshScore();
           rt.audio.play('pop', p.root.position, 1);
           for (let i = 0; i < 6; i++) puff(_a.set(7 + rnd(-0.5, 0.5), 1.4 + rnd(0, 0.6), -1.5));
@@ -495,6 +604,38 @@ export async function runCooking(): Promise<void> {
     }
     if (!pieces.some((p) => p.state === 'oven')) ovenGlow.intensity = Math.max(0, ovenGlow.intensity - dt * 120);
 
+    // Gore: bleeding stumps, flying chunks, blood on the lens.
+    for (let i = bleeders.length - 1; i >= 0; i--) {
+      const b = bleeders[i];
+      b.t -= dt;
+      if (b.t <= 0 || !pieces.includes(b.piece)) {
+        bleeders.splice(i, 1);
+        continue;
+      }
+      splash(b.piece.root.position, 2, 2.2);
+      if (Math.random() < dt * 2) rt.audio.play('splat', b.piece.root.position, 0.4);
+    }
+    for (const g of gibs) {
+      if (!g.m.visible) continue;
+      g.life -= dt;
+      if (g.life <= 0) {
+        g.m.visible = false;
+        continue;
+      }
+      if (g.landed) continue;
+      g.vel.y -= 9.8 * dt;
+      g.m.position.addScaledVector(g.vel, dt);
+      g.m.rotation.x += g.spin.x * dt;
+      g.m.rotation.y += g.spin.y * dt;
+      const fl = grabbables.floorAt(g.m.position.x, g.m.position.z);
+      if (g.m.position.y < fl + 0.03) {
+        g.m.position.y = fl + 0.03;
+        g.landed = true;
+        decal(g.m.position.x, fl, g.m.position.z, rnd(0.1, 0.3));
+        if (Math.random() < 0.25) rt.audio.play('splat', g.m.position, 0.3);
+      }
+    }
+    lens.update(dt);
     // Blood falling.
     for (let i = 0; i < MAX_DROPS; i++) {
       if (dropLife[i] <= 0) continue;
@@ -505,7 +646,7 @@ export async function runCooking(): Promise<void> {
       dropPos[i * 3 + 2] += dropVel[i * 3 + 2] * dt;
       const floorY = grabbables.floorAt(dropPos[i * 3], dropPos[i * 3 + 2]);
       if (dropPos[i * 3 + 1] < floorY + 0.02) {
-        if (Math.random() < 0.18 && floorY === 0) decal(dropPos[i * 3], 0, dropPos[i * 3 + 2], rnd(0.05, 0.22));
+        if (Math.random() < 0.22) decal(dropPos[i * 3], floorY, dropPos[i * 3 + 2], rnd(0.05, 0.26));
         dropLife[i] = 0;
         dropPos[i * 3 + 1] = -100;
       }
@@ -537,4 +678,10 @@ export async function runCooking(): Promise<void> {
   };
 
   finishMode(rt, 'COOKING SHOW! · right trigger: chainsaw · left grip: grab (E / X / Q on desktop). L = lobby', '#ffa040', { grabbables, pieces, slice, saw, score: () => score, seats });
+}
+
+function box1(scene: THREE.Scene, w: number, h: number, d: number, color: number, x: number, y: number, z: number): void {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
+  m.position.set(x, y, z);
+  scene.add(m);
 }

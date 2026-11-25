@@ -367,3 +367,18 @@ The game opens in a **lobby**: a huge black platform. Walk (or swing) down it; t
 
 URLs: `?mode=hub` (default), `?mode=jungle` (older `?play`/`?seed=`/`?join=` links still open the jungle), `?mode=horror`, `?mode=madness`, `?mode=cooking`, `?mode=huss`, `?mode=vacuum`, `?mode=algo`. Press **A** (right controller), or **L** on the desktop emulator, to go back to the lobby from any mode; each mode also has a BACK TO LOBBY button.
 Desktop emulator keys for the new modes: Q/E = left/right grip, Z/X = left/right trigger.
+
+## Levels and ranks
+
+Playing the minigames earns **XP** (slicing and cooking in Cooking Show, surviving in Huss Huss Huss, shooting and escaping in the other modes, almond water, cereal, trampolines…). XP makes **levels**, kept in this browser. Your rank shows on the board next to the statue of you at the lobby spawn:
+
+| Level | Rank |
+| --- | --- |
+| 1 | BEGINNER |
+| 5 | OK |
+| 10 | GREAT |
+| 50 | MASTER (and **Trusted user**) |
+| 100 | HOW |
+| 200+ | HOW THE HELL |
+
+From level 50 you are a **Trusted user** with accessories: a crown, a halo, a cape and gold bracers on your hands. At 100 you also get wings and orbiting lights, and at 200 horns and pink orbs. Walking is faster everywhere (quickest in the lobby).

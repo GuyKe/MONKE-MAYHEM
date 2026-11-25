@@ -62,6 +62,8 @@ export class Locomotion {
   readonly velocity = new THREE.Vector3();
   readonly hands: [HandContact, HandContact];
   grounded = false;
+  /** Walking and running on the ground goes this many times faster than the hands push (1 = normal). */
+  speedScale = 1;
   /** Multiplies every hand offset from the head. Set from the player's arm span. */
   reachScale = 1;
   /** While true, hands pass through built structures (so a joint can be tied). */
@@ -204,6 +206,7 @@ export class Locomotion {
     this.waterLevel = level ?? -Infinity;
     _stroke.set(0, 0, 0);
     let touchingCount = 0;
+    let floorHits = 0;
     const probe = Math.max(2 * C.gravity * dt * dt, C.contactProbe);
 
     for (let i = 0; i < 2; i++) {
@@ -267,6 +270,7 @@ export class Locomotion {
 
         movement.add(_corr);
         touchingCount++;
+        if (_normal.y > 0.6) floorHits++;
         hand.touching = true;
       } else {
         // No contact. The hand carries on from where the controller is, not
@@ -277,6 +281,11 @@ export class Locomotion {
       }
     }
     if (touchingCount > 1) movement.divideScalar(touchingCount);
+    // Pushing off the ground carries you further (the walking speed setting).
+    if (touchingCount > 0 && floorHits === touchingCount && this.speedScale !== 1) {
+      movement.x *= this.speedScale;
+      movement.z *= this.speedScale;
+    }
 
     // --- 2. Free flight --------------------------------------------------------
     if (touchingCount === 0) {

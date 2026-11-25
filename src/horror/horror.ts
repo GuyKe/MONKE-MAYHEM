@@ -123,6 +123,7 @@ export async function runHorror(): Promise<void> {
       // The way out.
       if (Math.hypot(feet.x - exitCenter.x, feet.z - exitCenter.z) < 1.4 && feet.y < 1.2) {
         won = true;
+        rt.award(200, 'ESCAPED!');
         escaped.mesh.visible = true;
         rt.audio.play('unlock');
         monster.sendAway(9999);

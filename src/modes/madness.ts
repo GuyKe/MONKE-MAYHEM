@@ -27,6 +27,7 @@ const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _c = new THREE.Color();
+const _a2 = new THREE.Vector3();
 
 function rnd(a: number, b: number): number {
   return a + Math.random() * (b - a);
@@ -256,6 +257,7 @@ export async function runMadness(): Promise<void> {
     best.vel.set((Math.random() - 0.5) * 8, rnd(14, 26), (Math.random() - 0.5) * 8);
     best.spin.set(rnd(-9, 9), rnd(-9, 9), rnd(-9, 9));
     yeeted++;
+    rt.award(2, 'yeet');
     status.setLabel(`Yeeted: ${yeeted}`);
     rt.audio.play(best.chicken ? 'squawk' : 'pop', end, 1);
     return end;
@@ -265,11 +267,91 @@ export async function runMadness(): Promise<void> {
     addGun(rt, grabbables, tracers, at, hitProp, hsl(i / 14, 0.7, 0.4));
   }
 
+  const hue = new THREE.Color();
+  // --- Extra madness: trampolines, speakers with a beat, lasers, confetti, fireworks ------------------------------------------
+  const pads: Array<{ pos: THREE.Vector3; mesh: THREE.Mesh }> = [];
+  for (let i = 0; i < 10; i++) {
+    const at = around(8, 70);
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 0.5, 20), new THREE.MeshLambertMaterial({ color: hsl(i / 10, 1, 0.55), emissive: hsl(i / 10, 1, 0.3) }));
+    pad.position.set(at.x, 0.25, at.z);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.25, 6, 24), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(at.x, 0.5, at.z);
+    scene.add(pad, ring);
+    pads.push({ pos: at, mesh: pad });
+  }
+  const speakers: THREE.Group[] = [];
+  for (let i = 0; i < 8; i++) {
+    const g = new THREE.Group();
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(3, 5, 2.4), new THREE.MeshLambertMaterial({ color: 0x18181c }));
+    cab.position.y = 2.5;
+    g.add(cab);
+    for (const y of [1.5, 3.6]) {
+      const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.2, 16).rotateX(Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x333339, emissive: 0x2a0030 }));
+      cone.position.set(0, y, -1.25);
+      g.add(cone);
+    }
+    const at = around(6, 40);
+    g.position.set(at.x, 0, at.z);
+    g.lookAt(0, 0, 0);
+    scene.add(g);
+    speakers.push(g);
+  }
+  const lasers: THREE.Mesh[] = [];
+  for (let i = 0; i < 8; i++) {
+    const l = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 140, 6).translate(0, 70, 0), new THREE.MeshBasicMaterial({ color: hsl(i / 8, 1, 0.6), transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    const at = around(10, 80);
+    l.position.set(at.x, 0, at.z);
+    scene.add(l);
+    lasers.push(l);
+  }
+  const CONF = 600;
+  const confPos = new Float32Array(CONF * 3);
+  const confCol = new Float32Array(CONF * 3);
+  for (let i = 0; i < CONF; i++) {
+    confPos.set([rnd(-25, 25), rnd(0, 18), rnd(-25, 25)], i * 3);
+    hue.setHSL(Math.random(), 1, 0.6);
+    confCol.set([hue.r, hue.g, hue.b], i * 3);
+  }
+  const confGeo = new THREE.BufferGeometry();
+  confGeo.setAttribute('position', new THREE.BufferAttribute(confPos, 3));
+  confGeo.setAttribute('color', new THREE.BufferAttribute(confCol, 3));
+  const confetti = new THREE.Points(confGeo, new THREE.PointsMaterial({ size: 0.22, vertexColors: true, sizeAttenuation: true }));
+  confetti.frustumCulled = false;
+  scene.add(confetti);
+  const FW = 900;
+  const fwPos = new Float32Array(FW * 3);
+  const fwVel = new Float32Array(FW * 3);
+  const fwCol = new Float32Array(FW * 3);
+  const fwLife = new Float32Array(FW);
+  for (let i = 0; i < FW; i++) fwPos[i * 3 + 1] = -500;
+  const fwGeo = new THREE.BufferGeometry();
+  fwGeo.setAttribute('position', new THREE.BufferAttribute(fwPos, 3));
+  fwGeo.setAttribute('color', new THREE.BufferAttribute(fwCol, 3));
+  const fireworks = new THREE.Points(fwGeo, new THREE.PointsMaterial({ size: 0.9, vertexColors: true, sizeAttenuation: true, fog: false, blending: THREE.AdditiveBlending, depthWrite: false }));
+  fireworks.frustumCulled = false;
+  scene.add(fireworks);
+  let fwCursor = 0;
+  const burst = (at: THREE.Vector3): void => {
+    hue.setHSL(Math.random(), 1, 0.6);
+    for (let k = 0; k < 90; k++) {
+      const i = fwCursor++ % FW;
+      const v = new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(8, 22));
+      fwPos.set([at.x, at.y, at.z], i * 3);
+      fwVel.set([v.x, v.y, v.z], i * 3);
+      fwCol.set([hue.r, hue.g, hue.b], i * 3);
+      fwLife[i] = rnd(1.2, 2.4);
+    }
+    rt.audio.play('bang', at, 0.5);
+  };
+  let fireworkTimer = 1;
+  let beat = 0;
+  let boing = 0;
+
   // --- Every frame ----------------------------------------------------------------------------------------------
   let time = 0;
   let screamTimer = 0;
   let noiseTimer = 0;
-  const hue = new THREE.Color();
   rt.onFrame = (dt) => {
     time += dt;
     grabbables.update(dt);
@@ -289,6 +371,57 @@ export async function runMadness(): Promise<void> {
       b.rotation.set(time * (0.6 + i * 0.1), time * 1.1, 0);
       b.position.y += Math.sin(time * 2 + i) * dt * 2;
     });
+    // Trampolines.
+    boing -= dt;
+    for (const pad of pads) {
+      if (Math.hypot(rt.head.x - pad.pos.x, rt.head.z - pad.pos.z) < 3.4 && rt.head.y < 2.4 && boing <= 0) {
+        boing = 0.7;
+        rt.locomotion.velocity.y = 15;
+        rt.locomotion.carry(_s.set(0, 0.4, 0));
+        rt.locomotion.velocity.y = 15;
+        rt.audio.play('whirr', pad.pos, 1);
+        rt.award(1, 'BOING');
+      }
+      pad.mesh.scale.y = 1 + Math.max(0, boing) * 0.3;
+    }
+    // The beat.
+    beat -= dt;
+    if (beat <= 0) {
+      beat = 0.5;
+      rt.audio.play('thump', speakers[0].position, 1);
+      speakers.forEach((sp) => sp.scale.setScalar(1.12));
+    }
+    speakers.forEach((sp) => sp.scale.lerp(_s.set(1, 1, 1), Math.min(1, dt * 8)));
+    lasers.forEach((l, i) => {
+      l.rotation.x = Math.sin(time * (0.7 + i * 0.13) + i) * 0.9;
+      l.rotation.z = Math.cos(time * (0.5 + i * 0.11) + i * 2) * 0.9;
+    });
+    // Confetti falls around you; fireworks go off in the sky.
+    for (let i = 0; i < CONF; i++) {
+      confPos[i * 3 + 1] -= dt * (1.5 + (i % 5) * 0.4);
+      confPos[i * 3] += Math.sin(time * 2 + i) * dt * 0.8;
+      if (confPos[i * 3 + 1] < 0) {
+        confPos[i * 3] = rt.head.x + rnd(-25, 25);
+        confPos[i * 3 + 1] = rnd(14, 20);
+        confPos[i * 3 + 2] = rt.head.z + rnd(-25, 25);
+      }
+    }
+    confGeo.getAttribute('position').needsUpdate = true;
+    fireworkTimer -= dt;
+    if (fireworkTimer <= 0) {
+      fireworkTimer = rnd(0.5, 1.6);
+      burst(_a2.set(rt.head.x + rnd(-60, 60), rnd(35, 70), rt.head.z + rnd(-90, -20)));
+    }
+    for (let i = 0; i < FW; i++) {
+      if (fwLife[i] <= 0) continue;
+      fwLife[i] -= dt;
+      fwVel[i * 3 + 1] -= 6 * dt;
+      fwPos[i * 3] += fwVel[i * 3] * dt;
+      fwPos[i * 3 + 1] += fwVel[i * 3 + 1] * dt;
+      fwPos[i * 3 + 2] += fwVel[i * 3 + 2] * dt;
+      if (fwLife[i] <= 0) fwPos[i * 3 + 1] = -500;
+    }
+    fwGeo.getAttribute('position').needsUpdate = true;
     // Spinning, and flying.
     for (const p of props) {
       if (p.state === 'static') continue;

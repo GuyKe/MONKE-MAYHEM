@@ -79,6 +79,58 @@ export async function runHuss(): Promise<void> {
     panels.push(m);
   }
 
+  // Scrawled on the pillars, puddles, a few vending machines humming in the haze, and almond water to run faster.
+  pillars.slice(0, 9).forEach((pl, i) => {
+    const g = sign(['HUSS', 'RUN', 'DONT STOP', 'HUSS HUSS', 'NO EXIT', 'BEHIND YOU'][i % 6], '#7a1010', 2.6);
+    const a = Math.atan2(-pl.x, -pl.z);
+    g.position.set(pl.x + Math.sin(a) * (pl.r / 0.75 / 2 + 0.05), 3 + (i % 3) * 0.8, pl.z + Math.cos(a) * (pl.r / 0.75 / 2 + 0.05));
+    g.rotation.y = a + Math.PI;
+    scene.add(g);
+  });
+  for (let i = 0; i < 24; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = rnd(5, 100);
+    const pud = new THREE.Mesh(new THREE.CircleGeometry(rnd(1.5, 4), 16).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x6a5a1a, transparent: true, opacity: 0.55 }));
+    pud.position.set(Math.cos(a) * d, 0.02, Math.sin(a) * d);
+    scene.add(pud);
+  }
+  for (let i = 0; i < 5; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = rnd(30, 100);
+    const vm = new THREE.Group();
+    vm.add(new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.6, 1), new THREE.MeshLambertMaterial({ color: 0x8a1a1a })));
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.5), new THREE.MeshBasicMaterial({ color: 0xfff6c0, fog: false }));
+    face.position.set(0, 0.2, 0.51);
+    vm.add(face);
+    vm.children[0].position.y = 1.3;
+    face.position.y = 1.6;
+    vm.position.set(Math.cos(a) * d, 0, Math.sin(a) * d);
+    vm.rotation.y = Math.random() * 6;
+    scene.add(vm);
+  }
+  const bottles: Array<{ m: THREE.Group; x: number; z: number; alive: boolean; back: number }> = [];
+  for (let i = 0; i < 12; i++) {
+    const m = new THREE.Group();
+    const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.7, 10), new THREE.MeshBasicMaterial({ color: 0xfff0c0, fog: false }));
+    bottle.position.y = 0.5;
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.12, 8), new THREE.MeshBasicMaterial({ color: 0x40c060, fog: false }));
+    cap.position.y = 0.92;
+    const halo = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 12, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0xfff0a0, transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide }));
+    halo.position.y = 6;
+    m.add(bottle, cap, halo);
+    const a = Math.random() * Math.PI * 2;
+    const d = rnd(10, 90);
+    const b = { m, x: Math.cos(a) * d, z: Math.sin(a) * d, alive: true, back: 0 };
+    m.position.set(b.x, 0, b.z);
+    scene.add(m);
+    bottles.push(b);
+  }
+  const baseSpeed = rt.locomotion.speedScale;
+  let boost = 0;
+  const hum = new THREE.PointLight(0xfff4c0, 60, 40, 1.6);
+  scene.add(hum);
+  let xpTimer = 10;
+
   // --- The monsters --------------------------------------------------------------------------------------------
   const hunters: Hunter[] = [];
   const addHunter = (): void => {
@@ -161,7 +213,7 @@ export async function runHuss(): Promise<void> {
       const turn = 1.15 * dt;
       h.heading += Math.max(-turn, Math.min(turn, diff));
       // Fast, but it slows when it has to turn sharply.
-      const target = grace > 0 || respawning > 0 ? 0 : 6.4 * (Math.abs(diff) > 0.9 ? 0.45 : 1);
+      const target = grace > 0 || respawning > 0 ? 0 : 7.4 * (Math.abs(diff) > 0.9 ? 0.45 : 1);
       h.speed += (target - h.speed) * Math.min(1, dt * 2.5);
       h.x += -Math.sin(h.heading) * h.speed * dt;
       h.z += -Math.cos(h.heading) * h.speed * dt;
@@ -187,6 +239,7 @@ export async function runHuss(): Promise<void> {
       }
       if (respawning <= 0 && dist < 0.85 && Math.abs(py) < 2.2) {
         caught++;
+        boost = 0;
         respawning = 1.6;
         fade.target = 1;
         rt.audio.play('sting');
@@ -209,13 +262,46 @@ export async function runHuss(): Promise<void> {
     panels.forEach((p, i) => {
       p.visible = Math.sin(time * 40 + i * 7) * Math.sin(time * 6.3 + i) > -0.92;
     });
+    // Almond water, the nearest light, XP for staying alive.
+    boost = Math.max(0, boost - dt);
+    rt.locomotion.speedScale = baseSpeed * (boost > 0 ? 1.5 : 1);
+    for (const b of bottles) {
+      if (!b.alive) {
+        b.back -= dt;
+        if (b.back <= 0) {
+          b.alive = true;
+          b.m.visible = true;
+        }
+        continue;
+      }
+      b.m.rotation.y += dt * 2;
+      if (Math.hypot(px - b.x, pz - b.z) < 1.4 && respawning <= 0) {
+        b.alive = false;
+        b.m.visible = false;
+        b.back = 25;
+        boost = 7;
+        rt.award(3, 'almond water');
+        rt.audio.play('chime');
+      }
+    }
+    let nearestPanel = panels[0];
+    for (const pnl of panels) if (Math.hypot(pnl.position.x - px, pnl.position.z - pz) < Math.hypot(nearestPanel.position.x - px, nearestPanel.position.z - pz)) nearestPanel = pnl;
+    hum.position.set(nearestPanel.position.x, 10, nearestPanel.position.z);
+    hum.intensity = 60 * (0.6 + 0.4 * Math.abs(Math.sin(time * 37) * Math.sin(time * 5)));
+    if (respawning <= 0) {
+      xpTimer -= dt;
+      if (xpTimer <= 0) {
+        xpTimer = 10;
+        rt.award(5 + Math.min(20, hunters.length), 'survived');
+      }
+    }
     // The scoreboard follows your left hand.
     const hand = rt.locomotion.hands[0].position;
     board.mesh.position.set(hand.x, hand.y + 0.12, hand.z);
     board.mesh.lookAt(rt.head);
     const m = Math.floor(survived / 60);
     const s = Math.floor(survived % 60);
-    board.setLabel(`${m}:${String(s).padStart(2, '0')} · best ${Math.floor(best)}s · x${caught}`);
+    board.setLabel(`${m}:${String(s).padStart(2, '0')} · best ${Math.floor(best)}s · x${caught}${boost > 0 ? ' · FAST' : ''}`);
   };
 
   finishMode(rt, 'HUSS HUSS HUSS · run. They are fast and cannot turn. L = lobby', '#3a3000', { hunters, pillars, state: () => ({ caught, survived, best }) });
