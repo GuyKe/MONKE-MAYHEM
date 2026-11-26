@@ -92,7 +92,7 @@ export class CctvMap {
     const flick = Math.sin(t * 20) > -0.5;
     for (const b of this.blips) {
       if (!flick) continue;
-      c.fillStyle = b.kind === 'skitter' ? '#ffb020' : b.kind === 'mimic' ? '#40e0ff' : '#ff3030';
+      c.fillStyle = '#ff3030';
       c.beginPath();
       c.arc(px(b.x), pz(b.z), 7 + Math.sin(t * 6) * 2, 0, Math.PI * 2);
       c.fill();

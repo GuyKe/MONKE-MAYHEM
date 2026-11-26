@@ -20,8 +20,8 @@ const KEY = 'lockdown.profile';
 export const DEFAULT_PROFILE: Profile = {
   name: 'SUBJECT',
   credits: 100,
-  owned: ['skin_orange', 'hat_none', 'acc_none'],
-  equipped: { hat: 'hat_none', skin: 'skin_orange', acc: 'acc_none' },
+  owned: ['skin_green', 'hat_none', 'acc_none'],
+  equipped: { hat: 'hat_none', skin: 'skin_green', acc: 'acc_none' },
   stats: { escapes: 0, deaths: 0, crushed: 0, seconds: 0 },
   mic: false,
   logs: [],

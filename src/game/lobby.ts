@@ -7,10 +7,11 @@ import type { Engine } from './engine';
 import type { Fixture } from './facility';
 import { Rack, makeFlashlight, makeGlowstick, makeRadar, type ItemContext } from './items';
 import type { Save, Slot } from './save';
-import { blob, box, cyl, dyn, mat, part } from './shapes';
+import { box, cyl, dyn, mat, part } from './shapes';
 import { batchStatic } from './batch';
 import { slab, surface } from './textures';
 import { Drone, TIPS } from './drone';
+import { forklift, hazardFrame, lockerBank, panelLight, picnicTable, pipe, plant, shelves, pallet } from './props';
 
 export const WIN_X = 5.5;
 export const WIN_Y0 = 0.9;
@@ -292,6 +293,7 @@ export class Lobby {
     this.buildLounge();
     this.buildVending();
     this.buildBriefing();
+    this.buildPoll();
     this.drone = new Drone(e);
     this.drone.onTip = (t) => this.onTip?.(t);
     this.lobbyButtons.push(...e.panels.buttons.slice(before));
@@ -317,21 +319,32 @@ export class Lobby {
     this.block('wall', -9.4, -9, 3.1, 4.2, 3.2, 6.2);
     this.block('wall', 9, 9.4, 0, 4.2, -7, 7);
     this.block('wall', -9, 9, 0, 4.2, -7.4, -7);
-    // Ceiling light panels.
+    // Exposed concrete beams across the ceiling, and square panel lights in black frames between them.
+    for (const x of [-7.4, -2.5, 2.5, 7.4]) this.block('wall', x - 0.3, x + 0.3, 3.8, 4.2, -7, 7);
     for (const x of [-5, 0, 5]) {
       for (const z of [-4, 1.5]) {
-        const mesh = dyn(new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.7), new THREE.MeshBasicMaterial({ color: 0xf4fbff, fog: false })));
-        mesh.position.set(x, 4.14, z);
-        this.group.add(mesh);
-        this.fixtures.push({ pos: new THREE.Vector3(x, 3.9, z), mesh, phase: Math.random() * 10, base: new THREE.Color(0xf4fbff) });
+        const { group, panel } = panelLight(0.9);
+        group.position.set(x, 4.12, z);
+        this.group.add(group);
+        dyn(panel);
+        this.fixtures.push({ pos: new THREE.Vector3(x, 3.9, z), mesh: panel, phase: Math.random() * 10, base: new THREE.Color(0xffffff) });
       }
     }
-    // Wall detail: skirting, a safety stripe, vents.
-    for (const [x, z, w, d] of [[0, -6.98, 18, 0.08], [-8.98, 0, 0.08, 14], [8.98, 0, 0.08, 14]] as Array<[number, number, number, number]>) {
-      const s = new THREE.Mesh(new THREE.BoxGeometry(w, 0.18, d), surface('hazard', w, 0.2));
-      s.position.set(x, 0.09, z);
-      this.group.add(s);
+    // Black skirting round the walls.
+    for (const [x, z, w, d] of [[0, -6.97, 18, 0.06], [-8.97, -2, 0.06, 10], [8.97, 0, 0.06, 14]] as Array<[number, number, number, number]>) {
+      const sk = new THREE.Mesh(new THREE.BoxGeometry(w, 0.16, d), mat(0x1a1a1e));
+      sk.position.set(x, 0.08, z);
+      this.group.add(sk);
     }
+    // Pipes along the north wall and a red one down the corner.
+    this.group.add(pipe(new THREE.Vector3(-8.9, 3.45, -6.7), new THREE.Vector3(8.9, 3.45, -6.7), 0.15, 0x8a4a2a));
+    this.group.add(pipe(new THREE.Vector3(-8.9, 3.1, -6.7), new THREE.Vector3(8.9, 3.1, -6.7), 0.1, 0x2a3a8a));
+    this.group.add(pipe(new THREE.Vector3(-8.7, 0, -6.6), new THREE.Vector3(-8.7, 4.2, -6.6), 0.16, 0xb02a20));
+    // The doorway to the annex gets a frame of yellow and black.
+    const frame = hazardFrame(3.0, 3.1);
+    frame.position.set(-9.0, 0, 4.7);
+    frame.rotation.y = Math.PI / 2;
+    this.group.add(frame);
     for (let i = 0; i < 3; i++) {
       const vent = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.06), surface('grate', 1, 0.5));
       vent.position.set(-6 + i * 6, 3.6, -6.95);
@@ -726,6 +739,20 @@ export class Lobby {
     // The ledge at the top, and a rail so you can see it from below.
     this.block('grate', -24, -20.5, 4.4, 4.6, -7, -3.6);
     for (const x of [-20.6]) this.block('hazard', x - 0.05, x + 0.05, 4.6, 5.3, -7, -3.6, 0xffffff);
+    // A forklift, shelves of crates and a pallet make the annex look like the warehouse it is.
+    const fk = forklift();
+    fk.position.set(-11.6, 0, -5.4);
+    fk.rotation.y = 0.4;
+    this.group.add(fk);
+    this.e.solid(-11.6, 1.0, -5.4, 0.9, 1.0, 1.1);
+    const sh = shelves(2.6, 2.8, 0.8, 3, true);
+    sh.position.set(-15.4, 0, -6.55);
+    this.group.add(sh);
+    this.e.solid(-15.4, 1.4, -6.55, 1.3, 1.4, 0.45);
+    const pl = pallet(2);
+    pl.position.set(-22.4, 0, 3.8);
+    this.group.add(pl);
+    this.e.solid(-22.4, 0.7, 3.8, 0.6, 0.7, 0.5);
     // The finish plate.
     const plate = dyn(new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.05, 20), new THREE.MeshBasicMaterial({ color: 0x40ff90 })));
     plate.position.copy(this.finishPlate).setY(4.65);
@@ -794,26 +821,17 @@ export class Lobby {
   // --- The lounge, the vending machine, the briefing board ---------------------------------------------------------------
 
   private buildLounge(): void {
-    // A couch and low table in the north-east corner.
-    const sofa = (x: number, z: number, ry: number): void => {
-      const g = new THREE.Group();
-      g.position.set(x, 0, z);
-      g.rotation.y = ry;
-      part(g, box, 0x3a4a6a, [0, 0.3, 0], [2.4, 0.5, 0.9], [0, 0, 0], 0, 0.6, 0.1);
-      part(g, box, 0x34425e, [0, 0.75, -0.38], [2.4, 0.6, 0.18]);
-      for (const sx of [-1, 1]) part(g, box, 0x2f3b54, [sx * 1.1, 0.5, 0], [0.2, 0.55, 0.9]);
-      for (let i = -1; i <= 1; i += 2) part(g, box, 0x4a5c80, [i * 0.55, 0.62, 0.05], [1.0, 0.14, 0.7]);
-      this.group.add(g);
-      this.e.solid(x, 0.4, z, 1.2, 0.4, 0.5);
-    };
-    sofa(7.0, -6.05, 0);
-    const table = new THREE.Group();
-    table.position.set(7.0, 0, -4.4);
-    part(table, box, 0x8a6a40, [0, 0.38, 0], [1.2, 0.06, 0.6]);
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) part(table, box, 0x30363e, [sx * 0.52, 0.19, sz * 0.24], [0.06, 0.38, 0.06]);
-    part(table, cyl, 0xe8e0d0, [0.2, 0.46, 0], [0.05, 0.1, 0.05]);
+    // A bank of blue lockers on the east wall, and a blue picnic table.
+    const lockers = lockerBank(4);
+    lockers.position.set(8.55, 0, -6.6);
+    lockers.rotation.y = -Math.PI / 2;
+    this.group.add(lockers);
+    this.e.solid(8.55, 1.0, -5.4, 0.3, 1.0, 1.3);
+    const table = picnicTable();
+    table.position.set(5.6, 0, -5.4);
+    table.rotation.y = 0.3;
     this.group.add(table);
-    this.e.solid(7.0, 0.2, -4.4, 0.6, 0.2, 0.3);
+    this.e.solid(5.6, 0.4, -5.4, 1.0, 0.4, 0.5);
     // Benches facing the window.
     for (const x of [-3.2, 3.2]) {
       const b = new THREE.Group();
@@ -824,15 +842,10 @@ export class Lobby {
       this.e.solid(x, 0.25, 5.0, 0.9, 0.25, 0.25);
     }
     // Plants in the corners (the only living things for a long way down), and a bin by the terminal.
-    for (const [x, z] of [[-8.3, -6.3], [8.3, 6.4], [-8.3, 6.4], [8.3, -2.2]]) {
-      const pot = new THREE.Group();
-      pot.position.set(x, 0, z);
-      part(pot, cyl, 0x8a5a3a, [0, 0.25, 0], [0.22, 0.5, 0.22]);
-      for (let i = 0; i < 7; i++) {
-        const a = (i / 7) * Math.PI * 2;
-        part(pot, blob, 0x3a9a48, [Math.cos(a) * 0.14, 0.75 + (i % 3) * 0.12, Math.sin(a) * 0.14], [0.12, 0.28, 0.06], [0.4 * Math.cos(a), a, 0.4 * Math.sin(a)]);
-      }
-      this.group.add(pot);
+    for (const [x, z] of [[-8.3, -6.3], [8.3, 6.4], [-8.3, 6.4], [8.35, -3.75]]) {
+      const p = plant();
+      p.position.set(x, 0, z);
+      this.group.add(p);
     }
     const bin = new THREE.Group();
     bin.position.set(-8.4, 0, -3.2);
@@ -854,7 +867,8 @@ export class Lobby {
     g.position.set(8.5, 0, 5.5);
     g.rotation.y = -Math.PI / 2;
     this.group.add(g);
-    part(g, box, 0xa02830, [0, 1.0, 0], [1.1, 2.0, 0.9], [0, 0, 0], 0, 0.5, 0.2);
+    part(g, box, 0x2a5a30, [0, 1.0, 0], [1.1, 2.0, 0.9], [0, 0, 0], 0, 0.5, 0.2);
+    part(g, box, 0xe0b020, [0, 0.12, 0.46], [1.1, 0.16, 0.02]);
     part(g, box, 0x14161a, [0, 1.3, 0.46], [0.85, 1.2, 0.02]);
     for (let i = 0; i < 12; i++) part(g, cyl, [0x40a0ff, 0xff8030, 0x60e060, 0xffd030][i % 4], [-0.28 + (i % 3) * 0.28, 1.65 - Math.floor(i / 3) * 0.28, 0.43], [0.07, 0.18, 0.07]);
     part(g, box, 0x14161a, [0, 0.3, 0.46], [0.6, 0.18, 0.02]);
@@ -870,7 +884,7 @@ export class Lobby {
     };
     mk('ENERGY CELL $20', 0.95, '#2d7a3a', () => this.onVend?.('energy'));
     mk('SNACK $5', 0.74, '#7a5a1a', () => this.onVend?.('snack'));
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.2), new THREE.MeshBasicMaterial({ map: this.textTexture('VENDING', '#fff0a0', '#a02830') }));
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.2), new THREE.MeshBasicMaterial({ map: this.textTexture('VENDING', '#fff0a0', '#2a5a30') }));
     sign.position.set(0, 2.1, 0.47);
     g.add(sign);
   }
@@ -886,6 +900,55 @@ export class Lobby {
     x.textBaseline = 'middle';
     x.fillText(text, 256, 60);
     return t;
+  }
+
+  /** A wall monitor that says LOADING and then shows a poll nobody asked for. */
+  private poll!: [HTMLCanvasElement, THREE.CanvasTexture];
+  private pollTime = 0;
+
+  private buildPoll(): void {
+    this.poll = canvasTex(768, 384);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(3.1, 1.7, 0.08), mat(0x14161a));
+    frame.position.set(6.2, 2.3, -6.96);
+    this.group.add(frame);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 1.45), new THREE.MeshBasicMaterial({ map: this.poll[1], toneMapped: false }));
+    m.position.set(6.2, 2.3, -6.91);
+    this.group.add(m);
+    this.drawPoll();
+  }
+
+  private drawPoll(): void {
+    const c = this.poll[0].getContext('2d')!;
+    c.fillStyle = '#0c0f12';
+    c.fillRect(0, 0, 768, 384);
+    c.strokeStyle = '#8a9096';
+    c.lineWidth = 6;
+    c.strokeRect(4, 4, 760, 376);
+    c.fillStyle = '#e8ecee';
+    c.font = 'bold 44px ui-monospace, monospace';
+    c.textAlign = 'center';
+    c.fillText('FACILITY POLL', 384, 60);
+    const t = this.pollTime % 14;
+    if (t < 4) {
+      c.font = '34px ui-monospace, monospace';
+      c.fillText('LOADING' + '.'.repeat(1 + Math.floor(t * 2) % 3), 384, 210);
+    } else {
+      c.textAlign = 'left';
+      c.font = '30px ui-monospace, monospace';
+      c.fillText('WILL YOU MAKE IT OUT?', 40, 120);
+      const rows: Array<[string, number, string]> = [['YES', 0.14, '#60e080'], ['NO', 0.71, '#ff6060'], ['DEPENDS ON THE DOORS', 0.15, '#ffd060']];
+      rows.forEach(([label, v, col], i) => {
+        const y = 170 + i * 64;
+        c.fillStyle = '#c8ced2';
+        c.font = '24px ui-monospace, monospace';
+        c.fillText(label, 40, y);
+        c.fillStyle = col;
+        c.fillRect(40, y + 8, 600 * v * Math.min(1, (t - 4) / 2), 22);
+        c.fillStyle = '#e8ecee';
+        c.fillText(`${Math.round(v * 100)}%`, 660, y + 26);
+      });
+    }
+    this.poll[1].needsUpdate = true;
   }
 
   private buildBriefing(): void {
@@ -959,6 +1022,8 @@ export class Lobby {
       }
       if (live > 300) this.run = -1;
     }
+    this.pollTime += dt;
+    if (inLobby && Math.floor(this.pollTime * 4) !== Math.floor((this.pollTime - dt) * 4)) this.drawPoll();
     this.briefTimer += dt;
     if (this.briefTimer > 7) {
       this.briefTimer = 0;

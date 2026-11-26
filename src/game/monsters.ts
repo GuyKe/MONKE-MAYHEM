@@ -3,13 +3,11 @@ import { DOOR_H, type Door } from './doors';
 import type { Engine } from './engine';
 import type { Facility } from './facility';
 import { CATWALK_Y, FLOOR_Y, colOf, rowOf, type Spot } from './nav';
-import { blob, box, cone, cyl, dyn, limb, low, mat, part, rnd, sphere, v3 } from './shapes';
+import { cone, cyl, dyn, limb, rnd, sphere, v3 } from './shapes';
 import { mergeUnits } from './batch';
 
-/** All the plain parts of every monster: coloured in the vertices, with a faint glow of its own so a shape shows in the dark. */
-const monsterMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x15181d });
 
-export type MonsterKind = 'stalker' | 'skitter' | 'warden' | 'mimic';
+export type MonsterKind = 'shade';
 export type MonsterState = 'patrol' | 'investigate' | 'hunt' | 'search' | 'stunned';
 
 /** A sound the monsters can hear. */
@@ -51,44 +49,8 @@ interface Spec {
 }
 
 const SPECS: Record<MonsterKind, Spec> = {
-  stalker: { speedPatrol: 1.5, speedHunt: 4.3, sight: 24, fov: 1.2, hearing: 1.25, catchRadius: 1.0, crushStun: 4, batter: 0.5 },
-  skitter: { speedPatrol: 2.8, speedHunt: 6.6, sight: 16, fov: 1.7, hearing: 1.0, catchRadius: 0.9, crushStun: 3, batter: 0.3 },
-  warden: { speedPatrol: 1.2, speedHunt: 3.5, sight: 13, fov: 1.0, hearing: 1.7, catchRadius: 1.3, crushStun: 1.2, batter: 1.4 },
-  mimic: { speedPatrol: 1.1, speedHunt: 5.4, sight: 20, fov: 1.3, hearing: 0.9, catchRadius: 0.95, crushStun: 3, batter: 0.4 },
+  shade: { speedPatrol: 1.7, speedHunt: 5.1, sight: 24, fov: 1.3, hearing: 1.3, catchRadius: 1.1, crushStun: 3.5, batter: 0.9 },
 };
-
-const SKIN = 0x9aa0a2;
-
-/** The face the player model has, gone wrong: a cracked helmet and a visor with too many eyes. */
-function brokenHead(g: THREE.Group, scale: [number, number, number], eyes: number, glow: number, mouth: boolean): THREE.Group {
-  const head = new THREE.Group();
-  part(head, sphere, SKIN, [0, 0, 0.03], [0.17 * scale[0], 0.17 * scale[1], 0.18 * scale[2]], [0, 0, 0], 0, 0.5, 0.2);
-  part(head, sphere, 0x050608, [0, 0.01 * scale[1], -0.07 * scale[2]], [0.13 * scale[0], 0.09 * scale[1], 0.09 * scale[2]], [0, 0, 0], 0, 0.1, 0.6);
-  for (let i = 0; i < eyes; i++) {
-    const a = rnd(0, Math.PI * 2);
-    const r = rnd(0.01, 0.06);
-    part(head, sphere, glow, [Math.cos(a) * r * 1.5 * scale[0], 0.01 * scale[1] + Math.sin(a) * r * scale[1], -0.15 * scale[2]], [0.014, 0.014, 0.01], [0, 0, 0], glow);
-  }
-  if (mouth) {
-    part(head, box, 0x120406, [0, -0.1 * scale[1], -0.15 * scale[2]], [0.02, 0.1 * scale[1], 0.02]);
-    for (let i = -3; i <= 3; i++) part(head, cone, 0xe8e0d0, [i * 0.007, -0.1 * scale[1], -0.162 * scale[2]], [0.004, 0.02, 0.004], [Math.PI / 2, 0, 0]);
-  }
-  // A crack across the helmet, and a bent antenna.
-  part(head, box, 0x101214, [0.04, 0.1 * scale[1], -0.02], [0.012, 0.12, 0.012], [0.3, 0, 0.5]);
-  part(head, cyl, 0x40444c, [0.1, 0.22 * scale[1], 0.05], [0.008, 0.09, 0.008], [0.2, 0, -0.7]);
-  g.add(head);
-  return head;
-}
-
-function tendrils(g: THREE.Group, n: number, length: number, color: number, y: number): THREE.Mesh[] {
-  const out: THREE.Mesh[] = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const t = part(g, cone, color, [Math.cos(a) * 0.18, y - length / 2, Math.sin(a) * 0.18], [0.03, length, 0.03], [Math.PI, 0, 0], 0, 0.5, 0.1);
-    out.push(t);
-  }
-  return out;
-}
 
 export interface Model {
   group: THREE.Group;
@@ -99,229 +61,114 @@ export interface Model {
   anim: Array<(t: number, hot: boolean) => void>;
 }
 
-function buildStalker(): Model {
-  const g = new THREE.Group();
-  const limbs: THREE.Group[] = [];
-  // A long, thin suit on a hover unit that has come apart into hanging tendrils.
-  part(g, cyl, 0x1a1c22, [0, 0.95, 0], [0.22, 0.06, 0.22]);
-  const ring = part(g, cone, 0xff2a2a, [0, 0.9, 0], [0.2, 0.04, 0.2], [Math.PI, 0, 0], 0xff2020);
-  tendrils(g, 9, 0.95, 0x30343a, 0.92);
-  part(g, cyl, SKIN, [0, 1.55, 0.0], [0.12, 1.2, 0.1]); // the long body
-  for (let i = 0; i < 6; i++) part(g, cyl, 0xcfc8b8, [0, 1.15 + i * 0.16, -0.08], [0.15, 0.012, 0.09], [Math.PI / 2, 0, 0], 0x201010);
-  part(g, sphere, 0x403c38, [0, 2.1, 0.0], [0.19, 0.08, 0.12]); // the shoulders
-  part(g, cyl, SKIN, [0, 2.35, 0.0], [0.05, 0.4, 0.05]); // a stretched neck
-  const head = brokenHead(g, [0.8, 1.35, 0.85], 9, 0xff3040, true);
-  head.position.set(0, 2.7, -0.02);
-  // Four arms: two enormous, two thin ones folded at the ribs.
-  for (const sx of [-1, 1]) {
-    const arm = new THREE.Group();
-    arm.position.set(sx * 0.2, 2.05, 0);
-    limb(arm, v3(0, 0, 0), v3(sx * 0.1, -0.9, -0.1), 0.05, SKIN, 0.07);
-    limb(arm, v3(sx * 0.1, -0.9, -0.1), v3(sx * 0.12, -1.75, -0.2), 0.04, SKIN, 0.05);
-    // A glove too big for it, with long fingers.
-    part(arm, sphere, 0xc05010, [sx * 0.12, -1.82, -0.22], [0.1, 0.12, 0.08]);
-    for (let f = 0; f < 3; f++) limb(arm, v3(sx * 0.12 + (f - 1) * 0.05, -1.88, -0.22), v3(sx * 0.12 + (f - 1) * 0.07, -2.15, -0.3), 0.012, 0xc05010, 0.018);
-    g.add(arm);
-    limbs.push(arm);
-    const small = new THREE.Group();
-    small.position.set(sx * 0.1, 1.7, -0.05);
-    limb(small, v3(0, 0, 0), v3(sx * 0.18, -0.3, -0.25), 0.02, SKIN, 0.03);
-    limb(small, v3(sx * 0.18, -0.3, -0.25), v3(sx * 0.1, -0.15, -0.5), 0.015, SKIN, 0.02);
-    g.add(small);
-    limbs.push(small);
-  }
-  const anim: Model['anim'] = [];
-  // Torn strips of suit hanging from the waist, rust and old blood, a spine of knuckles down the back.
-  const rags: THREE.Mesh[] = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    rags.push(part(g, box, i % 3 ? 0x3a3c40 : 0x6a2418, [Math.cos(a) * 0.15, 1.0, Math.sin(a) * 0.12], [0.05, 0.4 + (i % 3) * 0.12, 0.006], [0, -a, 0]));
-  }
-  for (let i = 0; i < 12; i++) part(g, low, 0xcfc8b8, [0, 1.15 + i * 0.1, 0.11], [0.025, 0.025, 0.025]);
-  for (let i = 0; i < 6; i++) part(g, blob, 0x4a0a0a, [(Math.random() - 0.5) * 0.2, 1.2 + Math.random() * 0.9, -0.1], [0.035 + Math.random() * 0.03, 0.05 + Math.random() * 0.06, 0.012]);
-  // Wires trailing from the cracked helmet, and a jaw that drops when it hunts.
-  const wires: THREE.Mesh[] = [];
-  for (let i = 0; i < 5; i++) wires.push(part(head, cyl, [0xff3030, 0x30c0ff, 0x202020][i % 3], [-0.1 + i * 0.05, -0.2, 0.12], [0.004, 0.3 + i * 0.05, 0.004], [0.15, 0, 0]));
-  const jaw = part(head, box, 0x120406, [0, -0.2, -0.15], [0.06, 0.18, 0.02]);
-  [ring, jaw, ...rags, ...wires].forEach(dyn);
-  anim.push((t, hot) => {
-    rags.forEach((r, i) => (r.rotation.x = Math.sin(t * 2.2 + i) * 0.18));
-    wires.forEach((w, i) => (w.rotation.z = Math.sin(t * 3 + i * 1.3) * 0.25));
-    jaw.scale.y = hot ? 1.5 + Math.sin(t * 30) * 0.3 : 1;
-    jaw.position.y = hot ? -0.26 : -0.2;
-  });
-  return { group: g, head, limbs, extra: [ring], anim };
+const BLACK = new THREE.MeshBasicMaterial({ color: 0x000000 });
+const WHITE = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const BLOOD = new THREE.MeshBasicMaterial({ color: 0x7e0a10 });
+const BLOOD_DARK = new THREE.MeshBasicMaterial({ color: 0x4a0508 });
+
+function piece(parent: THREE.Object3D, geo: THREE.BufferGeometry, material: THREE.Material, at: [number, number, number], size: [number, number, number], rot: [number, number, number] = [0, 0, 0]): THREE.Mesh {
+  const m = new THREE.Mesh(geo, material);
+  m.position.set(...at);
+  m.scale.set(...size);
+  m.rotation.set(...rot);
+  parent.add(m);
+  return m;
 }
 
-function buildSkitter(): Model {
+/**
+ * The shade: a monster that is entirely pitch black (it does not even take the light), with two white glowing pupils, blood
+ * splattered over it in random places, and a wide frown full of sharp teeth.
+ */
+function buildShade(): Model {
   const g = new THREE.Group();
   const limbs: THREE.Group[] = [];
-  part(g, sphere, 0x16181c, [0, 0.62, 0.05], [0.4, 0.2, 0.55]);
-  part(g, sphere, SKIN, [0, 0.75, 0.1], [0.3, 0.1, 0.4]);
-  for (let i = 0; i < 6; i++) part(g, cyl, 0xcfc8b8, [0, 0.72, 0.35 - i * 0.13], [0.28 - i * 0.012, 0.012, 0.04], [0, 0, Math.PI / 2], 0x201010);
-  part(g, cyl, 0x14161a, [0, 0.5, 0.05], [0.28, 0.04, 0.34]);
-  part(g, cone, 0xff8020, [0, 0.47, 0.05], [0.22, 0.04, 0.28], [Math.PI, 0, 0], 0xff6a10);
-  // Six jointed legs.
-  for (let i = 0; i < 6; i++) {
-    const sx = i % 2 ? 1 : -1;
-    const row = Math.floor(i / 2);
-    const leg = new THREE.Group();
-    leg.position.set(sx * 0.3, 0.62, 0.35 - row * 0.35);
-    const k = v3(sx * 0.7, 0.35, -0.1 + row * 0.1);
-    const f = v3(sx * 1.1, -0.62, 0.2 - row * 0.15);
-    limb(leg, v3(0, 0, 0), k, 0.035, 0x202228, 0.045);
-    limb(leg, k, f, 0.022, SKIN, 0.034);
-    part(leg, low, 0xcfc8b8, [f.x, f.y, f.z], [0.04, 0.04, 0.06]);
-    g.add(leg);
-    limbs.push(leg);
-  }
-  // The head is a player's helmet hung upside down at the front, its visor sideways.
-  const head = new THREE.Group();
-  const inner = brokenHead(head, [1, 1, 1], 5, 0xffb020, true);
-  inner.rotation.z = Math.PI;
-  inner.rotation.y = 0.2;
-  head.position.set(0, 0.5, -0.45);
-  g.add(head);
   const anim: Model['anim'] = [];
-  // Spikes down the back, glowing sacs at the rear, fangs and whip-antennae on the face.
-  for (let i = 0; i < 9; i++) part(g, cone, 0x2a2e34, [(i % 2 ? 1 : -1) * 0.08, 0.84 + (i % 3) * 0.01, 0.35 - i * 0.07], [0.018, 0.12 - i * 0.006, 0.018], [0, 0, (i % 2 ? -1 : 1) * 0.5]);
-  const sacs: THREE.Mesh[] = [];
-  for (let i = 0; i < 4; i++) sacs.push(part(g, sphere, 0xffb020, [(i % 2 ? 1 : -1) * 0.12, 0.68, 0.62 + Math.floor(i / 2) * 0.12], [0.09, 0.08, 0.09], [0, 0, 0], 0xff8a10));
-  const fangs: THREE.Mesh[] = [];
-  for (const sx of [-1, 1]) fangs.push(part(head, cone, 0xe8e0d0, [sx * 0.05, -0.12, -0.2], [0.012, 0.1, 0.012], [0.4, 0, sx * 0.3]));
-  const whips: THREE.Mesh[] = [];
-  for (const sx of [-1, 1]) {
-    whips.push(part(head, cyl, 0x30343a, [sx * 0.1, 0.28, -0.05], [0.006, 0.3, 0.006], [0, 0, -sx * 0.6]));
-    part(head, sphere, 0xffb020, [sx * 0.2, 0.43, -0.05], [0.012, 0.012, 0.012], [0, 0, 0], 0xff8a10);
+  const quat = new THREE.Quaternion();
+  // A tall round body that tapers to a ragged hem; it has no legs.
+  piece(g, sphere, BLACK, [0, 1.25, 0.05], [0.42, 0.6, 0.34]);
+  piece(g, sphere, BLACK, [0, 0.8, 0.06], [0.36, 0.45, 0.3]);
+  piece(g, cone, BLACK, [0, 0.4, 0.06], [0.34, 0.8, 0.3], [Math.PI, 0, 0]);
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    piece(g, cone, BLACK, [Math.cos(a) * 0.26, 0.08, 0.06 + Math.sin(a) * 0.24], [0.07, 0.4 + (i % 3) * 0.12, 0.07], [Math.PI, 0, 0]);
   }
-  for (let i = 0; i < 5; i++) part(g, cyl, 0xcfc8b8, [0, 0.6, -0.1 - i * 0.04], [0.003, 0.15, 0.003], [Math.PI / 2 - 0.4, 0, 0]); // drool
-  [...sacs, ...fangs, ...whips].forEach(dyn);
+  piece(g, sphere, BLACK, [0, 1.62, 0.02], [0.3, 0.14, 0.24]);
+  // The head: big and round.
+  const head = new THREE.Group();
+  head.position.set(0, 2.0, -0.04);
+  piece(head, sphere, BLACK, [0, 0, 0], [0.42, 0.38, 0.38]);
+  g.add(head);
+  // Two white glowing pupils.
+  const glow: THREE.Mesh[] = [];
+  for (const sx of [-1, 1]) {
+    piece(head, sphere, WHITE, [sx * 0.14, 0.07, -0.34], [0.045, 0.05, 0.03]);
+    const halo = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    halo.position.set(sx * 0.14, 0.07, -0.34);
+    halo.scale.setScalar(0.12);
+    head.add(halo);
+    glow.push(halo);
+  }
+  // A wide frown (the corners drop) with sharp teeth, upper and lower.
+  const teeth = new THREE.Group();
+  const N = 15;
+  for (let i = 0; i < N; i++) {
+    const x = -0.26 + (i / (N - 1)) * 0.52;
+    const curve = -0.07 - Math.pow(x / 0.26, 2) * 0.13; // ends hang lower than the middle
+    const size = 0.05 + (1 - Math.abs(x) / 0.26) * 0.03 + (i % 2) * 0.012;
+    piece(teeth, cone, WHITE, [x, curve + 0.01, -0.35 + Math.abs(x) * 0.25], [0.017, size, 0.017], [Math.PI, 0, 0]); // hang down
+    piece(teeth, cone, WHITE, [x * 0.97, curve - 0.075, -0.34 + Math.abs(x) * 0.25], [0.015, size * 0.8, 0.015], [0, 0, 0]); // push up
+  }
+  head.add(teeth);
+  // Blood splattered on it in random places.
+  const surfaces: Array<{ parent: THREE.Object3D; centre: [number, number, number]; radii: [number, number, number] }> = [
+    { parent: head, centre: [0, 0, 0], radii: [0.42, 0.38, 0.38] },
+    { parent: g, centre: [0, 1.25, 0.05], radii: [0.42, 0.6, 0.34] },
+    { parent: g, centre: [0, 0.8, 0.06], radii: [0.36, 0.45, 0.3] },
+  ];
+  for (let i = 0; i < 22; i++) {
+    const sf = surfaces[Math.floor(Math.random() * surfaces.length)];
+    const n = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
+    if (sf.parent === head && n.z > 0.2 && Math.random() < 0.5) n.z *= -1; // more on the face than the back of the head
+    quat.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
+    const e = new THREE.Euler().setFromQuaternion(quat);
+    const r = 0.03 + Math.random() * 0.09;
+    const at: [number, number, number] = [sf.centre[0] + n.x * sf.radii[0] * 1.02, sf.centre[1] + n.y * sf.radii[1] * 1.02, sf.centre[2] + n.z * sf.radii[2] * 1.02];
+    piece(sf.parent, sphere, i % 3 ? BLOOD : BLOOD_DARK, at, [r, 0.012, r * (0.6 + Math.random() * 0.8)], [e.x, e.y, e.z]);
+    if (Math.random() < 0.4) piece(sf.parent, cyl, BLOOD, [at[0], at[1] - 0.08, at[2]], [0.006, 0.1 + Math.random() * 0.12, 0.006]); // a drip
+  }
+  // Long, dangling arms with big clawed hands.
+  for (const sx of [-1, 1]) {
+    const arm = new THREE.Group();
+    arm.position.set(sx * 0.46, 1.5, 0.0);
+    limb(arm, v3(0, 0, 0), v3(sx * 0.12, -0.9, -0.08), 0.1, 0x000000, 0.13);
+    limb(arm, v3(sx * 0.12, -0.9, -0.08), v3(sx * 0.1, -1.7, -0.16), 0.08, 0x000000, 0.1);
+    piece(arm, sphere, BLACK, [sx * 0.1, -1.8, -0.17], [0.13, 0.16, 0.1]);
+    for (let f = 0; f < 4; f++) piece(arm, cone, WHITE, [sx * 0.1 + (f - 1.5) * 0.06, -2.02, -0.2], [0.014, 0.17, 0.014], [Math.PI, 0, 0]);
+    piece(arm, sphere, BLOOD, [sx * 0.1, -1.84, -0.24], [0.08, 0.04, 0.05]);
+    g.add(arm);
+    limbs.push(arm);
+  }
+  // limb() uses the shared lit materials: make the arms black like the rest.
+  for (const a of limbs) a.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && (m.material as THREE.Material) !== WHITE && (m.material as THREE.Material) !== BLOOD) m.material = BLACK;
+  });
+  for (const h of glow) dyn(h);
   anim.push((t, hot) => {
-    sacs.forEach((sc, i) => sc.scale.setScalar(0.08 + 0.025 * Math.sin(t * (hot ? 12 : 3) + i)));
-    fangs.forEach((f, i) => (f.rotation.z = (i ? -1 : 1) * (0.3 + 0.25 * Math.sin(t * (hot ? 25 : 4)))));
-    whips.forEach((w, i) => (w.rotation.x = Math.sin(t * 6 + i) * 0.5));
+    glow.forEach((h, i) => h.scale.setScalar(0.12 + 0.03 * Math.sin(t * (hot ? 18 : 4) + i) + (hot ? 0.04 : 0)));
+    head.rotation.z = Math.sin(t * 0.8) * 0.12;
+    teeth.scale.y = hot ? 1.25 : 1;
   });
   return { group: g, head, limbs, extra: [], anim };
 }
 
-function buildWarden(): Model {
-  const g = new THREE.Group();
-  const limbs: THREE.Group[] = [];
-  // A hulk: armour plates on a heavy hover unit, a head sunk between the shoulders.
-  part(g, cyl, 0x14161a, [0, 0.55, 0.0], [0.55, 0.14, 0.55]);
-  const glowRing = part(g, cone, 0xff7a10, [0, 0.46, 0], [0.5, 0.1, 0.5], [Math.PI, 0, 0], 0xff5a00);
-  part(g, sphere, 0x4a4e56, [0, 1.35, 0.05], [0.7, 0.75, 0.45], [0, 0, 0], 0, 0.45, 0.6);
-  for (let i = 0; i < 4; i++) part(g, box, 0x32363e, [0, 1.0 + i * 0.28, -0.4], [0.9 - i * 0.06, 0.2, 0.06], [0, 0, 0], 0, 0.4, 0.7);
-  for (const sx of [-1, 1]) part(g, sphere, 0x6a2a20, [sx * 0.72, 1.85, 0.0], [0.32, 0.26, 0.3], [0, 0, 0], 0, 0.45, 0.5);
-  for (let i = 0; i < 8; i++) part(g, low, 0x9aa0a4, [Math.cos(i) * 0.34, 1.0 + (i % 4) * 0.28, -0.44], [0.025, 0.025, 0.02]);
-  const head = new THREE.Group();
-  part(head, sphere, SKIN, [0, 0, 0], [0.22, 0.2, 0.22]);
-  part(head, sphere, 0x040404, [0, 0, -0.14], [0.17, 0.12, 0.1]);
-  part(head, sphere, 0xffa020, [0, 0, -0.22], [0.09, 0.09, 0.03], [0, 0, 0], 0xff8010);
-  part(head, cyl, 0x40444c, [-0.14, 0.26, 0.0], [0.01, 0.14, 0.01], [0, 0, 0.5]);
-  head.position.set(0, 2.1, -0.05);
-  g.add(head);
-  for (const sx of [-1, 1]) {
-    const arm = new THREE.Group();
-    arm.position.set(sx * 0.85, 1.85, 0);
-    limb(arm, v3(0, 0, 0), v3(sx * 0.2, -0.9, -0.1), 0.14, 0x4a4e56, 0.17);
-    limb(arm, v3(sx * 0.2, -0.9, -0.1), v3(sx * 0.15, -1.7, -0.2), 0.12, 0x32363e, 0.15);
-    part(arm, sphere, 0xc05010, [sx * 0.15, -1.9, -0.22], [0.26, 0.3, 0.22]);
-    for (let f = 0; f < 3; f++) part(arm, cone, 0x20242a, [sx * 0.15 + (f - 1) * 0.12, -2.2, -0.26], [0.05, 0.25, 0.05], [Math.PI, 0, 0]);
-    limb(arm, v3(sx * 0.3, -0.2, 0.1), v3(sx * 0.3, -0.9, 0.1), 0.04, 0xaaaaaa, 0.04); // a piston
-    g.add(arm);
-    limbs.push(arm);
-  }
-  const anim: Model['anim'] = [];
-  // A cage over the chest with a glowing core, exhaust stacks that steam, hanging chains, weld scars and shoulder spikes.
-  const core = part(g, sphere, 0xff6a10, [0, 1.35, -0.43], [0.15, 0.15, 0.06], [0, 0, 0], 0xff4a00);
-  for (let i = -2; i <= 2; i++) part(g, cyl, 0x202428, [i * 0.09, 1.35, -0.46], [0.012, 0.28, 0.012]);
-  for (let i = -1; i <= 1; i++) part(g, cyl, 0x202428, [0, 1.35 + i * 0.12, -0.46], [0.25, 0.01, 0.012], [0, 0, Math.PI / 2]);
-  for (const sx of [-1, 1]) {
-    part(g, cyl, 0x30343a, [sx * 0.55, 2.2, 0.28], [0.07, 0.45, 0.07]);
-    part(g, cyl, 0x14161a, [sx * 0.55, 2.45, 0.28], [0.085, 0.02, 0.085]);
-    for (let i = 0; i < 3; i++) part(g, cone, 0x20242a, [sx * (0.62 + i * 0.1), 2.05 - i * 0.04, 0.0], [0.04, 0.2, 0.04], [0, 0, -sx * (0.8 + i * 0.2)]);
-  }
-  for (let i = 0; i < 6; i++) {
-    const cx = -0.6 + i * 0.24;
-    for (let k = 0; k < 4; k++) part(g, low, 0x707880, [cx, 0.95 - k * 0.07, -0.43], [0.03, 0.025, 0.012], [k * 0.7, 0, 0]);
-  }
-  for (let i = 0; i < 5; i++) part(g, box, 0xff7a10, [-0.35 + i * 0.17, 1.62 - (i % 2) * 0.06, -0.45], [0.1, 0.008, 0.006], [0, 0, (i % 3) * 0.4 - 0.4], 0xff5a00);
-  const puffs: THREE.Mesh[] = [];
-  for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) {
-    const p = part(g, sphere, 0xcfd2d6, [sx * 0.55, 2.55, 0.28], [0.1, 0.1, 0.1]);
-    (p.material as THREE.MeshStandardMaterial) = (p.material as THREE.MeshStandardMaterial).clone();
-    (p.material as THREE.MeshStandardMaterial).transparent = true;
-    puffs.push(p);
-  }
-  [core, glowRing, ...puffs].forEach(dyn);
-  anim.push((t, hot) => {
-    (core.material as THREE.MeshStandardMaterial).emissiveIntensity = hot ? 3 + Math.sin(t * 16) : 1.5 + Math.sin(t * 3) * 0.5;
-    puffs.forEach((p, i) => {
-      const k = (t * 0.7 + i / 3) % 1;
-      p.position.y = 2.55 + k * 1.2;
-      p.scale.setScalar(0.08 + k * 0.28);
-      (p.material as THREE.MeshStandardMaterial).opacity = (1 - k) * 0.4;
-    });
-  });
-  return { group: g, head, limbs, extra: [glowRing], anim };
-}
-
-function buildMimic(): Model {
-  const g = new THREE.Group();
-  const limbs: THREE.Group[] = [];
-  const anim: Model['anim'] = [];
-  const suit = 0xe8731a;
-  // It is a player: the orange suit, the hover unit, the round helmet. But the proportions are wrong.
-  part(g, cyl, 0x1a1c22, [0, 0.95, 0.03], [0.22, 0.045, 0.22]);
-  part(g, cone, 0x40e0ff, [0, 0.9, 0.03], [0.2, 0.04, 0.2], [Math.PI, 0, 0], 0x40e0ff);
-  tendrils(g, 6, 0.5, 0x2a2c32, 0.92);
-  part(g, sphere, suit, [0, 1.15, 0.03], [0.17, 0.22, 0.12]); // the belly
-  part(g, sphere, suit, [0, 1.6, 0.03], [0.21, 0.24, 0.14]); // the chest, too tall
-  part(g, box, 0x2a2a30, [0, 1.6, -0.12], [0.17, 0.12, 0.03]);
-  part(g, cyl, suit, [0, 1.95, 0.03], [0.07, 0.3, 0.07]); // the neck, far too long
-  const head = new THREE.Group();
-  part(head, sphere, suit, [0, 0, 0.035], [0.165, 0.17, 0.175]);
-  part(head, sphere, 0x050608, [0, 0.01, -0.095], [0.125, 0.075, 0.075]);
-  // A smile across the visor, and two eyes that weep.
-  const smile = part(head, box, 0x40e0ff, [0, -0.025, -0.158], [0.12, 0.012, 0.006], [0, 0, 0], 0x40e0ff);
-  for (const sx of [-1, 1]) {
-    part(head, sphere, 0x40e0ff, [sx * 0.04, 0.03, -0.16], [0.016, 0.022, 0.008], [0, 0, 0], 0x40e0ff);
-    part(head, cyl, 0x40e0ff, [sx * 0.04, -0.03, -0.16], [0.004, 0.06, 0.004], [0, 0, 0], 0x20a0c0);
-  }
-  for (let i = -4; i <= 4; i++) part(head, box, 0xe8e0d0, [i * 0.013, -0.025, -0.16], [0.006, 0.02, 0.004]);
-  part(head, cyl, 0x40444c, [0.095, 0.2, 0.06], [0.008, 0.07, 0.008]);
-  head.position.set(0, 2.2, 0.03);
-  head.rotation.z = 0.22;
-  g.add(head);
-  for (const sx of [-1, 1]) {
-    const arm = new THREE.Group();
-    arm.position.set(sx * 0.22, 1.72, 0.03);
-    limb(arm, v3(0, 0, 0), v3(sx * 0.12, -0.8, -0.05), 0.05, suit, 0.06);
-    limb(arm, v3(sx * 0.12, -0.8, -0.05), v3(sx * 0.1, -1.6, -0.1), 0.04, 0x2a2a30, 0.05);
-    part(arm, sphere, 0xd05a10, [sx * 0.1, -1.68, -0.1], [0.09, 0.07, 0.1]); // the glove
-    for (let f = 0; f < 7; f++) limb(arm, v3(sx * 0.1 + (f - 3) * 0.022, -1.72, -0.12), v3(sx * 0.1 + (f - 3) * 0.04, -2.1, -0.16 - (f % 2) * 0.05), 0.006, 0xd05a10, 0.011);
-    g.add(arm);
-    limbs.push(arm);
-  }
-  dyn(smile);
-  anim.push((t, hot) => {
-    smile.scale.x = hot ? 0.18 : 0.12;
-    smile.scale.y = hot ? 0.05 + Math.abs(Math.sin(t * 25)) * 0.04 : 0.012;
-    head.rotation.z = 0.22 + Math.sin(t * 0.5) * 0.08;
-  });
-  return { group: g, head, limbs, extra: [], anim };
-}
-
-function build(kind: MonsterKind): Model {
-  const m = kind === 'stalker' ? buildStalker() : kind === 'skitter' ? buildSkitter() : kind === 'warden' ? buildWarden() : buildMimic();
-  for (const e of m.extra) dyn(e);
-  mergeUnits([m.group, m.head, ...m.limbs], monsterMaterial);
+function build(_kind: MonsterKind): Model {
+  const m = buildShade();
+  mergeUnits([m.group, m.head, ...m.limbs]);
   return m;
 }
 
 const _a = new THREE.Vector3();
-const _fwd = new THREE.Vector3();
 
 /**
  * A thing from the hazard zone. It walks the halls, hears you move, run, shout or break something, sees you if you stand in the light,
@@ -349,9 +196,6 @@ export class Monster {
   private waiting = 0;
   /** 0 to 1: how aware of the player. */
   alert = 0;
-  /** The mimic stands still while you are looking at it. */
-  watched = false;
-  private whisper = 6;
   private lookTimer = Math.random() * 0.15;
 
   constructor(
@@ -391,22 +235,7 @@ export class Monster {
 
   update(dt: number, ctx: MonsterContext): void {
     const f = ctx.facility;
-    // The mimic only moves when you are not looking.
-    this.watched = false;
-    if (this.kind === 'mimic' && ctx.huntable) {
-      _a.subVectors(this.pos, ctx.head).setY(this.pos.y + 1.6 - ctx.head.y);
-      const d = _a.length();
-      _fwd.set(0, 0, -1).applyQuaternion(ctx.e.headQuat);
-      if (d < 38 && _fwd.dot(_a.divideScalar(Math.max(d, 0.01))) > 0.55 && (d < 3 || f.clear(this.pos.x, this.pos.z, ctx.feet.x, ctx.feet.z))) this.watched = true;
-    }
-    if (!this.watched) this.phase += dt;
-    if (this.kind === 'mimic' && this.state === 'patrol') {
-      this.whisper -= dt;
-      if (this.whisper <= 0) {
-        this.whisper = rnd(7, 14);
-        this.e.audio.play('static', this.pos, 0.9);
-      }
-    }
+    this.phase += dt;
     this.stepTimer -= dt;
     this.growl -= dt;
     this.stunned = Math.max(0, this.stunned - dt);
@@ -428,7 +257,7 @@ export class Monster {
     }
     if (this.state === 'stunned') {
       if (this.stunned <= 0) this.state = 'search';
-      this.animate(dt, 0);
+      this.animate(dt);
       this.sync();
       return;
     }
@@ -459,7 +288,7 @@ export class Monster {
     }
 
     this.follow(dt, ctx);
-    this.animate(dt, this.state === 'hunt' ? this.spec.speedHunt : this.spec.speedPatrol);
+    this.animate(dt);
 
     // Crushed under a door?
     for (const d of f.doors) {
@@ -509,7 +338,7 @@ export class Monster {
     if (this.state !== 'hunt') {
       this.state = 'hunt';
       this.timer = 6;
-      this.e.audio.play(this.kind === 'skitter' ? 'screech' : 'growl', this.pos, 1);
+      this.e.audio.play('growl', this.pos, 1);
       this.pathTimer = 0;
     } else this.timer = 4;
   }
@@ -530,7 +359,6 @@ export class Monster {
       this.waiting -= dt;
       return;
     }
-    if (this.watched) return;
     // Hunting at close range: go straight for the player if nothing is between.
     let goalX: number;
     let goalZ: number;
@@ -586,13 +414,13 @@ export class Monster {
     const targetY = goalLayer === 1 || this.layer === 1 ? (next && next.layer !== this.layer ? (this.layer === 1 ? CATWALK_Y - ((CATWALK_Y - FLOOR_Y) * Math.max(0, 1 - d / 8)) : FLOOR_Y + (CATWALK_Y - FLOOR_Y) * Math.max(0, 1 - d / 8)) : CATWALK_Y) : FLOOR_Y;
     this.pos.y += (targetY - this.pos.y) * Math.min(1, dt * 3);
     if (this.stepTimer <= 0 && step > 0) {
-      this.stepTimer = this.kind === 'skitter' ? 0.22 : this.kind === 'warden' ? 0.7 : 0.55;
+      this.stepTimer = 0.55;
       const loud = Math.min(1, 14 / Math.max(3, this.e.head.distanceTo(this.pos)));
-      this.e.audio.play(this.kind === 'skitter' ? 'skitter' : 'step', this.pos, loud);
+      this.e.audio.play('step', this.pos, loud);
     }
     if (this.growl <= 0 && this.state !== 'patrol') {
       this.growl = rnd(3, 6);
-      this.e.audio.play(this.kind === 'skitter' ? 'screech' : 'growl', this.pos, 0.8);
+      this.e.audio.play('growl', this.pos, 0.8);
     }
     void colOf;
     void rowOf;
@@ -602,51 +430,21 @@ export class Monster {
     const want = Math.atan2(-(x - this.pos.x), -(z - this.pos.z));
     let d = want - this.heading;
     d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
-    const rate = this.kind === 'warden' ? 2.2 : this.kind === 'stalker' ? 3 : 6;
+    const rate = 3.2;
     this.heading += Math.max(-rate * dt, Math.min(rate * dt, d));
   }
 
-  private animate(dt: number, speed: number): void {
+  private animate(dt: number): void {
     const t = this.phase;
     const m = this.model;
     const moving = this.state !== 'stunned' && this.path.length > 0 ? 1 : 0.2;
-    if (this.kind === 'stalker') {
-      // It floats, sways, and its arms trail.
-      this.group.position.y = this.pos.y + Math.sin(t * 2) * 0.06;
-      m.limbs.forEach((l, i) => {
-        l.rotation.x = Math.sin(t * 2 + i) * 0.12 - 0.1 * moving;
-        l.rotation.z = Math.sin(t * 1.3 + i * 2) * 0.1 * (i % 2 ? 1 : -1);
-      });
-      m.head.rotation.z = Math.sin(t * 0.7) * 0.2 + (this.state === 'hunt' ? Math.sin(t * 40) * 0.05 : 0);
-      m.head.rotation.x = 0.1 + Math.sin(t * 0.5) * 0.1;
-    } else if (this.kind === 'skitter') {
-      m.limbs.forEach((l, i) => {
-        const ph = t * (6 + speed) + (i % 2 ? Math.PI : 0) + Math.floor(i / 2);
-        l.rotation.x = Math.sin(ph) * 0.35 * moving;
-        l.rotation.z = Math.cos(ph) * 0.1 * moving;
-      });
-      this.group.position.y = this.pos.y + Math.abs(Math.sin(t * (7 + speed))) * 0.05 * moving;
-      m.head.rotation.z = Math.sin(t * 5) * 0.25;
-    } else if (this.kind === 'mimic') {
-      this.group.position.y = this.pos.y + Math.sin(t * 1.6) * 0.04;
-      m.limbs.forEach((l, i) => {
-        l.rotation.x = Math.sin(t * 1.2 + i) * 0.08 - 0.05;
-        l.rotation.z = Math.sin(t * 0.8 + i * 2) * 0.05;
-      });
-    } else {
-      this.group.position.y = this.pos.y + Math.sin(t * 1.4) * 0.05;
-      m.limbs.forEach((l, i) => {
-        l.rotation.x = Math.sin(t * 1.4 + i * Math.PI) * 0.18 * moving - 0.05;
-      });
-      m.head.rotation.y = Math.sin(t * 0.6) * 0.5;
-    }
+    // It drifts, its long arms trailing, the head turning slowly.
+    this.group.position.y = this.pos.y + Math.sin(t * 1.8) * 0.07;
+    m.limbs.forEach((l, i) => {
+      l.rotation.x = Math.sin(t * 2 + i * Math.PI) * 0.16 * (0.5 + moving) - 0.08 * moving;
+      l.rotation.z = Math.sin(t * 1.3 + i * 2) * 0.08 * (i % 2 ? 1 : -1);
+    });
     for (const a of m.anim) a(t, this.state === 'hunt');
-    // Their lights pulse faster when they are hunting.
-    const hot = this.state === 'hunt';
-    for (const o of m.extra) {
-      const meshMat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial;
-      meshMat.emissiveIntensity = (hot ? 2 : 1) * (1.0 + 0.4 * Math.sin(t * (hot ? 14 : 3)));
-    }
     void dt;
   }
 
@@ -663,4 +461,3 @@ export class Monster {
   }
 }
 
-export const _monsterShapes = { blob, mat };

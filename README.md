@@ -6,20 +6,16 @@ for now; the code is laid out so multiplayer can be added.
 
 ## The game
 
-1. **The safe zone (lobby).** You wake in a sterile steel-and-tile room. There is a
+1. **The safe zone (lobby).** You wake in a bright concrete room with exposed beams, square panel lights, pipes along the wall and blue lockers. There is a
    - **registry terminal**: type your display name (on the wall keyboard with a poke or laser, or a real keyboard on the desktop), then SAVE;
    - **customization station**: a full-body mirror and a wardrobe/shop where you spend credits on suits, hats and gear;
    - **gear wall**: glowsticks, flashlights and radar pingers;
    - **a big reinforced window** over the machine hall, far below;
    - **a training annex**: stepping blocks, poles and a climbing wall up to a green plate, with a timer (poke START RUN) and a saved best time;
-   - a **helper drone (Bot-9)** that follows you and gives advice when you poke it, a **briefing board**, a **vending machine** (an Energy Cell makes your next run faster), a lounge, benches facing the window, and a **security monitor**.
+   - a **helper drone (Bot-9)** that follows you and gives advice when you poke it, a **briefing board**, a **facility poll** monitor, a **vending machine** (an Energy Cell makes your next run faster), a lounge, benches facing the window, and a **security monitor**.
 2. **The drop.** Hit the window hard (three good punches or throws) and it shatters. Climb out and drop onto the catwalk hanging over the hall.
-3. **The hazard zone.** A vast machine hall with columns, cargo, a reactor, a catwalk loop with stairs, and heavy **blast doors** into eight side rooms. Things live here:
-   - **Stalker** – tall, thin, a stretched helmet with too many eyes; drifts silently and hears movement.
-   - **Skitter** – a six-legged crawler with a helmet hung upside down; fast, wide-eyed, hunts on sight.
-   - **Warden** – a hulking armoured brute with one huge eye and a glowing cage over its chest; slow, hears everything, and smashes jammed doors.
-   - **Mimic** – wears the player's own orange suit, but wrong: a too-long neck, a weeping visor with a grin, seven-fingered gloves. It **only moves when you are not looking at it** (and whispers in static).
-   They hunt by **sight** (stand in the light and they see you further) and by **sound**: running, landing from a height, shouting into your microphone, a radar ping, a door slamming, breaking glass. Move slowly and you stay quiet.
+3. **The hazard zone.** A bright concrete warehouse far below: pale mottled walls, grey tiles, fluorescent tubes, rusty and blue pipes, forklifts, shelves of crates, pallets, roller shutters, catwalks, and heavy blast doors with yellow-and-black frames into eight side rooms. Something lives here:
+   - **The shade** – entirely pitch black (it does not even take the light), with two glowing white pupils, blood splattered on it in random places, and a wide frown full of sharp teeth. Three of them patrol. They hunt by **sight** (stand in the light and they see you further) and by **sound**: running, landing from a height, shouting into your microphone, a radar ping, a door slamming, breaking glass. Move slowly and you stay quiet.
 4. **Doors.** Each door has a panel with **OPEN / CLOSE / JAM**, and a handle you can grab and lift. Shut a door on a monster and it is stunned; jam one shut and the monsters have to batter their way through. But a closing door **crushes you instantly**, and a door you let go of half way drops.
 5. **Lockdown.** Every minute or two the alarm sounds, the lights flicker red and *every door* opens and closes by itself for about 25 seconds. The alarm draws the monsters.
 6. **The way out.** Restore power at the two **relays** (in the west and east rooms), then the exit gate opens. Reach the exit lift and press **EVACUATE**. You earn credits for surviving and for escaping, and keep some even when you die.
@@ -52,7 +48,7 @@ A machine hall with a catwalk loop and stairs, a coolant channel, a hanging cran
 
 ## Feel
 
-- **Your suit:** a hover-unit test subject with a ribbed collar, chest vents, a belt of pouches, a power pack with tanks and hoses, thrusters that flicker, and a visor display. Nine suits, fifteen hats and twelve gear items to buy.
+- **Your model:** a long-armed monkey with no legs (a round head, grey face, big eyes, ears, a belly patch, a tail), in nine fur colours, with fifteen hats and twelve gear items to buy.
 - **Haptics:** a heartbeat in both hands when something hunting is near (faster when closer), glass cracks and shatters, door slams and bangs, landings.
 - **Spatial voice and echo:** all sound, and voices (the microphone, and other players when multiplayer is added) are positional with a reverb that follows the size of the space: tight in the lobby, a long echo in the great hall. The terminal's **MIC CHECK** plays your own voice back with the room's echo.
 

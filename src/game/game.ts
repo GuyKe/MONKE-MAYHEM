@@ -31,6 +31,9 @@ const LOGS = [
 
 const LOBBY_SPAWN = new THREE.Vector3(0, 0, -3.2);
 const RED = new THREE.Color(1, 0.1, 0.05);
+/** The facility is bright concrete under fluorescent tubes: plenty of general light, with the black monster standing out against it. */
+const HEMI = 1.25;
+const AMBIENT = 0.75;
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const HALL_VIEW = new THREE.Vector3(0, -4, 26);
@@ -43,11 +46,11 @@ const _f = new THREE.Vector3();
  */
 export async function runGame(): Promise<void> {
   const save = new Save();
-  const e = await createEngine({ background: 0x04060a, spawn: LOBBY_SPAWN, killY: -40 });
+  const e = await createEngine({ background: 0x1c2026, spawn: LOBBY_SPAWN, killY: -40 });
   const { scene } = e;
-  scene.fog = new THREE.Fog(0x04060a, 12, 95);
-  const hemi = new THREE.HemisphereLight(0x8aa0c0, 0x202428, 0.7);
-  const ambient = new THREE.AmbientLight(0x303848, 0.5);
+  scene.fog = new THREE.Fog(0x1c2026, 18, 130);
+  const hemi = new THREE.HemisphereLight(0xe8edf4, 0x848a92, HEMI);
+  const ambient = new THREE.AmbientLight(0xffffff, AMBIENT);
   scene.add(hemi, ambient);
 
   // One flashlight beam for the whole game: it goes to whichever flashlight is held and on.
@@ -219,7 +222,7 @@ export async function runGame(): Promise<void> {
   };
 
   // --- The things in the dark ------------------------------------------------------------------------------------------
-  const kinds: MonsterKind[] = ['stalker', 'skitter', 'warden', 'mimic'];
+  const kinds: MonsterKind[] = ['shade', 'shade', 'shade'];
   kinds.forEach((k, i) => monsters.push(new Monster(e, k, facility.spawns[i])));
   const resetMonsters = (): void => monsters.forEach((m, i) => m.place(facility.spawns[i % facility.spawns.length]));
 
@@ -650,8 +653,8 @@ export async function runGame(): Promise<void> {
       }
     }
     if (blackout > 0) blackout -= dt;
-    hemi.intensity = blackout > 0 ? 0.08 : 0.7;
-    ambient.intensity = blackout > 0 ? 0.05 : 0.5;
+    hemi.intensity = blackout > 0 ? 0.08 : HEMI;
+    ambient.intensity = blackout > 0 ? 0.05 : AMBIENT;
 
     // Lights: the nearest fixtures really light, all of them flicker.
     for (const f of allFixtures) {

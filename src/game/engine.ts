@@ -67,8 +67,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
   renderer.xr.setReferenceSpaceType('local-floor');
   renderer.xr.setFoveation(1);
   renderer.xr.setFramebufferScaleFactor(0.9);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMapping = THREE.NoToneMapping; // flat, bright, like fluorescent-lit concrete
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();

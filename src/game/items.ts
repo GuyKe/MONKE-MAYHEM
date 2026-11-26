@@ -125,7 +125,7 @@ export function makeRadar(ctx: ItemContext, at: THREE.Vector3): Item {
     }
     for (const b of blips) {
       const a = Math.max(0, 1 - b.age / 3.5);
-      c.fillStyle = b.kind === 'skitter' ? `rgba(255,200,60,${a})` : `rgba(255,60,60,${a})`;
+      c.fillStyle = `rgba(255,60,60,${a})`;
       c.beginPath();
       c.arc(128 + b.x * (120 / RANGE), 128 + b.z * (120 / RANGE), 8, 0, Math.PI * 2);
       c.fill();

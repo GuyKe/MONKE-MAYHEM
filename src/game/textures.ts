@@ -45,74 +45,68 @@ function build(kind: SurfaceKind): Maps {
   r.fillRect(0, 0, S, S);
   switch (kind) {
     case 'wall': {
-      // Brushed grey-blue metal panels 1 m square with seams and rivets.
-      const g = c.createLinearGradient(0, 0, 0, S);
-      g.addColorStop(0, '#6c7480');
-      g.addColorStop(1, '#5a626d');
-      c.fillStyle = g;
+      // Pale, mottled poured concrete with pits, stains and shuttering seams, like an old service corridor.
+      c.fillStyle = '#d9d7d0';
       c.fillRect(0, 0, S, S);
-      for (let i = 0; i < 900; i++) {
-        c.fillStyle = `rgba(${200 + Math.random() * 55},${210 + Math.random() * 45},${220 + Math.random() * 35},0.05)`;
-        c.fillRect(Math.random() * S, Math.random() * S, 40 + Math.random() * 120, 1);
-      }
-      for (const o of [0, S / 2]) {
-        for (const p of [o, o + 0]) {
-          void p;
-        }
-      }
-      c.strokeStyle = '#2a2f36';
-      c.lineWidth = 5;
-      c.strokeRect(0, 0, S / 2, S / 2);
-      c.strokeRect(S / 2, 0, S / 2, S / 2);
-      c.strokeRect(0, S / 2, S / 2, S / 2);
-      c.strokeRect(S / 2, S / 2, S / 2, S / 2);
-      b.strokeStyle = '#303030';
-      b.lineWidth = 8;
-      b.strokeRect(0, 0, S / 2, S / 2);
-      b.strokeRect(S / 2, 0, S / 2, S / 2);
-      b.strokeRect(0, S / 2, S / 2, S / 2);
-      b.strokeRect(S / 2, S / 2, S / 2, S / 2);
-      for (const px of [0, S / 2]) {
-        for (const py of [0, S / 2]) {
-          for (const [dx, dy] of [[16, 16], [S / 2 - 16, 16], [16, S / 2 - 16], [S / 2 - 16, S / 2 - 16]]) {
-            c.fillStyle = '#9aa2ad';
-            c.beginPath();
-            c.arc(px + dx, py + dy, 5, 0, Math.PI * 2);
-            c.fill();
-            b.fillStyle = '#d0d0d0';
-            b.beginPath();
-            b.arc(px + dx, py + dy, 6, 0, Math.PI * 2);
-            b.fill();
-          }
-        }
-      }
-      // Scuffs and a streak of grime.
-      noise(c, S, 500, 0.12);
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 70; i++) {
         const x = Math.random() * S;
-        const gr = c.createLinearGradient(x, 0, x + 6, S);
-        gr.addColorStop(0, 'rgba(20,24,20,0.0)');
-        gr.addColorStop(0.5, 'rgba(20,24,20,0.2)');
-        gr.addColorStop(1, 'rgba(20,24,20,0.0)');
-        c.fillStyle = gr;
-        c.fillRect(x, 0, 6 + Math.random() * 10, S);
+        const y = Math.random() * S;
+        const r = 20 + Math.random() * 90;
+        const g = c.createRadialGradient(x, y, 2, x, y, r);
+        const dark = Math.random() < 0.6;
+        g.addColorStop(0, dark ? 'rgba(90,88,80,0.06)' : 'rgba(255,255,250,0.1)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        c.fillStyle = g;
+        c.fillRect(x - r, y - r, r * 2, r * 2);
       }
-      r.fillStyle = '#707070';
+      for (let i = 0; i < 160; i++) {
+        const x = Math.random() * S;
+        const y = Math.random() * S;
+        const r = 1 + Math.random() * 3;
+        c.fillStyle = 'rgba(70,68,62,0.55)';
+        c.beginPath();
+        c.arc(x, y, r, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = 'rgba(255,255,255,0.35)';
+        c.beginPath();
+        c.arc(x - 1, y - 1, r * 0.6, 0, Math.PI * 2);
+        c.fill();
+        b.fillStyle = '#303030';
+        b.beginPath();
+        b.arc(x, y, r, 0, Math.PI * 2);
+        b.fill();
+      }
+      for (let i = 0; i < 5; i++) {
+        const x = Math.random() * S;
+        const gr = c.createLinearGradient(x, 0, x + 8, S);
+        gr.addColorStop(0, 'rgba(110,96,70,0)');
+        gr.addColorStop(0.5, 'rgba(110,96,70,0.14)');
+        gr.addColorStop(1, 'rgba(110,96,70,0)');
+        c.fillStyle = gr;
+        c.fillRect(x, 0, 10 + Math.random() * 14, S);
+      }
+      c.strokeStyle = 'rgba(80,78,72,0.28)';
+      c.lineWidth = 3;
+      c.strokeRect(0, 0, S, S);
+      b.strokeStyle = '#505050';
+      b.lineWidth = 4;
+      b.strokeRect(0, 0, S, S);
+      r.fillStyle = '#c0c0c0';
       r.fillRect(0, 0, S, S);
       break;
     }
     case 'floor': {
-      // Sterile off-white tiles, 0.5 m, with dark grout and a few stains.
-      c.fillStyle = '#c4c8c8';
+      // Grey-blue industrial tiles, half a metre, speckled, with dark grout.
+      c.fillStyle = '#a6abb2';
       c.fillRect(0, 0, S, S);
       for (let y = 0; y < 4; y++) {
         for (let x = 0; x < 4; x++) {
-          const v = 190 + Math.floor(Math.random() * 20);
-          c.fillStyle = `rgb(${v},${v + 3},${v + 3})`;
+          const v = 158 + Math.floor(Math.random() * 20);
+          c.fillStyle = `rgb(${v},${v + 4},${v + 10})`;
           c.fillRect(x * 128 + 3, y * 128 + 3, 122, 122);
         }
       }
-      c.strokeStyle = '#6a6e70';
+      c.strokeStyle = '#4a4e54';
       c.lineWidth = 6;
       for (let i = 0; i <= 4; i++) {
         c.beginPath();
@@ -122,11 +116,14 @@ function build(kind: SurfaceKind): Maps {
         c.lineTo(S, i * 128);
         c.stroke();
       }
-      noise(c, S, 700, 0.1);
-      for (let i = 0; i < 6; i++) {
-        const gr = c.createRadialGradient(Math.random() * S, Math.random() * S, 2, Math.random() * S, Math.random() * S, 50);
-        gr.addColorStop(0, 'rgba(80,74,60,0.18)');
-        gr.addColorStop(1, 'rgba(80,74,60,0)');
+      for (let i = 0; i < 1200; i++) {
+        c.fillStyle = Math.random() < 0.5 ? 'rgba(40,44,50,0.25)' : 'rgba(220,226,232,0.22)';
+        c.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+      }
+      for (let i = 0; i < 5; i++) {
+        const gr = c.createRadialGradient(Math.random() * S, Math.random() * S, 2, Math.random() * S, Math.random() * S, 60);
+        gr.addColorStop(0, 'rgba(60,56,48,0.16)');
+        gr.addColorStop(1, 'rgba(60,56,48,0)');
         c.fillStyle = gr;
         c.fillRect(0, 0, S, S);
       }
@@ -140,7 +137,7 @@ function build(kind: SurfaceKind): Maps {
         b.lineTo(S, i * 128);
         b.stroke();
       }
-      r.fillStyle = '#505050';
+      r.fillStyle = '#707070';
       r.fillRect(0, 0, S, S);
       break;
     }
@@ -167,9 +164,9 @@ function build(kind: SurfaceKind): Maps {
       break;
     }
     case 'concrete': {
-      c.fillStyle = '#7c7f7c';
+      c.fillStyle = '#a4a6a2';
       c.fillRect(0, 0, S, S);
-      noise(c, S, 3500, 0.18);
+      noise(c, S, 3000, 0.14);
       noise(c, S, 1500, 0.1, false);
       // Cracks and oil.
       for (let i = 0; i < 6; i++) {
@@ -224,13 +221,21 @@ function build(kind: SurfaceKind): Maps {
       break;
     }
     case 'ceiling': {
-      c.fillStyle = '#2a2d32';
+      c.fillStyle = '#d2d0ca';
       c.fillRect(0, 0, S, S);
-      c.strokeStyle = '#14161a';
-      c.lineWidth = 8;
+      for (let i = 0; i < 50; i++) {
+        const x = Math.random() * S;
+        const y = Math.random() * S;
+        const g = c.createRadialGradient(x, y, 2, x, y, 80);
+        g.addColorStop(0, 'rgba(100,96,88,0.1)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        c.fillStyle = g;
+        c.fillRect(x - 80, y - 80, 160, 160);
+      }
+      c.strokeStyle = 'rgba(90,88,82,0.35)';
+      c.lineWidth = 5;
       c.strokeRect(0, 0, S, S);
-      c.strokeRect(0, 0, S / 2, S);
-      noise(c, S, 600, 0.12);
+      noise(c, S, 500, 0.1);
       break;
     }
     case 'door': {
@@ -271,7 +276,7 @@ export function surface(kind: SurfaceKind, w = 2, h = 2, tint = 0xffffff): THREE
   };
   // Only walls and doors get a bump map (it costs); the rest are flat.
   const bumpy = kind === 'wall' || kind === 'door';
-  m = new THREE.MeshLambertMaterial({ map: rep(maps.color), bumpMap: bumpy ? rep(maps.bump) : null, bumpScale: 2.5, color: tint });
+  m = new THREE.MeshLambertMaterial({ map: rep(maps.color), bumpMap: bumpy ? rep(maps.bump) : null, bumpScale: 1.0, color: tint });
   materials.set(key, m);
   return m;
 }

@@ -8,6 +8,7 @@ import { box, cyl, dyn, mat, part } from './shapes';
 import { batchStatic } from './batch';
 import { slab, surface } from './textures';
 import { Dressing, ROOM_THEMES } from './rooms';
+import { barrel, forklift, hazardFrame, pallet, pipe, shelves, shutter } from './props';
 
 export const HALL_TOP = 6;
 export const ROOM_Z = [20, 32, 44, 56];
@@ -67,6 +68,7 @@ export class Facility {
     this.buildExit();
     this.buildLights();
     this.buildNav();
+    this.buildProps();
     this.dressing.dressHall();
     batchStatic(this.group);
   }
@@ -405,6 +407,9 @@ export class Facility {
     const mesh = dyn(new THREE.Mesh(new THREE.BoxGeometry(1.4 * size, 0.1, 0.5 * size), new THREE.MeshBasicMaterial({ color, fog: false })));
     mesh.position.copy(pos);
     this.group.add(mesh);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(1.5 * size, 0.06, 0.62 * size), mat(0x101214));
+    housing.position.copy(pos).y += 0.07;
+    this.group.add(housing);
     const f: Fixture = { pos: pos.clone(), mesh, phase: Math.random() * 20, base: new THREE.Color(color) };
     this.fixtures.push(f);
     return f;
@@ -415,6 +420,76 @@ export class Facility {
     for (const [x, z] of [[0, 28], [0, 54]]) this.lamp(new THREE.Vector3(x, HALL_TOP - 1.2, z), 0xcfe6ff, 1.6);
     for (const z of [18, 40, 58]) for (const x of [-18, 18]) this.lamp(new THREE.Vector3(x, CATWALK_Y + 2.6, z), 0xffe6b0, 0.7);
     this.lamp(new THREE.Vector3(0, CATWALK_Y + 3, 10), 0xcfe6ff, 1.4);
+  }
+
+
+  /** The look of a working warehouse: forklifts, shelves of crates, pallets, pipes, roller shutters, hazard frames round the doors. */
+  private buildProps(): void {
+    // Forklifts parked about the hall (solid, and in the way).
+    for (const [x, z, yaw] of [[-13, 28, 0.5], [12.5, 52, -2.4], [-6, 16, 3.1]] as Array<[number, number, number]>) {
+      const f = forklift();
+      f.position.set(x, FLOOR_Y, z);
+      f.rotation.y = yaw;
+      this.group.add(f);
+      this.e.solid(x, FLOOR_Y + 1.0, z, 0.9, 1.0, 1.1);
+      this.blockers.push({ x0: x - 1, x1: x + 1, z0: z - 1.2, z1: z + 1.2 });
+      this.nav.setBlock(0, x - 1, x + 1, z - 1.2, z + 1.2, false);
+    }
+    // Shelves of crates against the long walls, between the doors.
+    for (const side of [-1, 1]) {
+      for (const z of [28.9, 41.1, 52.6]) {
+        const sh = shelves(2.4, 2.8, 0.8, 3, true);
+        sh.position.set(side * 19.45, FLOOR_Y, z);
+        sh.rotation.y = Math.PI / 2;
+        this.group.add(sh);
+        this.e.solid(side * 19.45, FLOOR_Y + 1.4, z, 0.45, 1.4, 1.25);
+        this.nav.setBlock(0, side * 19.45 - 0.5, side * 19.45 + 0.5, z - 1.25, z + 1.25, false);
+      }
+    }
+    for (const x of [-15, -10, 10, 15]) {
+      const sh = shelves(2.6, 3.0, 0.8, 3, true);
+      sh.position.set(x, FLOOR_Y, 66.45);
+      this.group.add(sh);
+      this.e.solid(x, FLOOR_Y + 1.5, 66.45, 1.3, 1.5, 0.45);
+      this.nav.setBlock(0, x - 1.3, x + 1.3, 65.9, 67, false);
+    }
+    // Pallets, barrels.
+    for (const [x, z, n] of [[-3, 14, 2], [4, 20, 3], [-17, 56, 2], [16.4, 22, 2], [0, 61, 2]] as Array<[number, number, number]>) {
+      const p = pallet(n);
+      p.position.set(x, FLOOR_Y, z);
+      p.rotation.y = Math.random() * 0.6;
+      this.group.add(p);
+      this.e.solid(x, FLOOR_Y + 0.3 * n + 0.1, z, 0.6, 0.3 * n + 0.1, 0.5);
+      this.blockers.push({ x0: x - 0.7, x1: x + 0.7, z0: z - 0.6, z1: z + 0.6 });
+      this.nav.setBlock(0, x - 0.7, x + 0.7, z - 0.6, z + 0.6, false);
+    }
+    for (const [x, z, c] of [[-18, 12, 0x2a4a9a], [-17.4, 12.8, 0xb02a20], [18, 62, 0xe0b020], [17.3, 62.8, 0x2a5a30]] as Array<[number, number, number]>) {
+      const b = barrel(c);
+      b.position.set(x, FLOOR_Y, z);
+      this.group.add(b);
+      this.e.solid(x, FLOOR_Y + 0.45, z, 0.3, 0.45, 0.3);
+    }
+    // Pipes along the long walls (rust, blue, red) and a vertical one up each corner.
+    const runs: Array<[number, number, number]> = [[3.4, 0.24, 0x8a4a2a], [2.7, 0.18, 0x2a3a8a], [4.1, 0.14, 0xb02a20]];
+    for (const side of [-1, 1]) {
+      for (const [y, r, c] of runs) this.group.add(pipe(new THREE.Vector3(side * 19.5, y, 8), new THREE.Vector3(side * 19.5, y, side > 0 ? 62 : 66), r, c));
+      this.group.add(pipe(new THREE.Vector3(side * 19.2, FLOOR_Y, 9.5), new THREE.Vector3(side * 19.2, HALL_TOP, 9.5), 0.22, 0xb02a20));
+    }
+    // Roller shutters on the north wall below the catwalk, and hazard frames round every room door.
+    for (const x of [-12, 12]) {
+      const sh = shutter(3.6, 3.4);
+      sh.position.set(x, FLOOR_Y, 7.06);
+      sh.position.z = 7.06;
+      this.group.add(sh);
+    }
+    for (const side of [-1, 1]) {
+      for (const dz of ROOM_Z) {
+        const frame = hazardFrame(3.0, 3.6);
+        frame.position.set(side * 19.75, FLOOR_Y, dz);
+        frame.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+        this.group.add(frame);
+      }
+    }
   }
 
   private buildNav(): void {
@@ -454,7 +529,8 @@ export class Facility {
     nav.setBlock(1, -20, 20, 61, 64, true);
     // The stairs link the long catwalks to the floor. Under them is solid.
     for (const side of [-1, 1]) {
-      nav.setBlock(0, side > 0 ? 13.5 : -16.5, side > 0 ? 16.5 : -13.5, 29, 36, false);
+      // (Only the cells the steps really fill: a gap stays between them and the wall.)
+      nav.setBlock(0, side > 0 ? 13.5 : -15.9, side > 0 ? 15.9 : -13.5, 29, 36, false);
       const top = nav.linkIndex(1, colOf(side * 17.5), rowOf(29.5));
       const bottom = nav.linkIndex(0, colOf(side * 15), rowOf(37));
       nav.links.push({ a: top, b: bottom });
