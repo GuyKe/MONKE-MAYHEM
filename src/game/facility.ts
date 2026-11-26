@@ -4,7 +4,8 @@ import { WorldButton } from '../ui/panel';
 import { Door, DOOR_H, DOOR_W } from './doors';
 import type { Engine } from './engine';
 import { CATWALK_Y, FLOOR_Y, Nav, colOf, rowOf, cellX, cellZ } from './nav';
-import { box, cyl, mat, part } from './shapes';
+import { box, cyl, dyn, mat, part } from './shapes';
+import { batchStatic } from './batch';
 import { slab, surface } from './textures';
 import { Dressing, ROOM_THEMES } from './rooms';
 
@@ -67,6 +68,7 @@ export class Facility {
     this.buildLights();
     this.buildNav();
     this.dressing.dressHall();
+    batchStatic(this.group);
   }
 
   // --- Pieces ----------------------------------------------------------------------------------------------------
@@ -159,7 +161,8 @@ export class Facility {
     g.rotation.y = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
     part(g, box, 0x2a2e36, [0, 1.0, 0], [2.2, 2.0, 0.5], [0, 0, 0], 0, 0.35, 0.7);
     part(g, box, 0x14161a, [0, 1.3, 0.27], [1.9, 1.0, 0.04]);
-    const lamp = part(g, cyl, 0xff3030, [0, 1.95, 0.3], [0.14, 0.08, 0.14], [Math.PI / 2, 0, 0], 0xff2020);
+    const lamp = dyn(part(g, cyl, 0xff3030, [0, 1.95, 0.3], [0.14, 0.08, 0.14], [Math.PI / 2, 0, 0], 0xff2020));
+    lamp.material = (lamp.material as THREE.MeshLambertMaterial).clone();
     const label = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.4), new THREE.MeshBasicMaterial({ map: this.labelTexture(name, '#ffcf40'), transparent: true }));
     label.position.set(0, 1.62, 0.3);
     g.add(label);
@@ -313,6 +316,7 @@ export class Facility {
     const core = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 9, 14), new THREE.MeshStandardMaterial({ color: 0x205840, emissive: 0x20ff80, emissiveIntensity: 0.9, transparent: true, opacity: 0.8 }));
     core.position.set(0, FLOOR_Y + 5, 40);
     this.group.add(core);
+    dyn(core);
     (this as unknown as { core: THREE.Mesh }).core = core;
     // Shipping containers and crates.
     const boxes: Array<[number, number, number, number, number, number]> = [
@@ -398,7 +402,7 @@ export class Facility {
 
   /** A ceiling lamp: an emissive panel that can flicker. */
   lamp(pos: THREE.Vector3, color: number, size = 1): Fixture {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.4 * size, 0.1, 0.5 * size), new THREE.MeshBasicMaterial({ color, fog: false }));
+    const mesh = dyn(new THREE.Mesh(new THREE.BoxGeometry(1.4 * size, 0.1, 0.5 * size), new THREE.MeshBasicMaterial({ color, fog: false })));
     mesh.position.copy(pos);
     this.group.add(mesh);
     const f: Fixture = { pos: pos.clone(), mesh, phase: Math.random() * 20, base: new THREE.Color(color) };
@@ -474,7 +478,7 @@ export class Facility {
 
   /** The height of the ground under a point (for things that fall). */
   floorAt(x: number, y: number, z: number): number {
-    if (z < 7 && Math.abs(x) < 9 && y > -1) return 0;
+    if (z < 7 && x > -24.4 && x < 9 && y > -1) return 0;
     if (y > CATWALK_Y - 0.4) {
       const onDeck = (z >= 7 && z <= 13 && Math.abs(x) <= 20) || (z >= 13 && z <= 64 && Math.abs(x) >= 16.5 && Math.abs(x) <= 20) || (z >= 61 && z <= 64 && Math.abs(x) <= 20);
       if (onDeck) return CATWALK_Y;

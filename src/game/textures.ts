@@ -10,7 +10,7 @@ interface Maps {
 }
 
 const base = new Map<SurfaceKind, Maps>();
-const materials = new Map<string, THREE.MeshStandardMaterial>();
+const materials = new Map<string, THREE.MeshLambertMaterial>();
 
 function canvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
@@ -21,7 +21,7 @@ function canvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
 function tex(c: HTMLCanvasElement, srgb: boolean): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 4;
+  t.anisotropy = 2;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
@@ -254,7 +254,7 @@ function build(kind: SurfaceKind): Maps {
 }
 
 /** A material of `kind` for a surface about w × h metres (the texture repeats every 2 m). */
-export function surface(kind: SurfaceKind, w = 2, h = 2, tint = 0xffffff): THREE.MeshStandardMaterial {
+export function surface(kind: SurfaceKind, w = 2, h = 2, tint = 0xffffff): THREE.MeshLambertMaterial {
   const key = `${kind}|${Math.round(w * 2)}|${Math.round(h * 2)}|${tint}`;
   let m = materials.get(key);
   if (m) return m;
@@ -269,15 +269,41 @@ export function surface(kind: SurfaceKind, w = 2, h = 2, tint = 0xffffff): THREE
     c.repeat.set(Math.max(0.25, w / 2), Math.max(0.25, h / 2));
     return c;
   };
-  const metal = kind === 'wall' || kind === 'grate' || kind === 'door' ? 0.55 : 0.05;
-  m = new THREE.MeshStandardMaterial({ map: rep(maps.color), bumpMap: rep(maps.bump), bumpScale: kind === 'wall' ? 2.5 : 1.5, roughnessMap: rep(maps.rough), roughness: 1, metalness: metal, color: tint });
+  // Only walls and doors get a bump map (it costs); the rest are flat.
+  const bumpy = kind === 'wall' || kind === 'door';
+  m = new THREE.MeshLambertMaterial({ map: rep(maps.color), bumpMap: bumpy ? rep(maps.bump) : null, bumpScale: 2.5, color: tint });
   materials.set(key, m);
   return m;
 }
 
-/** A box whose faces each have the right texture scale for their size. */
+const slabMaterials = new Map<SurfaceKind, THREE.MeshLambertMaterial>();
+
+/** One material per kind of surface for boxes: the tint lives in the vertex colours, so differently tinted boxes can still share (and batch). */
+function slabMaterial(kind: SurfaceKind): THREE.MeshLambertMaterial {
+  let m = slabMaterials.get(kind);
+  if (!m) {
+    m = surface(kind, 2, 2).clone();
+    m.vertexColors = true;
+    m.color.setHex(0xffffff);
+    slabMaterials.set(kind, m);
+  }
+  return m;
+}
+
+/** A box with one material: each face's texture coordinates are scaled to its size, so the surface looks the same size everywhere (and boxes can be batched). */
 export function slab(kind: SurfaceKind, w: number, h: number, d: number, tint = 0xffffff): THREE.Mesh {
   const geo = new THREE.BoxGeometry(w, h, d);
-  const mats = [surface(kind, d, h, tint), surface(kind, d, h, tint), surface(kind, w, d, tint), surface(kind, w, d, tint), surface(kind, w, h, tint), surface(kind, w, h, tint)];
-  return new THREE.Mesh(geo, mats);
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+  const dims: Array<[number, number]> = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  for (let f = 0; f < 6; f++) {
+    for (let v = 0; v < 4; v++) {
+      const i = f * 4 + v;
+      uv.setXY(i, (uv.getX(i) * dims[f][0]) / 2, (uv.getY(i) * dims[f][1]) / 2);
+    }
+  }
+  const c = new THREE.Color(tint);
+  const colors = new Float32Array(uv.count * 3);
+  for (let i = 0; i < uv.count; i++) colors.set([c.r, c.g, c.b], i * 3);
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return new THREE.Mesh(geo, slabMaterial(kind));
 }

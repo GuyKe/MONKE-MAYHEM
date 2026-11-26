@@ -11,6 +11,8 @@ export interface Profile {
   mic: boolean;
   /** Data logs found (their numbers). */
   logs: number[];
+  /** Best time round the training course, seconds (0 = none). */
+  bestCourse: number;
 }
 
 const KEY = 'lockdown.profile';
@@ -23,6 +25,7 @@ export const DEFAULT_PROFILE: Profile = {
   stats: { escapes: 0, deaths: 0, crushed: 0, seconds: 0 },
   mic: false,
   logs: [],
+  bestCourse: 0,
 };
 
 export class Save {

@@ -90,6 +90,7 @@ export class Wrist {
   constructor(private readonly e: Engine) {
     this.button = e.panels.add(new WorldButton(e.scene, '', 0.26, 0.065, '#16222c'));
     this.button.enabled = false;
+    this.button.moves = true;
   }
 
   set(text: string): void {

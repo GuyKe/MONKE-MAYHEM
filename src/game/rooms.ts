@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Engine } from './engine';
 import type { Facility } from './facility';
 import { FLOOR_Y } from './nav';
-import { blob, box, cone, cyl, low, mat, part, rnd, sphere } from './shapes';
+import { blob, box, cone, cyl, dyn, low, mat, part, rnd, sphere } from './shapes';
 import { surface } from './textures';
 
 /** What each room behind a door is. */
@@ -10,12 +10,28 @@ export const ROOM_THEMES = ['SERVER ROOM', 'COLD STORAGE', 'BOILER ROOM', 'ARMOR
 export type RoomTheme = (typeof ROOM_THEMES)[number];
 
 interface Led {
-  mesh: THREE.Mesh;
+  index: number;
   rate: number;
   phase: number;
-  on: number;
-  off: number;
+  on: THREE.Color;
+  off: THREE.Color;
 }
+
+/** Flat marks on the floor share a few materials so they batch. */
+function decalMaterial(color: number, opacity: number): THREE.MeshBasicMaterial {
+  const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
+  m.userData.batchable = true;
+  return m;
+}
+const FROST = decalMaterial(0xe0f4ff, 0.35);
+const BLOOD_OLD = decalMaterial(0x4a0808, 0.9);
+const BLOOD_DARK = decalMaterial(0x2a0808, 0.8);
+const OIL = decalMaterial(0x101010, 0.8);
+
+const _m4 = new THREE.Matrix4();
+const _v3 = new THREE.Vector3();
+const _q4 = new THREE.Quaternion();
+const _s3 = new THREE.Vector3();
 
 function canvasPlane(w: number, h: number, draw: (c: CanvasRenderingContext2D, t: number) => void, cw = 256, ch = 144): { mesh: THREE.Mesh; tick: (t: number) => void } {
   const canvas = document.createElement('canvas');
@@ -61,8 +77,10 @@ function label(text: string, color: string, w = 1.6, h = 0.4): THREE.Mesh {
  */
 export class Dressing {
   private readonly leds: Led[] = [];
+  private ledMesh: THREE.InstancedMesh | null = null;
   private readonly screens: Array<{ tick: (t: number) => void; every: number; last: number }> = [];
-  private readonly steam: Array<{ mesh: THREE.Mesh; base: THREE.Vector3; phase: number; speed: number }> = [];
+  private readonly steam: Array<{ mesh: THREE.Mesh | null; index: number; base: THREE.Vector3; phase: number; speed: number }> = [];
+  private puffMesh: THREE.InstancedMesh | null = null;
   private readonly vents: THREE.Vector3[] = [];
   private ventTimer = 4;
   private crane: THREE.Group | null = null;
@@ -72,6 +90,10 @@ export class Dressing {
   private readonly lamps: Array<{ mesh: THREE.Mesh; phase: number; base: THREE.Color }> = [];
   private readonly tanks: Array<{ fluid: THREE.Mesh; phase: number }> = [];
   private readonly g = new THREE.Group();
+  private readonly swingers: THREE.Object3D[] = [];
+  private readonly floaters: THREE.Object3D[] = [];
+  private near = true;
+  private tick = 0;
 
   constructor(
     private readonly e: Engine,
@@ -87,11 +109,18 @@ export class Dressing {
   }
 
   private led(x: number, y: number, z: number, color: number, rate = 1): void {
-    const m = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({ color, fog: false }));
-    m.scale.setScalar(0.018);
-    m.position.set(x, y, z);
-    this.add(m);
-    this.leds.push({ mesh: m, rate: rate * (0.5 + Math.random()), phase: Math.random() * 10, on: color, off: 0x101010 });
+    // All the little lights are one instanced mesh, coloured per light.
+    if (!this.ledMesh) {
+      this.ledMesh = new THREE.InstancedMesh(sphere, new THREE.MeshBasicMaterial({ fog: false }), 300);
+      this.ledMesh.count = 0;
+      this.ledMesh.frustumCulled = false;
+      dyn(this.ledMesh);
+      this.add(this.ledMesh);
+    }
+    const i = this.ledMesh.count++;
+    this.ledMesh.setMatrixAt(i, new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(0.018, 0.018, 0.018)));
+    this.ledMesh.setColorAt(i, new THREE.Color(color));
+    this.leds.push({ index: i, rate: rate * (0.5 + Math.random()), phase: Math.random() * 10, on: new THREE.Color(color), off: new THREE.Color(0x101010) });
   }
 
   private solid(x: number, y: number, z: number, w: number, h: number, d: number, color: number, solid = true, kind: 'wall' | 'concrete' = 'wall'): THREE.Mesh {
@@ -189,10 +218,12 @@ export class Dressing {
       part(this.g, cyl, 0x606870, [p.x, FLOOR_Y + 3.5, p.z], [0.02, 1.0, 0.02]);
       const shroud = part(this.g, sphere, 0xcfd8e0, [p.x, FLOOR_Y + 2.6, p.z], [0.28, 0.75, 0.22]);
       shroud.userData.swing = 1;
+      dyn(shroud);
+      this.swingers.push(shroud);
       part(this.g, cyl, 0x606870, [p.x, FLOOR_Y + 4.0, p.z], [0.04, 0.02, 0.04]);
     }
     for (let i = 0; i < 6; i++) {
-      const frost = new THREE.Mesh(new THREE.CircleGeometry(0.4 + Math.random() * 0.8, 12).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xe0f4ff, transparent: true, opacity: 0.35 }));
+      const frost = new THREE.Mesh(new THREE.CircleGeometry(0.4 + Math.random() * 0.8, 12).rotateX(-Math.PI / 2), FROST);
       const p = this.at(side, zc, rnd(1, 9), rnd(-4, 4));
       frost.position.set(p.x, FLOOR_Y + 0.025, p.z);
       this.add(frost);
@@ -211,7 +242,7 @@ export class Dressing {
     m.position.set(p.x, FLOOR_Y + 0.5, p.z);
     m.rotation.x = -Math.PI / 2;
     this.add(m);
-    this.steam.push({ mesh: m, base: m.position.clone(), phase: Math.random() * 6, speed: 0.15 });
+    this.steam.push({ mesh: m, index: -1, base: m.position.clone(), phase: Math.random() * 6, speed: 0.15 });
   }
 
   private boiler(side: number, zc: number): void {
@@ -222,7 +253,7 @@ export class Dressing {
       this.add(tank);
       this.e.solid(p.x, FLOOR_Y + 1.7, p.z, 1.2, 1.7, 1.2);
       const door = part(this.g, cyl, 0xff7a10, [p.x - side * 1.0, FLOOR_Y + 0.9, p.z], [0.45, 0.04, 0.45], [0, 0, Math.PI / 2], 0xff5a00);
-      door.userData.glow = true;
+      dyn(door);
       this.sparks.push({ mesh: door, phase: Math.random() * 6 });
       for (let k = 0; k < 4; k++) part(this.g, cyl, 0x303030, [p.x, FLOOR_Y + 0.5 + k * 0.8, p.z], [1.24, 0.04, 1.24]);
       const gauge = part(this.g, cyl, 0xe8e8e8, [p.x - side * 0.9, FLOOR_Y + 2.5, p.z + 0.7], [0.14, 0.03, 0.14], [0, 0, Math.PI / 2], 0x303030);
@@ -245,11 +276,17 @@ export class Dressing {
   }
 
   private steamColumn(x: number, y: number, z: number): void {
-    for (let i = 0; i < 5; i++) {
-      const m = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({ color: 0xdfe4e8, transparent: true, opacity: 0.2, depthWrite: false }));
-      m.position.set(x, y, z);
-      this.add(m);
-      this.steam.push({ mesh: m, base: new THREE.Vector3(x, y, z), phase: i / 5, speed: 0.5 });
+    // Every puff of steam in the facility is one instanced mesh.
+    if (!this.puffMesh) {
+      this.puffMesh = new THREE.InstancedMesh(sphere, new THREE.MeshBasicMaterial({ color: 0xdfe4e8, transparent: true, opacity: 0.1, depthWrite: false }), 200);
+      this.puffMesh.count = 0;
+      this.puffMesh.frustumCulled = false;
+      dyn(this.puffMesh);
+      this.add(this.puffMesh);
+    }
+    for (let i = 0; i < 4; i++) {
+      const index = this.puffMesh.count++;
+      this.steam.push({ mesh: null, index, base: new THREE.Vector3(x, y, z), phase: i / 4, speed: 0.5 });
     }
   }
 
@@ -296,7 +333,7 @@ export class Dressing {
       part(this.g, box, 0x40454c, [p.x - side * 0.07, FLOOR_Y + 0.5 + r * 0.7, p.z], [0.02, 0.06, 0.2]);
     }
     for (let i = 0; i < 6; i++) {
-      const b = new THREE.Mesh(new THREE.CircleGeometry(0.3 + Math.random() * 0.5, 10).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4a0808 }));
+      const b = new THREE.Mesh(new THREE.CircleGeometry(0.3 + Math.random() * 0.5, 10).rotateX(-Math.PI / 2), BLOOD_OLD);
       const p = this.at(side, zc, rnd(1, 9), rnd(-4, 4));
       b.position.set(p.x, FLOOR_Y + 0.03, p.z);
       this.add(b);
@@ -309,6 +346,7 @@ export class Dressing {
   private lampCone(x: number, y: number, z: number, color: number): THREE.Mesh {
     const cone2 = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.3, 12, 1, true), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, fog: false }));
     cone2.position.set(x, y, z);
+    dyn(cone2);
     this.add(cone2);
     part(this.g, cyl, 0x303840, [x, y + 0.7, z], [0.02, 0.6, 0.02]);
     return cone2;
@@ -323,6 +361,7 @@ export class Dressing {
         void coil;
       }
       const lamp = part(this.g, sphere, 0xffe040, [p.x - side * 0.82, FLOOR_Y + 1.5, p.z], [0.06, 0.06, 0.03], [0, 0, 0], 0xffd020);
+      dyn(lamp);
       this.sparks.push({ mesh: lamp, phase: Math.random() * 6 });
     }
     for (let i = 0; i < 3; i++) {
@@ -371,6 +410,8 @@ export class Dressing {
         part(this.g, sphere, 0xff3040, [p.x + sx * 0.06, FLOOR_Y + 2.17, p.z - 0.13], [0.014, 0.014, 0.01], [0, 0, 0], 0xff2030);
       }
       body.userData.float = 1;
+      dyn(body);
+      this.floaters.push(body);
     }
     for (let i = 0; i < 3; i++) {
       const p = this.at(side, zc, 8.6, -3.4 + i * 2.6);
@@ -392,6 +433,7 @@ export class Dressing {
     const vm = this.at(side, zc, 9.3, 3.6);
     this.solid(vm.x, FLOOR_Y + 1.0, vm.z, 0.9, 2.0, 1.2, 0x2a3a6a);
     const face = part(this.g, box, 0xfff6c0, [vm.x - side * 0.46, FLOOR_Y + 1.3, vm.z], [0.02, 1.1, 0.9], [0, 0, 0], 0xffe090);
+    dyn(face);
     this.sparks.push({ mesh: face, phase: Math.random() * 6 });
     const posters = ['KEEP CALM', 'SAFETY FIRST', 'DAY 412', 'THEY LISTEN'];
     posters.forEach((txt, i) => {
@@ -433,11 +475,8 @@ export class Dressing {
     this.pool.position.set(-13.5, FLOOR_Y + 0.06, 54);
     this.add(this.pool);
     for (const [x, z, w, d] of [[-17.2, 54, 0.3, 12.6], [-9.8, 54, 0.3, 12.6], [-13.5, 47.8, 7.6, 0.3], [-13.5, 60.2, 7.6, 0.3]] as Array<[number, number, number, number]>) this.solid(x, FLOOR_Y + 0.25, z, w, 0.5, d, 0x5a5e66, true, 'concrete');
-    const glow = new THREE.PointLight(0x30c0ff, 18, 16, 1.8);
-    glow.position.set(-13.5, FLOOR_Y + 1.5, 54);
-    this.add(glow);
     // An overhead crane on rails with a hanging container.
-    this.crane = new THREE.Group();
+    this.crane = dyn(new THREE.Group());
     for (const x of [-14, 14]) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 56), mat(0x3a3e46, 0, 0.5, 0.6));
       rail.position.set(x, 4.9, 37);
@@ -489,7 +528,7 @@ export class Dressing {
     for (const [x, z, r] of bodyAt) this.body(x, z, r);
     // Smears and puddles of oil and blood.
     for (let i = 0; i < 22; i++) {
-      const d = new THREE.Mesh(new THREE.CircleGeometry(0.3 + Math.random() * 0.9, 12).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: i % 3 ? 0x2a0808 : 0x101010, transparent: true, opacity: 0.8 }));
+      const d = new THREE.Mesh(new THREE.CircleGeometry(0.3 + Math.random() * 0.9, 12).rotateX(-Math.PI / 2), i % 3 ? BLOOD_DARK : OIL);
       d.position.set(rnd(-18, 18), FLOOR_Y + 0.02, rnd(10, 66));
       d.scale.y = 1;
       this.add(d);
@@ -523,9 +562,16 @@ export class Dressing {
   // --- Life ---------------------------------------------------------------------------------------------------------------------
 
   update(dt: number, t: number): void {
-    for (const l of this.leds) {
-      const on = Math.sin(t * l.rate * 3 + l.phase) > -0.3;
-      (l.mesh.material as THREE.MeshBasicMaterial).color.setHex(on ? l.on : l.off);
+    // Nothing here is seen from the lobby except through the window, and only roughly: update it at a gentler pace.
+    this.near = this.e.head.z > 7.3;
+    this.tick += dt;
+    if (!this.near && this.tick < 0.2) return;
+    if (this.near && this.tick < 1 / 30) return;
+    dt = this.tick;
+    this.tick = 0;
+    if (this.ledMesh) {
+      for (const l of this.leds) this.ledMesh.setColorAt(l.index, Math.sin(t * l.rate * 3 + l.phase) > -0.3 ? l.on : l.off);
+      if (this.ledMesh.instanceColor) this.ledMesh.instanceColor.needsUpdate = true;
     }
     for (const s of this.screens) {
       if (t - s.last > s.every) {
@@ -535,15 +581,15 @@ export class Dressing {
     }
     for (const p of this.steam) {
       const k = (t * p.speed + p.phase) % 1;
-      if (p.mesh.geometry instanceof THREE.PlaneGeometry) {
+      if (p.mesh) {
         p.mesh.position.x = p.base.x + Math.sin(t * 0.3 + p.phase * 6) * 0.8;
         p.mesh.position.z = p.base.z + Math.cos(t * 0.25 + p.phase * 6) * 0.8;
-      } else {
-        p.mesh.position.y = p.base.y + k * 2.4;
-        p.mesh.scale.setScalar(0.1 + k * 0.4);
-        (p.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - k) * 0.1;
+      } else if (this.puffMesh) {
+        const sc = 0.08 + k * 0.22;
+        this.puffMesh.setMatrixAt(p.index, _m4.compose(_v3.set(p.base.x, p.base.y + k * 2.4, p.base.z), _q4, _s3.set(sc, sc, sc)));
       }
     }
+    if (this.puffMesh) this.puffMesh.instanceMatrix.needsUpdate = true;
     if (this.pool && this.poolTex) {
       this.poolTex.offset.x += dt * 0.02;
       this.poolTex.offset.y += dt * 0.012;
@@ -561,10 +607,10 @@ export class Dressing {
     }
     for (const l of this.lamps) (l.mesh.material as THREE.MeshBasicMaterial).color.copy(l.base).multiplyScalar(Math.sin(t * 31 + l.phase) * Math.sin(t * 4.1 + l.phase) > 0.85 ? 0.2 : 1);
     for (const tk of this.tanks) (tk.fluid.material as THREE.MeshBasicMaterial).opacity = 0.18 + 0.07 * Math.sin(t * 1.6 + tk.phase);
-    this.g.traverse((o) => {
-      if (o.userData.swing) o.rotation.z = Math.sin(t * 0.9 + o.position.x * 3) * 0.05;
-      if (o.userData.float) o.position.y += Math.sin(t * 1.2 + o.position.x) * 0.0007;
-    });
+    if (this.near) {
+      for (const o of this.swingers) o.rotation.z = Math.sin(t * 0.9 + o.position.x * 3) * 0.05;
+      for (const o of this.floaters) o.position.y += Math.sin(t * 1.2 + o.position.x) * 0.0007;
+    }
     // Steam vents hiss.
     this.ventTimer -= dt;
     if (this.ventTimer <= 0 && this.vents.length) {

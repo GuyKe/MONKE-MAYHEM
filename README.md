@@ -10,7 +10,9 @@ for now; the code is laid out so multiplayer can be added.
    - **registry terminal**: type your display name (on the wall keyboard with a poke or laser, or a real keyboard on the desktop), then SAVE;
    - **customization station**: a full-body mirror and a wardrobe/shop where you spend credits on suits, hats and gear;
    - **gear wall**: glowsticks, flashlights and radar pingers;
-   - **a big reinforced window** over the machine hall, far below.
+   - **a big reinforced window** over the machine hall, far below;
+   - **a training annex**: stepping blocks, poles and a climbing wall up to a green plate, with a timer (poke START RUN) and a saved best time;
+   - a **helper drone (Bot-9)** that follows you and gives advice when you poke it, a **briefing board**, a **vending machine** (an Energy Cell makes your next run faster), a lounge, benches facing the window, and a **security monitor**.
 2. **The drop.** Hit the window hard (three good punches or throws) and it shatters. Climb out and drop onto the catwalk hanging over the hall.
 3. **The hazard zone.** A vast machine hall with columns, cargo, a reactor, a catwalk loop with stairs, and heavy **blast doors** into eight side rooms. Things live here:
    - **Stalker** – tall, thin, a stretched helmet with too many eyes; drifts silently and hears movement.
@@ -70,3 +72,7 @@ npm run build
 ```
 
 The old jungle game and its minigames are in the git history (commit `97383a2`).
+
+## Performance
+
+The scene is built from a lot of small pieces, so the static ones are merged into a few big meshes (about 4,300 draw calls became about 950 in the lobby view, half that in the hall), monsters are merged per moving part, materials are cheap lit ones, there are only a few real lights (three that follow you, one flashlight beam), the lobby's panels and the doors' buttons only exist while you are near them, and path-finding uses a binary heap.

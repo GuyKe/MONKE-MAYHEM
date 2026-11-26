@@ -6,9 +6,16 @@ export class WorldButton {
   readonly mesh: THREE.Mesh;
   hover = false;
   enabled = true;
+  /** Set when something moves it about (a wrist readout): its place is looked up every frame. */
+  moves = false;
+  /** Where it is (looked up once for things that stay put). */
+  readonly world = new THREE.Vector3();
+  cached = false;
+  private lastLabel = '';
+  private lastHover = false;
+  private lastEnabled = true;
   private readonly canvas = document.createElement('canvas');
   private readonly texture: THREE.CanvasTexture;
-  private lastDraw = '';
 
   constructor(
     scene: THREE.Scene,
@@ -24,7 +31,7 @@ export class WorldButton {
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial({ map: this.texture, transparent: true, toneMapped: false, fog: false }));
-    this.mesh.frustumCulled = false;
+    this.mesh.userData.dynamic = true;
     scene.add(this.mesh);
     this.draw();
   }
@@ -35,9 +42,10 @@ export class WorldButton {
   }
 
   draw(): void {
-    const key = `${this.label}|${this.hover}|${this.enabled}`;
-    if (key === this.lastDraw) return;
-    this.lastDraw = key;
+    if (this.label === this.lastLabel && this.hover === this.lastHover && this.enabled === this.lastEnabled) return;
+    this.lastLabel = this.label;
+    this.lastHover = this.hover;
+    this.lastEnabled = this.enabled;
     const c = this.canvas.getContext('2d')!;
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -84,7 +92,15 @@ export class Panels {
   }
 
   update(hands: [THREE.Vector3 | null, THREE.Vector3 | null], rays: [PointerRay | null, PointerRay | null]): void {
-    for (const b of this.buttons) b.hover = false;
+    for (const b of this.buttons) {
+      b.hover = false;
+      // Where each button is (once, unless it moves).
+      if (!b.cached || b.moves) {
+        b.mesh.updateWorldMatrix(true, false);
+        b.mesh.getWorldPosition(b.world);
+        b.cached = true;
+      }
+    }
     for (let i = 0; i < 2; i++) {
       const hand = i as 0 | 1;
       // Laser: the nearest button the beam crosses.
@@ -97,7 +113,7 @@ export class Panels {
         let bestT = Infinity;
         let bestPoint: THREE.Vector3 | null = null;
         for (const b of this.buttons) {
-          if (!b.mesh.visible) continue;
+          if (!b.mesh.visible || ray.origin.distanceToSquared(b.world) > 64) continue;
           b.mesh.updateWorldMatrix(true, false);
           _normal.set(0, 0, 1).transformDirection(b.mesh.matrixWorld);
           if (ray.dir.dot(_normal) >= 0) continue;
@@ -125,7 +141,8 @@ export class Panels {
       const p = hands[i];
       if (!p) continue;
       for (const b of this.buttons) {
-        if (!b.mesh.visible) continue;
+        const reach = Math.max(b.width, b.height) + 0.6;
+        if (!b.mesh.visible || p.distanceToSquared(b.world) > reach * reach) continue;
         b.mesh.updateWorldMatrix(true, false);
         _local.copy(p);
         b.mesh.worldToLocal(_local);

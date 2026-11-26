@@ -7,14 +7,18 @@ import type { Engine } from './engine';
 import type { Fixture } from './facility';
 import { Rack, makeFlashlight, makeGlowstick, makeRadar, type ItemContext } from './items';
 import type { Save, Slot } from './save';
-import { box, mat, part } from './shapes';
+import { blob, box, cyl, dyn, mat, part } from './shapes';
+import { batchStatic } from './batch';
 import { slab, surface } from './textures';
+import { Drone, TIPS } from './drone';
 
 export const WIN_X = 5.5;
 export const WIN_Y0 = 0.9;
 export const WIN_Y1 = 3.7;
 export const WIN_Z = 6.85;
 
+const _mf = new THREE.Vector3();
+const _md = new THREE.Vector3();
 const KEY_ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
 
 function canvasTex(w: number, h: number): [HTMLCanvasElement, THREE.CanvasTexture] {
@@ -254,6 +258,19 @@ export class Lobby {
   onLook: (() => void) | null = null;
   onMic: ((on: boolean) => void) | null = null;
   micCheck = false;
+  drone!: Drone;
+  onTip: ((text: string) => void) | null = null;
+  onCourse: ((seconds: number, best: boolean) => void) | null = null;
+  onVend: ((item: 'energy' | 'snack') => void) | null = null;
+  /** The training course: when a run began (seconds on the game clock), or -1. */
+  private run = -1;
+  private finishPlate = new THREE.Vector3(-22, 4.6, -5.5);
+  private courseSign!: [HTMLCanvasElement, THREE.CanvasTexture];
+  private briefing!: [HTMLCanvasElement, THREE.CanvasTexture];
+  private briefTimer = 0;
+  private briefIndex = 0;
+  private panelsOn = true;
+  private readonly lobbyButtons: WorldButton[] = [];
 
   constructor(
     private readonly e: Engine,
@@ -263,6 +280,7 @@ export class Lobby {
     e.scene.add(this.group);
     this.glass = new Glass(e);
     this.name = save.data.name;
+    const before = e.panels.buttons.length;
     this.buildShell();
     this.monitor = this.buildTerminal();
     this.namePlate = this.buildMirror();
@@ -270,11 +288,19 @@ export class Lobby {
     this.wardrobe = this.buildWardrobe();
     this.buildRacks(ctx);
     this.buildSigns();
+    this.buildAnnex();
+    this.buildLounge();
+    this.buildVending();
+    this.buildBriefing();
+    this.drone = new Drone(e);
+    this.drone.onTip = (t) => this.onTip?.(t);
+    this.lobbyButtons.push(...e.panels.buttons.slice(before));
     this.refreshWardrobe();
     window.addEventListener('keydown', (ev) => this.onKey(ev));
+    batchStatic(this.group);
   }
 
-  private block(kind: 'wall' | 'floor' | 'ceiling' | 'hazard' | 'concrete', x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, tint = 0xffffff): THREE.Mesh {
+  private block(kind: 'wall' | 'floor' | 'ceiling' | 'hazard' | 'concrete' | 'grate', x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, tint = 0xffffff): THREE.Mesh {
     const m = slab(kind, x1 - x0, y1 - y0, z1 - z0, tint);
     m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
     this.group.add(m);
@@ -285,13 +311,16 @@ export class Lobby {
   private buildShell(): void {
     this.block('floor', -9, 9, -0.4, 0, -7, 7);
     this.block('ceiling', -9, 9, 4.2, 4.6, -7, 7);
-    this.block('wall', -9.4, -9, 0, 4.2, -7, 7);
+    // The west wall has a doorway into the training annex.
+    this.block('wall', -9.4, -9, 0, 4.2, -7, 3.2);
+    this.block('wall', -9.4, -9, 0, 4.2, 6.2, 7);
+    this.block('wall', -9.4, -9, 3.1, 4.2, 3.2, 6.2);
     this.block('wall', 9, 9.4, 0, 4.2, -7, 7);
     this.block('wall', -9, 9, 0, 4.2, -7.4, -7);
     // Ceiling light panels.
     for (const x of [-5, 0, 5]) {
       for (const z of [-4, 1.5]) {
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.7), new THREE.MeshBasicMaterial({ color: 0xf4fbff, fog: false }));
+        const mesh = dyn(new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.7), new THREE.MeshBasicMaterial({ color: 0xf4fbff, fog: false })));
         mesh.position.set(x, 4.14, z);
         this.group.add(mesh);
         this.fixtures.push({ pos: new THREE.Vector3(x, 3.9, z), mesh, phase: Math.random() * 10, base: new THREE.Color(0xf4fbff) });
@@ -457,7 +486,7 @@ export class Lobby {
     g.position.set(8.9, 0, -2.5);
     g.rotation.y = -Math.PI / 2;
     this.group.add(g);
-    const mirror = new Reflector(new THREE.PlaneGeometry(1.7, 2.6), { textureWidth: 512, textureHeight: 768, clipBias: 0.003, color: 0xd8e4ec });
+    const mirror = new Reflector(new THREE.PlaneGeometry(1.7, 2.6), { textureWidth: 320, textureHeight: 480, clipBias: 0.003, color: 0xd8e4ec });
     mirror.position.set(0, 1.5, 0);
     mirror.onBeforeRender = ((orig) => (renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, grp: THREE.Group) => {
       // Your head is hidden from your own eyes, but the mirror must see it.
@@ -465,6 +494,7 @@ export class Lobby {
       orig.call(mirror, renderer, scene, camera, geometry, material, grp);
       this.e.body.head.traverse((o) => o.layers.set(MIRROR_LAYER));
     })(mirror.onBeforeRender);
+    dyn(mirror);
     this.group.add(mirror);
     // Move the reflector into the group's space (Reflector uses its world matrix).
     mirror.position.set(8.88, 1.5, -2.5);
@@ -579,7 +609,7 @@ export class Lobby {
         b.mesh.visible = false;
         return;
       }
-      b.mesh.visible = true;
+      b.mesh.visible = this.panelsOn;
       const owned = d.owned.includes(item.id);
       const on = d.equipped[item.slot] === item.id;
       b.setLabel(on ? `✓ ${item.name}` : owned ? item.name : `${item.name} $${item.price}`);
@@ -646,9 +676,295 @@ export class Lobby {
     mk('WARDROBE', '#e8e8e8', 1.6, 0.3, 8.9, 3.6, 3.6, -Math.PI / 2, '#16202a');
   }
 
+  private facingMirror(): boolean {
+    const f = _mf.set(0, 0, -1).applyQuaternion(this.e.headQuat);
+    const d = _md.set(8.9 - this.e.head.x, 0, -2.5 - this.e.head.z);
+    const dist = d.length();
+    return dist < 9 && f.dot(d.divideScalar(Math.max(dist, 0.01))) > 0.1;
+  }
+
+  // --- The training annex ------------------------------------------------------------------------------------------------
+
+  /** A room off the lobby to learn the hands on: stepping blocks, poles, and a climbing wall to a finish plate, with a timer. */
+  private buildAnnex(): void {
+    const HEIGHT = 6;
+    this.block('floor', -24, -9.4, -0.4, 0, -7, 7);
+    this.block('ceiling', -24, -9.4, HEIGHT, HEIGHT + 0.4, -7, 7);
+    this.block('wall', -24, -9.4, 0, HEIGHT, -7.4, -7);
+    this.block('wall', -24.4, -24, 0, HEIGHT, -7.4, 7.4);
+    this.block('wall', -24, -20, 0, HEIGHT, 6.6, 7);
+    for (const x of [-14, -20]) {
+      const mesh = dyn(new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.7), new THREE.MeshBasicMaterial({ color: 0xf4fbff, fog: false })));
+      mesh.position.set(x, HEIGHT - 0.06, 0);
+      this.group.add(mesh);
+      this.fixtures.push({ pos: new THREE.Vector3(x, HEIGHT - 0.4, 0), mesh, phase: Math.random() * 10, base: new THREE.Color(0xf4fbff) });
+    }
+    const tinted = (x: number, y: number, z: number, w: number, h: number, d: number, tint: number): void => {
+      this.block('floor', x - w / 2, x + w / 2, y - h / 2, y + h / 2, z - d / 2, z + d / 2, tint);
+    };
+    // Stepping blocks that climb the room.
+    tinted(-12.4, 0.35, 4.2, 1.4, 0.7, 1.4, 0x3a8ae0);
+    tinted(-14.6, 0.7, 1.8, 1.4, 1.4, 1.4, 0x40c0a0);
+    tinted(-16.8, 1.05, -0.6, 1.4, 2.1, 1.4, 0xe0b030);
+    tinted(-19.2, 0.8, 2.6, 1.6, 1.6, 1.6, 0xe06040);
+    // Poles to swing round.
+    for (const [x, z] of [[-13.4, -3.6], [-16.6, -5.4], [-19.4, -3.2]]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, HEIGHT, 10), mat(0xd8a020));
+      pole.position.set(x, HEIGHT / 2, z);
+      this.group.add(pole);
+      this.e.solid(x, HEIGHT / 2, z, 0.1, HEIGHT / 2, 0.1);
+    }
+    // The climbing wall: a slab with holds sticking out of it, to a ledge.
+    this.block('wall', -24, -23.3, 0, HEIGHT, -7, 7);
+    const colors = [0xff6a30, 0x30c8ff, 0xffd030, 0xff40c0, 0x60e060];
+    for (let i = 0; i < 46; i++) {
+      const y = 0.5 + (i / 46) * 4.4 + (Math.random() - 0.5) * 0.3;
+      const z = -6.4 + ((i * 37) % 13) * 0.45 + (Math.random() - 0.5) * 0.3;
+      const h = this.block('floor', -23.3, -23.0, y - 0.1, y + 0.1, z - 0.18, z + 0.18, colors[i % colors.length]);
+      void h;
+    }
+    // The ledge at the top, and a rail so you can see it from below.
+    this.block('grate', -24, -20.5, 4.4, 4.6, -7, -3.6);
+    for (const x of [-20.6]) this.block('hazard', x - 0.05, x + 0.05, 4.6, 5.3, -7, -3.6, 0xffffff);
+    // The finish plate.
+    const plate = dyn(new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.05, 20), new THREE.MeshBasicMaterial({ color: 0x40ff90 })));
+    plate.position.copy(this.finishPlate).setY(4.65);
+    this.group.add(plate);
+    // The start post: poke it to start the clock.
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.2, 0.12), mat(0x30363e));
+    post.position.set(-10.4, 0.6, 5.4);
+    this.group.add(post);
+    const start = this.e.panels.add(new WorldButton(this.e.scene, 'START RUN', 0.7, 0.2, '#2d7a3a', () => this.startRun()));
+    start.mesh.position.set(-10.1, 1.35, 5.4);
+    start.mesh.rotation.y = Math.PI / 2;
+    // Signs.
+    const [c, t] = canvasTex(1024, 256);
+    const x2 = c.getContext('2d')!;
+    x2.fillStyle = '#10161c';
+    x2.fillRect(0, 0, 1024, 256);
+    x2.fillStyle = '#ffd860';
+    x2.font = 'bold 84px system-ui';
+    x2.textAlign = 'center';
+    x2.fillText('TRAINING ANNEX', 512, 100);
+    x2.fillStyle = '#e8e8e8';
+    x2.font = '42px system-ui';
+    x2.fillText('Push off floors, walls and ceilings. Climb to the green plate.', 512, 180);
+    const title = new THREE.Mesh(new THREE.PlaneGeometry(5, 1.25), new THREE.MeshBasicMaterial({ map: t }));
+    title.position.set(-9.6, 3.3, 0);
+    title.rotation.y = Math.PI / 2;
+    this.group.add(title);
+    this.courseSign = canvasTex(512, 256);
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshBasicMaterial({ map: this.courseSign[1] }));
+    board.position.set(-24.0, 2.0, 0.5);
+    board.rotation.y = Math.PI / 2;
+    // The board hangs on the end wall facing the room.
+    board.position.set(-23.25, 2.4, 5.6);
+    this.group.add(board);
+    this.drawCourse();
+  }
+
+  private startRun(): void {
+    this.run = this.e.time;
+    this.e.audio.play('chime');
+    this.e.buzz('both', 0.3, 80);
+    this.drawCourse();
+  }
+
+  private drawCourse(live = 0): void {
+    const c = this.courseSign[0].getContext('2d')!;
+    c.fillStyle = '#0a1a14';
+    c.fillRect(0, 0, 512, 256);
+    c.strokeStyle = '#30c070';
+    c.lineWidth = 6;
+    c.strokeRect(4, 4, 504, 248);
+    c.fillStyle = '#40ff90';
+    c.font = 'bold 40px ui-monospace, monospace';
+    c.textAlign = 'center';
+    c.fillText('CLIMB COURSE', 256, 56);
+    c.font = 'bold 84px ui-monospace, monospace';
+    c.fillStyle = '#b8ffd8';
+    c.fillText(this.run >= 0 ? live.toFixed(1) + 's' : '--', 256, 150);
+    c.font = '32px ui-monospace, monospace';
+    c.fillStyle = '#20b060';
+    const best = this.save.data.bestCourse;
+    c.fillText(best ? `BEST ${best.toFixed(1)}s` : 'NO TIME YET', 256, 215);
+    this.courseSign[1].needsUpdate = true;
+  }
+
+  // --- The lounge, the vending machine, the briefing board ---------------------------------------------------------------
+
+  private buildLounge(): void {
+    // A couch and low table in the north-east corner.
+    const sofa = (x: number, z: number, ry: number): void => {
+      const g = new THREE.Group();
+      g.position.set(x, 0, z);
+      g.rotation.y = ry;
+      part(g, box, 0x3a4a6a, [0, 0.3, 0], [2.4, 0.5, 0.9], [0, 0, 0], 0, 0.6, 0.1);
+      part(g, box, 0x34425e, [0, 0.75, -0.38], [2.4, 0.6, 0.18]);
+      for (const sx of [-1, 1]) part(g, box, 0x2f3b54, [sx * 1.1, 0.5, 0], [0.2, 0.55, 0.9]);
+      for (let i = -1; i <= 1; i += 2) part(g, box, 0x4a5c80, [i * 0.55, 0.62, 0.05], [1.0, 0.14, 0.7]);
+      this.group.add(g);
+      this.e.solid(x, 0.4, z, 1.2, 0.4, 0.5);
+    };
+    sofa(7.0, -6.05, 0);
+    const table = new THREE.Group();
+    table.position.set(7.0, 0, -4.4);
+    part(table, box, 0x8a6a40, [0, 0.38, 0], [1.2, 0.06, 0.6]);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) part(table, box, 0x30363e, [sx * 0.52, 0.19, sz * 0.24], [0.06, 0.38, 0.06]);
+    part(table, cyl, 0xe8e0d0, [0.2, 0.46, 0], [0.05, 0.1, 0.05]);
+    this.group.add(table);
+    this.e.solid(7.0, 0.2, -4.4, 0.6, 0.2, 0.3);
+    // Benches facing the window.
+    for (const x of [-3.2, 3.2]) {
+      const b = new THREE.Group();
+      b.position.set(x, 0, 5.0);
+      part(b, box, 0x5a626c, [0, 0.4, 0], [1.8, 0.08, 0.45]);
+      for (const sx of [-1, 1]) part(b, box, 0x30363e, [sx * 0.8, 0.2, 0], [0.08, 0.4, 0.4]);
+      this.group.add(b);
+      this.e.solid(x, 0.25, 5.0, 0.9, 0.25, 0.25);
+    }
+    // Plants in the corners (the only living things for a long way down), and a bin by the terminal.
+    for (const [x, z] of [[-8.3, -6.3], [8.3, 6.4], [-8.3, 6.4], [8.3, -2.2]]) {
+      const pot = new THREE.Group();
+      pot.position.set(x, 0, z);
+      part(pot, cyl, 0x8a5a3a, [0, 0.25, 0], [0.22, 0.5, 0.22]);
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        part(pot, blob, 0x3a9a48, [Math.cos(a) * 0.14, 0.75 + (i % 3) * 0.12, Math.sin(a) * 0.14], [0.12, 0.28, 0.06], [0.4 * Math.cos(a), a, 0.4 * Math.sin(a)]);
+      }
+      this.group.add(pot);
+    }
+    const bin = new THREE.Group();
+    bin.position.set(-8.4, 0, -3.2);
+    part(bin, cyl, 0x4a5058, [0, 0.3, 0], [0.22, 0.6, 0.22]);
+    part(bin, cyl, 0x30363e, [0, 0.62, 0], [0.24, 0.03, 0.24]);
+    this.group.add(bin);
+    // Light strips in the floor lead from where you wake to the window.
+    for (const sx of [-1, 1]) {
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 8.6), new THREE.MeshBasicMaterial({ color: 0x40a0ff, fog: false }));
+      strip.rotation.x = -Math.PI / 2;
+      strip.position.set(sx * 1.2, 0.015, 0.4);
+      dyn(strip);
+      this.group.add(strip);
+    }
+  }
+
+  private buildVending(): void {
+    const g = new THREE.Group();
+    g.position.set(8.5, 0, 5.5);
+    g.rotation.y = -Math.PI / 2;
+    this.group.add(g);
+    part(g, box, 0xa02830, [0, 1.0, 0], [1.1, 2.0, 0.9], [0, 0, 0], 0, 0.5, 0.2);
+    part(g, box, 0x14161a, [0, 1.3, 0.46], [0.85, 1.2, 0.02]);
+    for (let i = 0; i < 12; i++) part(g, cyl, [0x40a0ff, 0xff8030, 0x60e060, 0xffd030][i % 4], [-0.28 + (i % 3) * 0.28, 1.65 - Math.floor(i / 3) * 0.28, 0.43], [0.07, 0.18, 0.07]);
+    part(g, box, 0x14161a, [0, 0.3, 0.46], [0.6, 0.18, 0.02]);
+    const glow = dyn(new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.18), new THREE.MeshBasicMaterial({ color: 0xfff6c0, fog: false })));
+    glow.position.set(0, 1.95, 0.47);
+    g.add(glow);
+    this.e.solid(8.5, 1.0, 5.5, 0.45, 1.0, 0.55);
+    const mk = (label: string, y: number, color: string, fn: () => void): WorldButton => {
+      const b = this.e.panels.add(new WorldButton(this.e.scene, label, 0.75, 0.16, color, fn));
+      b.mesh.position.set(0, y, 0.48);
+      g.add(b.mesh);
+      return b;
+    };
+    mk('ENERGY CELL $20', 0.95, '#2d7a3a', () => this.onVend?.('energy'));
+    mk('SNACK $5', 0.74, '#7a5a1a', () => this.onVend?.('snack'));
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.2), new THREE.MeshBasicMaterial({ map: this.textTexture('VENDING', '#fff0a0', '#a02830') }));
+    sign.position.set(0, 2.1, 0.47);
+    g.add(sign);
+  }
+
+  private textTexture(text: string, color: string, bg: string): THREE.CanvasTexture {
+    const [c, t] = canvasTex(512, 114);
+    const x = c.getContext('2d')!;
+    x.fillStyle = bg;
+    x.fillRect(0, 0, 512, 114);
+    x.fillStyle = color;
+    x.font = 'bold 72px system-ui';
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.fillText(text, 256, 60);
+    return t;
+  }
+
+  private buildBriefing(): void {
+    this.briefing = canvasTex(1024, 640);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.625), new THREE.MeshBasicMaterial({ map: this.briefing[1], toneMapped: false }));
+    m.position.set(-7.4, 2.3, -6.9);
+    this.group.add(m);
+    this.drawBriefing();
+  }
+
+  private drawBriefing(): void {
+    const c = this.briefing[0].getContext('2d')!;
+    c.fillStyle = '#0c141c';
+    c.fillRect(0, 0, 1024, 640);
+    c.strokeStyle = '#3a7aaa';
+    c.lineWidth = 8;
+    c.strokeRect(6, 6, 1012, 628);
+    c.fillStyle = '#ffd060';
+    c.font = 'bold 56px system-ui';
+    c.textAlign = 'center';
+    c.fillText('HAZARD BRIEFING', 512, 90);
+    c.fillStyle = '#e8f0f4';
+    c.font = '40px system-ui';
+    c.textAlign = 'left';
+    const words = TIPS[this.briefIndex % TIPS.length].split(' ');
+    let line = '';
+    let y = 220;
+    for (const w of words) {
+      if (c.measureText(line + w).width > 920) {
+        c.fillText(line, 50, y);
+        line = '';
+        y += 56;
+      }
+      line += w + ' ';
+    }
+    c.fillText(line, 50, y);
+    c.fillStyle = '#60c0ff';
+    c.font = '30px system-ui';
+    c.fillText(`TIP ${(this.briefIndex % TIPS.length) + 1} / ${TIPS.length}`, 50, 590);
+    this.briefing[1].needsUpdate = true;
+  }
+
+  /** The terminal and wardrobe buttons only matter (and only cost) while you are in the lobby. */
+  setPanelsVisible(on: boolean): void {
+    if (on === this.panelsOn) return;
+    this.panelsOn = on;
+    for (const b of this.lobbyButtons) b.mesh.visible = on;
+    this.refreshWardrobe();
+  }
+
   /** Per frame. */
   update(dt: number, time: number, hands: THREE.Vector3[], items: THREE.Vector3[], itemSpeeds: number[]): void {
     this.glass.update(dt, hands, items, itemSpeeds);
+    const inLobby = this.e.head.z < 7.3 && this.e.head.y > -1.5;
+    this.drone.setActive(inLobby);
+    if (inLobby) this.drone.update(dt);
+    // The training course: reach the green plate.
+    if (this.run >= 0) {
+      const live = this.e.time - this.run;
+      if (Math.floor(live * 10) !== Math.floor((live - dt) * 10)) this.drawCourse(live);
+      const d = this.e.head;
+      if (Math.hypot(d.x - this.finishPlate.x, d.z - this.finishPlate.z) < 0.9 && d.y > 3.6) {
+        const best = this.save.data.bestCourse;
+        this.save.data.bestCourse = !best || live < best ? Math.round(live * 10) / 10 : best;
+        this.save.save();
+        this.run = -1;
+        this.e.audio.play('unlock');
+        this.e.buzz('both', 0.8, 200);
+        this.drawCourse(live);
+        this.onCourse?.(live, !best || live <= best);
+      }
+      if (live > 300) this.run = -1;
+    }
+    this.briefTimer += dt;
+    if (this.briefTimer > 7) {
+      this.briefTimer = 0;
+      this.briefIndex++;
+      this.drawBriefing();
+    }
     for (const r of this.racks) r.update(dt);
     // Typing is live when you stand at the terminal.
     const head = this.e.head;
@@ -656,7 +972,8 @@ export class Lobby {
     this.cursor = Math.floor(time * 2);
     if (this.typing && Math.floor(time * 2) !== Math.floor((time - dt) * 2)) this.drawMonitor(this.monitor.canvas, this.monitor.tex);
     // The mirror only works when you are near it.
-    this.reflector.visible = head.x > 3 && head.y > -1 && head.z < 4;
+    // (Drawing the scene a second time is dear: only when you are near it and facing it.)
+    this.reflector.visible = head.x > 2.5 && head.y > -1 && head.z < 4 && this.facingMirror();
   }
 
 }

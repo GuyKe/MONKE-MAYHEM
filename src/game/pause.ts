@@ -24,6 +24,7 @@ export class PauseMenu {
         fn();
         this.refresh();
       }));
+      b.moves = true;
       b.mesh.position.set(0, 0.26 - this.buttons.length * 0.125, 0);
       this.group.add(b.mesh);
       this.buttons.push(b);

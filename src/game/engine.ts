@@ -60,12 +60,13 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
   const emulator: DesktopEmulator | null = hasRealVR ? null : new (await import('../debug/desktop')).DesktopEmulator();
   const world = await createPhysicsWorld();
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
   renderer.xr.setReferenceSpaceType('local-floor');
   renderer.xr.setFoveation(1);
+  renderer.xr.setFramebufferScaleFactor(0.9);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
   document.body.appendChild(renderer.domElement);

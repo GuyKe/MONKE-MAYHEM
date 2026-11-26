@@ -3,7 +3,11 @@ import { DOOR_H, type Door } from './doors';
 import type { Engine } from './engine';
 import type { Facility } from './facility';
 import { CATWALK_Y, FLOOR_Y, colOf, rowOf, type Spot } from './nav';
-import { blob, box, cone, cyl, limb, low, mat, part, rnd, sphere, v3 } from './shapes';
+import { blob, box, cone, cyl, dyn, limb, low, mat, part, rnd, sphere, v3 } from './shapes';
+import { mergeUnits } from './batch';
+
+/** All the plain parts of every monster: coloured in the vertices, with a faint glow of its own so a shape shows in the dark. */
+const monsterMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, emissive: 0x15181d });
 
 export type MonsterKind = 'stalker' | 'skitter' | 'warden' | 'mimic';
 export type MonsterState = 'patrol' | 'investigate' | 'hunt' | 'search' | 'stunned';
@@ -139,6 +143,7 @@ function buildStalker(): Model {
   const wires: THREE.Mesh[] = [];
   for (let i = 0; i < 5; i++) wires.push(part(head, cyl, [0xff3030, 0x30c0ff, 0x202020][i % 3], [-0.1 + i * 0.05, -0.2, 0.12], [0.004, 0.3 + i * 0.05, 0.004], [0.15, 0, 0]));
   const jaw = part(head, box, 0x120406, [0, -0.2, -0.15], [0.06, 0.18, 0.02]);
+  [ring, jaw, ...rags, ...wires].forEach(dyn);
   anim.push((t, hot) => {
     rags.forEach((r, i) => (r.rotation.x = Math.sin(t * 2.2 + i) * 0.18));
     wires.forEach((w, i) => (w.rotation.z = Math.sin(t * 3 + i * 1.3) * 0.25));
@@ -190,6 +195,7 @@ function buildSkitter(): Model {
     part(head, sphere, 0xffb020, [sx * 0.2, 0.43, -0.05], [0.012, 0.012, 0.012], [0, 0, 0], 0xff8a10);
   }
   for (let i = 0; i < 5; i++) part(g, cyl, 0xcfc8b8, [0, 0.6, -0.1 - i * 0.04], [0.003, 0.15, 0.003], [Math.PI / 2 - 0.4, 0, 0]); // drool
+  [...sacs, ...fangs, ...whips].forEach(dyn);
   anim.push((t, hot) => {
     sacs.forEach((sc, i) => sc.scale.setScalar(0.08 + 0.025 * Math.sin(t * (hot ? 12 : 3) + i)));
     fangs.forEach((f, i) => (f.rotation.z = (i ? -1 : 1) * (0.3 + 0.25 * Math.sin(t * (hot ? 25 : 4)))));
@@ -248,6 +254,7 @@ function buildWarden(): Model {
     (p.material as THREE.MeshStandardMaterial).transparent = true;
     puffs.push(p);
   }
+  [core, glowRing, ...puffs].forEach(dyn);
   anim.push((t, hot) => {
     (core.material as THREE.MeshStandardMaterial).emissiveIntensity = hot ? 3 + Math.sin(t * 16) : 1.5 + Math.sin(t * 3) * 0.5;
     puffs.forEach((p, i) => {
@@ -297,6 +304,7 @@ function buildMimic(): Model {
     g.add(arm);
     limbs.push(arm);
   }
+  dyn(smile);
   anim.push((t, hot) => {
     smile.scale.x = hot ? 0.18 : 0.12;
     smile.scale.y = hot ? 0.05 + Math.abs(Math.sin(t * 25)) * 0.04 : 0.012;
@@ -305,30 +313,10 @@ function buildMimic(): Model {
   return { group: g, head, limbs, extra: [], anim };
 }
 
-const glowCache = new Map<THREE.Material, THREE.Material>();
-
-/** Gives a model a faint glow of its own colours, so even in the dark you can make out its shape. */
-function selfGlow(root: THREE.Object3D): void {
-  root.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    const original = m.material as THREE.MeshStandardMaterial;
-    if (original.emissiveIntensity > 0 && original.emissive.getHex() !== 0) return;
-    let c = glowCache.get(original);
-    if (!c) {
-      const clone = original.clone();
-      clone.emissive.copy(original.color).multiplyScalar(0.22);
-      clone.emissiveIntensity = 1;
-      glowCache.set(original, clone);
-      c = clone;
-    }
-    m.material = c;
-  });
-}
-
 function build(kind: MonsterKind): Model {
   const m = kind === 'stalker' ? buildStalker() : kind === 'skitter' ? buildSkitter() : kind === 'warden' ? buildWarden() : buildMimic();
-  selfGlow(m.group);
+  for (const e of m.extra) dyn(e);
+  mergeUnits([m.group, m.head, ...m.limbs], monsterMaterial);
   return m;
 }
 
@@ -364,6 +352,7 @@ export class Monster {
   /** The mimic stands still while you are looking at it. */
   watched = false;
   private whisper = 6;
+  private lookTimer = Math.random() * 0.15;
 
   constructor(
     private readonly e: Engine,
@@ -429,7 +418,11 @@ export class Monster {
 
     // What it notices.
     if (ctx.huntable && this.state !== 'stunned') {
-      if (!ctx.hidden) this.look(ctx, f, toPlayer, dist);
+      this.lookTimer -= dt;
+      if (!ctx.hidden && this.lookTimer <= 0) {
+        this.lookTimer = 0.12 + Math.random() * 0.06;
+        this.look(ctx, f, toPlayer, dist);
+      }
       // Hearing.
       this.listen(ctx, f);
     }

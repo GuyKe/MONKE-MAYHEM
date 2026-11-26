@@ -51,10 +51,6 @@ export function makeFlashlight(ctx: ItemContext, at: THREE.Vector3): Item {
   part(g, cyl, 0x1a1c20, [0, 0, -0.14], [0.04, 0.05, 0.04], [Math.PI / 2, 0, 0], 0, 0.4, 0.6);
   part(g, cyl, 0xffffff, [0, 0, -0.17], [0.034, 0.004, 0.034], [Math.PI / 2, 0, 0], 0xfff4c0);
   part(g, box, 0xe0b020, [0, 0.02, 0.0], [0.012, 0.01, 0.04]);
-  const spot = new THREE.SpotLight(0xfff2d8, 0, 34, 0.5, 0.55, 1.2);
-  spot.position.set(0, 0, -0.17);
-  spot.target.position.set(0, 0, -3);
-  g.add(spot, spot.target);
   const beam = new THREE.Mesh(new THREE.ConeGeometry(0.28, 2.4, 18, 1, true).rotateX(-Math.PI / 2).translate(0, 0, -1.4), new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.05, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false }));
   beam.visible = false;
   g.add(beam);
@@ -71,9 +67,7 @@ export function makeFlashlight(ctx: ItemContext, at: THREE.Vector3): Item {
       wasDown = trigger;
     },
     tick: (it) => {
-      const on = it.data.on === true;
-      spot.intensity = on ? 160 : 0;
-      beam.visible = on;
+      beam.visible = it.data.on === true;
     },
     onImpact: (it, speed) => ctx.noise(it.obj.position, 2 + speed * 1.4, 'flashlight'),
   });

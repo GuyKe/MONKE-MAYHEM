@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Engine } from './engine';
 import { FLOOR_Y } from './nav';
-import { box, cyl, mat, part } from './shapes';
+import { box, cyl, dyn, mat, part } from './shapes';
 import { surface } from './textures';
 
 /**
@@ -43,6 +43,7 @@ export class Locker {
     this.door = new THREE.Mesh(new THREE.BoxGeometry(0.05, H - 0.06, W - 0.06), doorMat);
     this.door.geometry.translate(0, 0, (W - 0.06) / 2);
     const hinge = new THREE.Group();
+    dyn(hinge);
     hinge.position.set(facing * D / 2, H / 2, -W / 2 + 0.03);
     hinge.add(this.door);
     for (let i = 0; i < 4; i++) {

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 /** Little building blocks for the procedural models. */
-export const sphere = new THREE.IcosahedronGeometry(1, 2);
+export const sphere = new THREE.IcosahedronGeometry(1, 1);
 export const blob = new THREE.IcosahedronGeometry(1, 1);
 export const low = new THREE.IcosahedronGeometry(1, 0);
 export const box = new THREE.BoxGeometry(1, 1, 1);
@@ -10,16 +10,24 @@ export const cone = new THREE.ConeGeometry(1, 1, 8);
 export const UP = new THREE.Vector3(0, 1, 0);
 export const v3 = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
 
-const cache = new Map<string, THREE.MeshStandardMaterial>();
-/** A shared standard material for a colour (with optional glow). */
-export function mat(color: number, emissive = 0, rough = 0.6, metal = 0.1): THREE.MeshStandardMaterial {
-  const key = `${color}|${emissive}|${rough}|${metal}`;
+const cache = new Map<string, THREE.MeshLambertMaterial>();
+/** A shared (cheap, lit) material for a colour, with optional glow. The roughness arguments are kept for the call sites but unused. */
+export function mat(color: number, emissive = 0, rough = 0.6, metal = 0.1): THREE.MeshLambertMaterial {
+  void rough;
+  void metal;
+  const key = `${color}|${emissive}`;
   let m = cache.get(key);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: emissive ? 1.4 : 0, roughness: rough, metalness: metal });
+    m = new THREE.MeshLambertMaterial({ color, emissive, emissiveIntensity: emissive ? 1.4 : 0 });
     cache.set(key, m);
   }
   return m;
+}
+
+/** Marks something as moving or changing, so batching leaves it alone. */
+export function dyn<T extends THREE.Object3D>(o: T): T {
+  o.userData.dynamic = true;
+  return o;
 }
 
 export function part(parent: THREE.Object3D, geo: THREE.BufferGeometry, color: number, at: [number, number, number], size: [number, number, number], rot: [number, number, number] = [0, 0, 0], emissive = 0, rough = 0.6, metal = 0.1): THREE.Mesh {

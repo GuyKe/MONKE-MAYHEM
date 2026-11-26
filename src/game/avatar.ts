@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { Baker } from '../world/baker';
-import { blob, box, cone, cyl, low, mat, part, sphere, UP } from './shapes';
+import { blob, box, cone, cyl, low, mat, part, sphere as sphereLo, UP } from './shapes';
+
+const sphere = new THREE.IcosahedronGeometry(1, 2);
+void sphereLo;
 
 /** The layer only a mirror sees: your own head is not drawn from the inside. */
 export const MIRROR_LAYER = 3;
@@ -67,7 +70,7 @@ export function buildGloveGeometry(side: 1 | -1, radius: number, color: number):
   return b.build();
 }
 
-const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.15 });
+const bodyMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 
 function buildTorsoGeo(skin: SkinDef): THREE.BufferGeometry {
   const b = new Baker();
@@ -149,8 +152,8 @@ export class SubjectBody {
   private thrusters: THREE.Mesh[] = [];
   private hudLine: THREE.Mesh | null = null;
   private clock = 0;
-  private readonly armMat = new THREE.MeshStandardMaterial({ color: 0xe8731a, roughness: 0.5, metalness: 0.15 });
-  private readonly foreMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.5, metalness: 0.3 });
+  private readonly armMat = new THREE.MeshLambertMaterial({ color: 0xe8731a });
+  private readonly foreMat = new THREE.MeshLambertMaterial({ color: 0x2a2a30 });
   readonly forearm: [THREE.Vector3, THREE.Vector3] = [new THREE.Vector3(), new THREE.Vector3()];
   private yaw = 0;
   private yawKnown = false;

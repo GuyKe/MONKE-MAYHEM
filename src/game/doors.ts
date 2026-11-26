@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Engine } from './engine';
 import { box, cyl, mat, part } from './shapes';
-import { surface } from './textures';
+import { slab, surface } from './textures';
 import { WorldButton } from '../ui/panel';
 import type { RAPIER } from '../physics';
 
@@ -38,6 +38,7 @@ export class Door {
   /** The handle in the world. */
   readonly handlePos = new THREE.Vector3();
   private motorTimer = 0;
+  private lastState: DoorState = 'idle';
   private manualHand: 0 | 1 | -1 = -1;
   private manualOffset = 0;
   onSlam: ((door: Door, speed: number) => void) | null = null;
@@ -54,7 +55,7 @@ export class Door {
     readonly wall: 'x' | 'z',
   ) {
     const w = wall === 'z';
-    this.panel = new THREE.Mesh(new THREE.BoxGeometry(w ? THICK : DOOR_W, DOOR_H, w ? DOOR_W : THICK), [surface('door', DOOR_W, DOOR_H), surface('door', DOOR_W, DOOR_H), surface('door', DOOR_W, DOOR_H), surface('door', DOOR_W, DOOR_H), surface('door', DOOR_W, DOOR_H), surface('door', DOOR_W, DOOR_H)]);
+    this.panel = slab('door', w ? THICK : DOOR_W, DOOR_H, w ? DOOR_W : THICK);
     this.panel.castShadow = false;
     this.group.add(this.panel);
     // Hazard stripes on the lower edge, a number, and a lamp.
@@ -119,6 +120,11 @@ export class Door {
     return this.center.y + this.pos * DOOR_H;
   }
 
+  /** Hide the control buttons when nobody is near (they cost a draw call each). */
+  setPanelVisible(on: boolean): void {
+    this.buttons.open.mesh.visible = this.buttons.close.mesh.visible = this.buttons.jam.mesh.visible = on;
+  }
+
   /** A player pressed a control. */
   command(what: 'open' | 'close' | 'jam'): void {
     if (this.auto || this.locked) {
@@ -177,11 +183,14 @@ export class Door {
   update(dt: number, hands: Array<{ pos: THREE.Vector3; squeezed: boolean }>): void {
     const prev = this.pos;
     const bottomY = this.center.y;
-    this.panel.updateWorldMatrix(true, false);
-    this.handlePos.set(0, 0, 0);
-    this.handle.getWorldPosition(this.handlePos);
+    // The handle only matters when you are close.
+    const nearby = this.e.head.distanceToSquared(this.center) < 64;
+    if (nearby) {
+      this.panel.updateWorldMatrix(true, false);
+      this.handle.getWorldPosition(this.handlePos);
+    }
     // Lifted by hand?
-    if (this.jam === 'none' && !this.locked && !this.auto) {
+    if (nearby && this.jam === 'none' && !this.locked && !this.auto) {
       if (this.manualHand === -1) {
         for (let i = 0; i < hands.length; i++) {
           if (hands[i].squeezed && hands[i].pos.distanceTo(this.handlePos) < 0.45) {
@@ -251,7 +260,8 @@ export class Door {
       this.lastCollider = this.pos;
       this.collider.setTranslation({ x: this.center.x, y: bottomY + DOOR_H / 2 + this.pos * DOOR_H + (this.pos > 0.97 ? 20 : 0), z: this.center.z });
     }
-    if (Math.abs(this.pos - prev) > 0.001 || this.state === 'idle') this.refresh();
+    if (Math.abs(this.pos - prev) > 0.001 || this.state !== this.lastState) this.refresh();
+    this.lastState = this.state;
   }
 
   /** Is this point (a player or monster) in the doorway? */

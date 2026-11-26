@@ -21,10 +21,51 @@ export const cellZ = (iz: number): number => Z0 + iz * CELL + CELL / 2;
 export const colOf = (x: number): number => Math.max(0, Math.min(COLS - 1, Math.floor((x - X0) / CELL)));
 export const rowOf = (z: number): number => Math.max(0, Math.min(ROWS - 1, Math.floor((z - Z0) / CELL)));
 
-interface Node {
-  g: number;
-  f: number;
-  prev: number;
+const N = COLS * ROWS * 2;
+const G = new Float32Array(N);
+const PREV = new Int32Array(N);
+const SEEN = new Uint32Array(N);
+const CLOSED = new Uint32Array(N);
+let stamp = 0;
+// A binary heap of (node, priority) pairs; stale entries are skipped when popped.
+const HEAP_NODE = new Int32Array(40000);
+const HEAP_KEY = new Float32Array(40000);
+let heapSize = 0;
+
+function push(node: number, key: number): void {
+  if (heapSize >= HEAP_NODE.length) return;
+  let i = heapSize++;
+  while (i > 0) {
+    const p = (i - 1) >> 1;
+    if (HEAP_KEY[p] <= key) break;
+    HEAP_NODE[i] = HEAP_NODE[p];
+    HEAP_KEY[i] = HEAP_KEY[p];
+    i = p;
+  }
+  HEAP_NODE[i] = node;
+  HEAP_KEY[i] = key;
+}
+
+function pop(): number {
+  const top = HEAP_NODE[0];
+  heapSize--;
+  if (heapSize > 0) {
+    const node = HEAP_NODE[heapSize];
+    const key = HEAP_KEY[heapSize];
+    let i = 0;
+    for (;;) {
+      let c = i * 2 + 1;
+      if (c >= heapSize) break;
+      if (c + 1 < heapSize && HEAP_KEY[c + 1] < HEAP_KEY[c]) c++;
+      if (HEAP_KEY[c] >= key) break;
+      HEAP_NODE[i] = HEAP_NODE[c];
+      HEAP_KEY[i] = HEAP_KEY[c];
+      i = c;
+    }
+    HEAP_NODE[i] = node;
+    HEAP_KEY[i] = key;
+  }
+  return top;
 }
 
 export class Nav {
@@ -99,66 +140,76 @@ export class Nav {
 
   /** A path (cell centres) from one spot to another. Empty if there is none. */
   path(from: Spot, to: Spot, canOpen = true): Spot[] {
-    const n = COLS * ROWS * 2;
-    const start = from.layer * COLS * ROWS + this.idx(colOf(from.x), rowOf(from.z));
-    const goal = to.layer * COLS * ROWS + this.idx(colOf(to.x), rowOf(to.z));
+    const CELLS = COLS * ROWS;
+    const start = from.layer * CELLS + this.idx(colOf(from.x), rowOf(from.z));
+    const goal = to.layer * CELLS + this.idx(colOf(to.x), rowOf(to.z));
     if (start === goal) return [to];
-    const nodes = new Map<number, Node>();
-    const openList: number[] = [start];
-    nodes.set(start, { g: 0, f: 0, prev: -1 });
-    const heuristic = (i: number): number => {
-      const l = Math.floor(i / (COLS * ROWS));
-      const c = i % (COLS * ROWS);
-      const dx = (c % COLS) - colOf(to.x);
-      const dz = Math.floor(c / COLS) - rowOf(to.z);
-      return Math.hypot(dx, dz) + (l === to.layer ? 0 : 6);
+    const gx = colOf(to.x);
+    const gz = rowOf(to.z);
+    stamp++;
+    heapSize = 0;
+    const h = (i: number): number => {
+      const l = i >= CELLS ? 1 : 0;
+      const c = i - l * CELLS;
+      return Math.hypot((c % COLS) - gx, Math.floor(c / COLS) - gz) + (l === to.layer ? 0 : 6);
     };
-    const closed = new Set<number>();
+    G[start] = 0;
+    PREV[start] = -1;
+    SEEN[start] = stamp;
+    push(start, h(start));
     let guard = 0;
-    while (openList.length && guard++ < 6000) {
-      let bi = 0;
-      for (let i = 1; i < openList.length; i++) if (nodes.get(openList[i])!.f < nodes.get(openList[bi])!.f) bi = i;
-      const cur = openList.splice(bi, 1)[0];
-      if (cur === goal) break;
-      closed.add(cur);
-      const layer = Math.floor(cur / (COLS * ROWS));
-      const cell = cur % (COLS * ROWS);
+    let found = false;
+    while (heapSize > 0 && guard++ < 8000) {
+      const cur = pop();
+      if (CLOSED[cur] === stamp) continue;
+      CLOSED[cur] = stamp;
+      if (cur === goal) {
+        found = true;
+        break;
+      }
+      const layer = cur >= CELLS ? 1 : 0;
+      const cell = cur - layer * CELLS;
       const ix = cell % COLS;
       const iz = Math.floor(cell / COLS);
-      const g0 = nodes.get(cur)!.g;
-      const neighbours: Array<[number, number]> = [];
-      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (dx || dz) neighbours.push([ix + dx, iz + dz]);
-      for (const [nx, nz] of neighbours) {
-        const c = this.stepCost(layer, ix, iz, nx, nz, canOpen);
-        if (!isFinite(c)) continue;
-        const ni = layer * COLS * ROWS + this.idx(nx, nz);
-        if (closed.has(ni)) continue;
-        const g = g0 + c;
-        const old = nodes.get(ni);
-        if (!old || g < old.g) {
-          nodes.set(ni, { g, f: g + heuristic(ni), prev: cur });
-          if (!old) openList.push(ni);
+      const g0 = G[cur];
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          if (!dx && !dz) continue;
+          const nx = ix + dx;
+          const nz = iz + dz;
+          const c = this.stepCost(layer, ix, iz, nx, nz, canOpen);
+          if (!isFinite(c)) continue;
+          const ni = layer * CELLS + nz * COLS + nx;
+          if (CLOSED[ni] === stamp) continue;
+          const g = g0 + c;
+          if (SEEN[ni] !== stamp || g < G[ni]) {
+            SEEN[ni] = stamp;
+            G[ni] = g;
+            PREV[ni] = cur;
+            push(ni, g + h(ni));
+          }
         }
       }
       for (const l of this.links) {
         const other = l.a === cur ? l.b : l.b === cur ? l.a : -1;
-        if (other < 0 || closed.has(other)) continue;
+        if (other < 0 || CLOSED[other] === stamp) continue;
         const g = g0 + 8;
-        const old = nodes.get(other);
-        if (!old || g < old.g) {
-          nodes.set(other, { g, f: g + heuristic(other), prev: cur });
-          if (!old) openList.push(other);
+        if (SEEN[other] !== stamp || g < G[other]) {
+          SEEN[other] = stamp;
+          G[other] = g;
+          PREV[other] = cur;
+          push(other, g + h(other));
         }
       }
     }
-    if (!nodes.has(goal)) return [];
+    if (!found) return [];
     const out: Spot[] = [];
-    for (let i = goal; i !== -1; i = nodes.get(i)!.prev) {
-      const layer = Math.floor(i / (COLS * ROWS)) as 0 | 1;
-      const cell = i % (COLS * ROWS);
-      out.unshift({ x: cellX(cell % COLS), z: cellZ(Math.floor(cell / COLS)), layer });
+    for (let i = goal; i !== -1; i = PREV[i]) {
+      const layer = (i >= CELLS ? 1 : 0) as 0 | 1;
+      const cell = i - layer * CELLS;
+      out.push({ x: cellX(cell % COLS), z: cellZ(Math.floor(cell / COLS)), layer });
     }
-    void n;
+    out.reverse();
     out.shift();
     return out;
   }

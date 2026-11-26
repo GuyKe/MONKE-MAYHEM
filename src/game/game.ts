@@ -7,6 +7,7 @@ import { createEngine, type Engine } from './engine';
 import { Facility, ROOM_Z } from './facility';
 import { CctvMap } from './map';
 import { Locker } from './lockers';
+import { batchStatic } from './batch';
 import { Grabbables, type Item } from './grab';
 import { Fade, Toast, Wrist } from './hud';
 import { makeFlashlight, makeGlowstick, makeLog, makeRadar, type ItemContext } from './items';
@@ -31,6 +32,7 @@ const LOGS = [
 const LOBBY_SPAWN = new THREE.Vector3(0, 0, -3.2);
 const RED = new THREE.Color(1, 0.1, 0.05);
 const _v = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
 const HALL_VIEW = new THREE.Vector3(0, -4, 26);
 const _f = new THREE.Vector3();
 
@@ -48,6 +50,9 @@ export async function runGame(): Promise<void> {
   const ambient = new THREE.AmbientLight(0x303848, 0.5);
   scene.add(hemi, ambient);
 
+  // One flashlight beam for the whole game: it goes to whichever flashlight is held and on.
+  const torchSpot = new THREE.SpotLight(0xfff2d8, 0, 34, 0.5, 0.55, 1.2);
+  scene.add(torchSpot, torchSpot.target);
   const toast = new Toast(e.camera);
   const fade = new Fade(e.camera, 0x000000);
   const wrist = new Wrist(e);
@@ -89,6 +94,11 @@ export async function runGame(): Promise<void> {
       facility.blockers.push({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 });
     }
   }
+
+  const lockerRoot = new THREE.Group();
+  scene.add(lockerRoot);
+  for (const l of lockers) lockerRoot.add(l.group);
+  batchStatic(lockerRoot);
 
   // Data logs on stands in every room.
   const readLog = (id: number): void => {
@@ -161,6 +171,34 @@ export async function runGame(): Promise<void> {
     }
   };
   lobby.onLook = applyLook;
+  lobby.onTip = (text) => {
+    toast.show('BOT-9', '#9ad8ff', 5);
+    toast.show(text.length > 52 ? text.slice(0, text.lastIndexOf(' ', 52)) : text, '#e8f0f4', 5);
+    if (text.length > 52) toast.show(text.slice(text.lastIndexOf(' ', 52) + 1), '#e8f0f4', 5);
+  };
+  lobby.onCourse = (seconds, best) => {
+    toast.show(`COURSE: ${seconds.toFixed(1)}s`, '#60ff90', 4);
+    if (best) toast.show('NEW BEST!', '#ffd060', 4);
+    save.addCredits(5);
+  };
+  lobby.onVend = (item) => {
+    const price = item === 'energy' ? 20 : 5;
+    if (save.data.credits < price) {
+      e.audio.play('deny');
+      toast.show('NOT ENOUGH CREDITS', '#ff6060', 2);
+      return;
+    }
+    save.addCredits(-price);
+    lobby.refreshWardrobe();
+    if (item === 'energy') {
+      boost = true;
+      e.audio.play('buy');
+      toast.show('ENERGY CELL: faster for your next run', '#80ff90', 4);
+    } else {
+      e.audio.play('splat', e.head, 0.4);
+      toast.show(['It tastes like regret.', 'Best before: never.', 'Is that meat?', 'Crunchy. Too crunchy.'][Math.floor(Math.random() * 4)], '#e8d8a0', 3);
+    }
+  };
   applyLook();
   e.updaters.push((dt) => {
     for (const o of worn) {
@@ -187,7 +225,7 @@ export async function runGame(): Promise<void> {
 
   // --- Lights ----------------------------------------------------------------------------------------------------------
   const allFixtures = [...lobby.fixtures, ...facility.fixtures];
-  const pool = [0, 1, 2, 3, 4].map(() => {
+  const pool = [0, 1, 2].map(() => {
     const l = new THREE.PointLight(0xcfe4ff, 12, 22, 1.5);
     scene.add(l);
     return l;
@@ -213,6 +251,9 @@ export async function runGame(): Promise<void> {
   const doorTimers = new Map<Door, number>();
 
   let brokenFor = 0;
+  let boost = false;
+  let lastLobby = true;
+  let panelTimer = 0;
   let blackout = 0;
   let nextBlackout = rnd(90, 150);
   let nextScare = rnd(10, 20);
@@ -273,6 +314,7 @@ export async function runGame(): Promise<void> {
   const returnToLobby = (message: string): void => {
     e.respawn(LOBBY_SPAWN);
     faceWindow();
+    boost = false;
     resetRun();
     lobby.glass.reset();
     dead = false;
@@ -348,6 +390,13 @@ export async function runGame(): Promise<void> {
 
   // --- Per frame ---------------------------------------------------------------------------------------------------------------
   const lastItemPos = new Map<object, THREE.Vector3>();
+  const handInfo = [
+    { pos: e.locomotion.hands[0].position, squeezed: false },
+    { pos: e.locomotion.hands[1].position, squeezed: false },
+  ];
+  const handPos: THREE.Vector3[] = [handInfo[0].pos, handInfo[1].pos];
+  const itemPos: THREE.Vector3[] = [];
+  const itemSpeed: number[] = [];
   e.onFrame = (dt) => {
     const t = e.time;
     if (e.presenting && !faced) {
@@ -363,6 +412,16 @@ export async function runGame(): Promise<void> {
     grab.update(dt);
 
     const lobbyNow = inLobby();
+    e.locomotion.speedScale = 1.35 * (boost && !lobbyNow ? 1.25 : 1);
+    if (lobbyNow !== lastLobby) {
+      lastLobby = lobbyNow;
+      lobby.setPanelsVisible(lobbyNow);
+    }
+    panelTimer -= dt;
+    if (panelTimer <= 0) {
+      panelTimer = 0.5;
+      for (const d of facility.doors) d.setPanelVisible(!lobbyNow && d.center.distanceToSquared(e.head) < 26 * 26);
+    }
     // Left alone, the broken window reseals itself after a while (the facility mends it).
     if (lobby.glass.broken) {
       brokenFor += dt;
@@ -377,21 +436,30 @@ export async function runGame(): Promise<void> {
     facility.update(dt, t);
 
     // The hands, for doors and the window.
-    const handInfo = [0, 1].map((i) => ({ pos: e.locomotion.hands[i].position, squeezed: e.hands.all[i].tracked && e.hands.all[i].squeezed }));
+    for (let i = 0; i < 2; i++) {
+      handInfo[i].pos = e.locomotion.hands[i].position;
+      handInfo[i].squeezed = e.hands.all[i].tracked && e.hands.all[i].squeezed;
+    }
+    handPos[0] = handInfo[0].pos;
+    handPos[1] = handInfo[1].pos;
     for (const d of facility.doors) d.update(dt, handInfo);
 
     // Things thrown at the glass.
-    const itemPos: THREE.Vector3[] = [];
-    const itemSpeed: number[] = [];
+    itemPos.length = 0;
+    itemSpeed.length = 0;
     for (const it of grab.items) {
       const p = it.obj.position;
-      const last = lastItemPos.get(it) ?? p.clone();
+      let last = lastItemPos.get(it);
+      if (!last) {
+        last = p.clone();
+        lastItemPos.set(it, last);
+      }
       itemPos.push(p);
       itemSpeed.push(last.distanceTo(p) / Math.max(dt, 1e-3));
-      lastItemPos.set(it, p.clone());
+      last.copy(p);
     }
-    lobby.update(dt, t, handInfo.map((h) => h.pos), itemPos, itemSpeed);
-    cctv.update(dt, t, facility, monsters, lobbyNow ? null : e.feet);
+    lobby.update(dt, t, handPos, itemPos, itemSpeed);
+    if (lobbyNow) cctv.update(dt, t, facility, monsters, null);
 
     // The game proper: only while alive, and out of the lobby.
     const huntable = !lobbyNow && !dead && !escaped;
@@ -466,7 +534,14 @@ export async function runGame(): Promise<void> {
     } else findTimer = 0;
 
     // The monsters.
-    const torchOn = grab.items.some((it) => it.kind === 'torch' && it.held !== -1 && it.data.on === true);
+    const torch = grab.items.find((it) => it.kind === 'torch' && it.data.on === true && it.held !== -1) ?? grab.items.find((it) => it.kind === 'torch' && it.data.on === true && it.obj.position.distanceToSquared(e.head) < 900);
+    const torchOn = !!torch && torch.held !== -1;
+    if (torch) {
+      torch.obj.updateWorldMatrix(true, false);
+      torchSpot.position.copy(_v.set(0, 0, -0.17).applyMatrix4(torch.obj.matrixWorld));
+      torchSpot.target.position.copy(_v2.set(0, 0, -3).applyMatrix4(torch.obj.matrixWorld));
+      torchSpot.intensity = 160;
+    } else torchSpot.intensity = 0;
     const layer: 0 | 1 = e.feet.y > -9 ? 1 : 0;
     for (const n of noises) n.age += dt;
     for (let i = noises.length - 1; i >= 0; i--) if (noises[i].age > 0.6) noises.splice(i, 1);
@@ -594,7 +669,7 @@ export async function runGame(): Promise<void> {
       lightTimer = 0.2;
       const byDistance = (list: typeof allFixtures, p: THREE.Vector3, n: number): typeof allFixtures => list.slice().sort((a, b) => a.pos.distanceToSquared(p) - b.pos.distanceToSquared(p)).slice(0, n);
       // In the lobby, some of the light goes on the hall seen through the window.
-      const near = lobbyNow ? [...byDistance(lobby.fixtures, e.head, 2), ...byDistance(facility.fixtures, HALL_VIEW, 3)] : byDistance(allFixtures, e.head, pool.length);
+      const near = lobbyNow ? [...byDistance(lobby.fixtures, e.head, 2), ...byDistance(facility.fixtures, HALL_VIEW, 1)] : byDistance(allFixtures, e.head, pool.length);
       pool.forEach((l, i) => {
         const f = near[i];
         l.visible = true;
