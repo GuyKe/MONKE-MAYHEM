@@ -41,7 +41,7 @@ A research gantry under the window leads down into the atrium; through it is the
 
 ## Feel
 
-- **Your model:** a long-armed monkey with no legs (a round head, grey face, big eyes, ears, a belly patch, a tail), in nine fur colours, with fifteen hats and twelve gear items to buy.
+- **Your model:** a stylized low-poly hazmat survivor with no legs, a bean-shaped torso, extra-long arms and chunky three-fingered rubber gloves: a bulky hood, dark visor, boxy respirator, chest filter canister and black seam tape, in nine suit colours (default faded mustard-yellow), with fifteen hats and twelve gear items to buy.
 - **Haptics:** a heartbeat in both hands when something hunting is near (faster when closer), glass cracks and shatters, door slams and bangs, landings.
 - **Spatial voice and echo:** all sound, and voices (the microphone, and other players when multiplayer is added) are positional with a reverb that follows the size of the space: tight in the lobby, a long echo in the great hall. The terminal's **MIC CHECK** plays your own voice back with the room's echo.
 
