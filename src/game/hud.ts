@@ -2,58 +2,11 @@ import * as THREE from 'three';
 import type { Engine } from './engine';
 import { WorldButton } from '../ui/panel';
 
-/** A banner that floats in front of your eyes for a moment. */
+/** Text banners in front of the eyes were removed: the class stays so callers need no changes. */
 export class Toast {
-  private readonly canvas = document.createElement('canvas');
-  private readonly tex: THREE.CanvasTexture;
-  private readonly mesh: THREE.Mesh;
-  private lines: Array<{ text: string; color: string; time: number }> = [];
-
-  constructor(camera: THREE.Camera) {
-    this.canvas.width = 768;
-    this.canvas.height = 200;
-    this.tex = new THREE.CanvasTexture(this.canvas);
-    this.tex.colorSpace = THREE.SRGBColorSpace;
-    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.156), new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
-    this.mesh.position.set(0, 0.2, -0.8);
-    this.mesh.renderOrder = 998;
-    this.mesh.frustumCulled = false;
-    this.mesh.visible = false;
-    camera.add(this.mesh);
-  }
-
-  show(text: string, color = '#ffffff', seconds = 3): void {
-    this.lines.push({ text, color, time: seconds });
-    if (this.lines.length > 3) this.lines.shift();
-    this.draw();
-  }
-
-  update(dt: number): void {
-    if (!this.lines.length) return;
-    for (const l of this.lines) l.time -= dt;
-    const n = this.lines.length;
-    this.lines = this.lines.filter((l) => l.time > 0);
-    if (this.lines.length !== n) this.draw();
-  }
-
-  private draw(): void {
-    const c = this.canvas.getContext('2d')!;
-    c.clearRect(0, 0, 768, 200);
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    c.lineWidth = 8;
-    c.strokeStyle = 'rgba(0,0,0,0.75)';
-    this.lines.forEach((l, i) => {
-      const last = i === this.lines.length - 1;
-      c.font = `bold ${last ? 54 : 40}px system-ui, sans-serif`;
-      c.fillStyle = l.color;
-      const y = 180 - (this.lines.length - i) * 56;
-      c.strokeText(l.text, 384, y);
-      c.fillText(l.text, 384, y);
-    });
-    this.tex.needsUpdate = true;
-    this.mesh.visible = this.lines.length > 0;
-  }
+  constructor(_camera: THREE.Camera) {}
+  show(_text: string, _color = '#ffffff', _seconds = 3): void {}
+  update(_dt: number): void {}
 }
 
 /** A colour that fades over your eyes (black, red, white). */

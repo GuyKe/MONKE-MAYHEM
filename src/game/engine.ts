@@ -43,6 +43,9 @@ export interface Engine {
   buzz(hand: 0 | 1 | 'both', intensity: number, ms: number): void;
   respawn(at: THREE.Vector3): void;
   solid(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, surface?: SurfaceMaterial): RAPIER.Collider;
+  /** Picks the sound a hand makes touching the world (wet carpet, shallow water...). */
+  handSound: ((p: THREE.Vector3) => 'hand' | 'squelch' | 'splash') | null;
+  solidRot(cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, q: THREE.Quaternion): RAPIER.Collider;
   removeSolid(c: RAPIER.Collider): void;
   updaters: Array<(dt: number) => void>;
   onPause: (() => void) | null;
@@ -115,6 +118,12 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
       setSurface(c, surface);
       return c;
     },
+    solidRot: (cx, cy, cz, hx, hy, hz, q) => {
+      const c = world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(cx, cy, cz).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }).setCollisionGroups(WORLD_GROUPS).setFriction(0.9));
+      setSurface(c, SURFACES.stone);
+      return c;
+    },
+    handSound: null,
     removeSolid: (c) => world.removeCollider(c, false),
     updaters: [],
     onPause: null,
@@ -167,7 +176,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
         hand.updateVisual(contact.position, contact.rawPosition, contact.touching);
         if (contact.justTouched) {
           hand.pulse(0.2, 25);
-          audio.play('hand', contact.position, 0.5);
+          audio.play(engine.handSound ? engine.handSound(contact.position) : 'hand', contact.position, 0.5);
         }
       });
       // Turning with the right thumbstick.

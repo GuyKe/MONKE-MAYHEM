@@ -37,8 +37,23 @@ export class Door {
   private readonly handle: THREE.Mesh;
   /** The handle in the world. */
   readonly handlePos = new THREE.Vector3();
+  private readonly leverWorld = new THREE.Vector3();
   private motorTimer = 0;
   private lastState: DoorState = 'idle';
+  /** A warning (lamp, beeps, sparks) comes before a door shuts. */
+  private warnTimer = 0;
+  private warned = false;
+  private beepTimer = 0;
+  private readonly sparks: THREE.Points;
+  private readonly sparkData = new Float32Array(16 * 3);
+  private readonly sparkVel = new Float32Array(16 * 3);
+  private readonly sparkLife = new Float32Array(16);
+  private readonly lever: THREE.Group;
+  private readonly leverHandle: THREE.Mesh;
+  private leverGrab = -1;
+  private leverStart = 0;
+  private leverUsed = false;
+  private leverAngle = 0;
   private manualHand: 0 | 1 | -1 = -1;
   private manualOffset = 0;
   onSlam: ((door: Door, speed: number) => void) | null = null;
@@ -112,6 +127,24 @@ export class Door {
       close: mk('CLOSE', '#9a2a22', 0.0, () => this.command('close')),
       jam: mk('JAM', '#9a7a14', -0.2, () => this.command('jam')),
     };
+    // A lever switch beside the buttons: grab it and pull it down to run the door.
+    this.lever = new THREE.Group();
+    this.lever.position.set(0.47, 0.12, 0.03);
+    part(cp, box, 0x14161a, [0.47, 0.0, 0.0], [0.16, 0.34, 0.04]);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.3, 8), mat(0xc0c0c8, 0, 0.3, 0.8));
+    arm.position.y = 0.15;
+    this.leverHandle = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), mat(0xd02820));
+    this.leverHandle.position.y = 0.32;
+    this.lever.add(arm, this.leverHandle);
+    cp.add(this.lever);
+    // Sparks for when it comes down.
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.BufferAttribute(this.sparkData, 3));
+    this.sparks = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffb040, size: 0.07, sizeAttenuation: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    this.sparks.frustumCulled = false;
+    this.sparks.visible = false;
+    this.sparks.userData.dynamic = true;
+    e.scene.add(this.sparks);
     this.refresh();
   }
 
@@ -217,7 +250,22 @@ export class Door {
       this.manualHand = -1;
       this.state = 'idle';
     }
-    if (this.manualHand === -1) {
+    if (this.target !== 0) this.warned = false;
+    if (this.manualHand === -1 && this.target === 0 && this.jam === 'none' && !this.warned && this.pos > 0.05 && this.state !== 'closing') {
+      this.warned = true;
+      this.warnTimer = 0.9;
+    }
+    if (this.warnTimer > 0) {
+      // The lamp flashes and it beeps before it comes down.
+      this.warnTimer -= dt;
+      this.beepTimer -= dt;
+      if (this.beepTimer <= 0) {
+        this.beepTimer = 0.22;
+        this.e.audio.play('blip', this.center, 0.9);
+      }
+      (this.lamp.material as THREE.MeshBasicMaterial).color.setHex(Math.floor(this.warnTimer * 8) % 2 ? 0xff9020 : 0x301000);
+      this.speed = 0;
+    } else if (this.manualHand === -1) {
       if (this.target !== null && this.jam === 'none') {
         const dir = this.target === 1 ? 1 : -1;
         const rate = dir > 0 ? 1 / 2.4 : 1 / 0.9;
@@ -254,6 +302,54 @@ export class Door {
       this.speed = 0;
     }
     if (this.state === 'idle' && !moving) this.speed = 0;
+    // Sparks fly off the bottom edge as it comes down.
+    const closing = this.state === 'closing' && this.speed < -0.1 && this.pos > 0.02;
+    this.sparks.visible = closing;
+    if (closing) {
+      const along = this.wall === 'z';
+      for (let i = 0; i < 16; i++) {
+        if (this.sparkLife[i] <= 0) {
+          this.sparkLife[i] = 0.2 + Math.random() * 0.3;
+          const off = (Math.random() - 0.5) * DOOR_W;
+          this.sparkData[i * 3] = this.center.x + (along ? 0 : off);
+          this.sparkData[i * 3 + 1] = this.bottom + 0.05;
+          this.sparkData[i * 3 + 2] = this.center.z + (along ? off : 0);
+          this.sparkVel[i * 3] = (Math.random() - 0.5) * 2;
+          this.sparkVel[i * 3 + 1] = Math.random() * 2;
+          this.sparkVel[i * 3 + 2] = (Math.random() - 0.5) * 2;
+        }
+        this.sparkLife[i] -= dt;
+        this.sparkVel[i * 3 + 1] -= 9 * dt;
+        this.sparkData[i * 3] += this.sparkVel[i * 3] * dt;
+        this.sparkData[i * 3 + 1] += this.sparkVel[i * 3 + 1] * dt;
+        this.sparkData[i * 3 + 2] += this.sparkVel[i * 3 + 2] * dt;
+      }
+      (this.sparks.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    }
+    // The lever: pull it down.
+    if (nearby && !this.auto && !this.locked) {
+      this.leverHandle.getWorldPosition(this.leverWorld);
+      let held = -1;
+      for (let i = 0; i < hands.length; i++) if (hands[i].squeezed && hands[i].pos.distanceTo(this.leverWorld) < 0.28) held = i;
+      if (held !== -1 && this.leverGrab === -1) {
+        this.leverGrab = held;
+        this.leverStart = hands[held].pos.y;
+        this.leverUsed = false;
+      } else if (held === -1) {
+        this.leverGrab = -1;
+      } else if (!this.leverUsed) {
+        const pulled = this.leverStart - hands[held].pos.y;
+        this.leverAngle = Math.max(0, Math.min(1.1, pulled * 3));
+        if (pulled > 0.25) {
+          this.leverUsed = true;
+          this.e.audio.play('click', this.center, 1);
+          this.e.buzz(held as 0 | 1, 0.6, 80);
+          this.command(this.pos > 0.5 ? 'close' : 'open');
+        }
+      }
+    }
+    if (this.leverGrab === -1) this.leverAngle = Math.max(0, this.leverAngle - dt * 2.5);
+    this.lever.rotation.x = -this.leverAngle;
     // The panel and its collider follow.
     this.panel.position.y = this.pos * DOOR_H;
     if (Math.abs(this.pos - this.lastCollider) > 0.004) {

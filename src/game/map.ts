@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Facility } from './facility';
+import type { Facility } from './backrooms';
 import type { Monster } from './monsters';
 
 /** A security monitor in the lobby: the plan of the facility, the state of every door and relay, and flickering blips where the cameras think something is. It is not reliable. */
@@ -48,26 +48,20 @@ export class CctvMap {
       c.lineTo(512, y);
       c.stroke();
     }
+    // The maze: every wall line, the flooded hallway and the Pitfalls.
     c.strokeStyle = '#30c070';
-    c.lineWidth = 3;
-    c.strokeRect(px(-20), pz(7), 40 * S, 60 * S);
     c.lineWidth = 2;
-    // The rooms.
-    for (const side of [-1, 1]) {
-      for (const d of facility.doors) {
-        if (d.name === 'EXIT' || Math.sign(d.center.x) !== side) continue;
-        c.strokeRect(side > 0 ? px(20) : px(-30), pz(d.center.z - 5), 10 * S, 10 * S);
-      }
+    c.beginPath();
+    for (const [x0, z0, x1, z1] of facility.segments) {
+      c.moveTo(px(x0), pz(z0));
+      c.lineTo(px(x1), pz(z1));
     }
-    // The catwalk and the stairs, the pool and the reactor.
-    c.strokeStyle = '#1a8a50';
-    c.strokeRect(px(-20), pz(7), 40 * S, 6 * S);
-    c.strokeRect(px(16.5), pz(13), 3.5 * S, 51 * S);
-    c.strokeRect(px(-20), pz(13), 3.5 * S, 51 * S);
+    c.stroke();
+    const w = facility.water;
     c.fillStyle = 'rgba(20,120,180,0.5)';
-    c.fillRect(px(-17), pz(48), 7 * S, 12 * S);
-    c.fillStyle = 'rgba(40,200,120,0.45)';
-    c.fillRect(px(-5), pz(34), 10 * S, 12 * S);
+    c.fillRect(px(w.x0), pz(w.z0), (w.x1 - w.x0) * S, (w.z1 - w.z0) * S);
+    c.fillStyle = 'rgba(255,120,40,0.35)';
+    for (const p of facility.pits) c.fillRect(px(p.x0), pz(p.z0), (p.x1 - p.x0) * S, (p.z1 - p.z0) * S);
     // Doors.
     for (const d of facility.doors) {
       const open = d.pos > 0.7;
@@ -87,7 +81,7 @@ export class CctvMap {
     }
     c.fillStyle = '#80ff90';
     c.font = 'bold 14px monospace';
-    c.fillText('EXIT', px(0) - 16, pz(70));
+    c.fillText('EXIT', px(0) - 16, pz(69.5));
     // The cameras' guesses.
     const flick = Math.sin(t * 20) > -0.5;
     for (const b of this.blips) {

@@ -70,10 +70,14 @@ function pop(): number {
 
 export class Nav {
   readonly open: [boolean[], boolean[]] = [new Array(COLS * ROWS).fill(false), new Array(COLS * ROWS).fill(false)];
-  /** Doors on the edge from one cell to its east/west neighbour: key "layer:ix:iz" for the edge between (ix, iz) and (ix+1, iz). */
+  /** Doors on an edge between two cells: key "layer:ix:iz:x" for the edge between (ix, iz) and (ix+1, iz), "layer:ix:iz:z" for (ix, iz) and (ix, iz+1). */
   readonly doorEdges = new Map<string, Door>();
   /** Edges that are walls (key as above). */
   readonly wallEdges = new Set<string>();
+  /** Gaps too tight for a big monster: it can squeeze through, but slowly. */
+  readonly tightEdges = new Set<string>();
+  /** Cells that block sight (cargo, racks) though they might not block walking... they do both unless listed in `see`. */
+  readonly tall: [boolean[], boolean[]] = [new Array(COLS * ROWS).fill(false), new Array(COLS * ROWS).fill(false)];
   /** Stairs: from (layer, index) to (layer, index). */
   readonly links: Array<{ a: number; b: number }> = [];
 
@@ -108,34 +112,38 @@ export class Nav {
     return { x: cellX(ix), z: cellZ(iz), layer };
   }
 
-  private edgeKey(layer: number, ix: number, iz: number, ix2: number): string {
-    return `${layer}:${Math.min(ix, ix2)}:${iz}`;
+  edgeKey(layer: number, ix: number, iz: number, jx: number, jz: number): string {
+    return jx !== ix ? `${layer}:${Math.min(ix, jx)}:${iz}:x` : `${layer}:${ix}:${Math.min(iz, jz)}:z`;
   }
 
-  /** Cost of stepping, or Infinity if impossible. Doors count extra if they are shut (monsters open them) or jammed (they batter them). */
-  private stepCost(layer: number, ix: number, iz: number, nx: number, nz: number, canOpen: boolean): number {
-    if (nx < 0 || nz < 0 || nx >= COLS || nz >= ROWS || !this.open[layer][this.idx(nx, nz)]) return Infinity;
-    let cost = nx !== ix && nz !== iz ? 1.414 : 1;
-    if (nx !== ix) {
-      const key = this.edgeKey(layer, ix, iz, nx);
-      if (this.wallEdges.has(key)) return Infinity;
-      const door = this.doorEdges.get(key);
-      if (door) {
-        if (nz !== iz) return Infinity;
-        if (door.jam === 'closed') cost += 14;
-        else if (!door.passable) {
-          if (!canOpen) return Infinity;
-          cost += 3;
-        }
+  /** Cost of one orthogonal step across an edge: Infinity for a wall; extra for a shut or jammed door or a tight gap. */
+  private edgeCost(layer: number, ix: number, iz: number, jx: number, jz: number, canOpen: boolean): number {
+    const key = this.edgeKey(layer, ix, iz, jx, jz);
+    if (this.wallEdges.has(key)) return Infinity;
+    let extra = 0;
+    const door = this.doorEdges.get(key);
+    if (door) {
+      if (door.jam === 'closed') extra += 14;
+      else if (!door.passable) {
+        if (!canOpen) return Infinity;
+        extra += 3;
       }
     }
-    if (nz !== iz && nx !== ix) {
-      // No cutting corners past walls and doors.
-      if (!this.open[layer][this.idx(nx, iz)] || !this.open[layer][this.idx(ix, nz)]) return Infinity;
-      const k1 = this.edgeKey(layer, ix, iz, nx);
-      if (this.wallEdges.has(k1) || this.doorEdges.has(k1)) return Infinity;
+    if (this.tightEdges.has(key)) extra += 2;
+    return extra;
+  }
+
+  /** Cost of stepping, or Infinity if impossible. */
+  private stepCost(layer: number, ix: number, iz: number, nx: number, nz: number, canOpen: boolean): number {
+    if (nx < 0 || nz < 0 || nx >= COLS || nz >= ROWS || !this.open[layer][this.idx(nx, nz)]) return Infinity;
+    if (nx === ix || nz === iz) {
+      const e = this.edgeCost(layer, ix, iz, nx, nz, canOpen);
+      return isFinite(e) ? 1 + e : Infinity;
     }
-    return cost;
+    // A diagonal needs both ways round the corner to be clear (no cutting corners past walls, doors or gaps).
+    if (!this.open[layer][this.idx(nx, iz)] || !this.open[layer][this.idx(ix, nz)]) return Infinity;
+    const a = this.edgeCost(layer, ix, iz, nx, iz, canOpen) + this.edgeCost(layer, nx, iz, nx, nz, canOpen) + this.edgeCost(layer, ix, iz, ix, nz, canOpen) + this.edgeCost(layer, ix, nz, nx, nz, canOpen);
+    return a === 0 ? 1.414 : Infinity;
   }
 
   /** A path (cell centres) from one spot to another. Empty if there is none. */
@@ -214,13 +222,63 @@ export class Nav {
     return out;
   }
 
-  /** The door a step from `a` to `b` goes through, if any. */
+  /** The door a step from `a` to `b` goes through, if any (steps are between neighbouring cells). */
   doorBetween(a: Spot, b: Spot): Door | null {
     if (a.layer !== b.layer) return null;
     const ix = colOf(a.x);
-    const nx = colOf(b.x);
-    if (ix === nx) return null;
-    return this.doorEdges.get(this.edgeKey(a.layer, ix, rowOf(a.z), nx)) ?? null;
+    const iz = rowOf(a.z);
+    const jx = colOf(b.x);
+    const jz = rowOf(b.z);
+    if ((ix === jx) === (iz === jz)) return null;
+    return this.doorEdges.get(this.edgeKey(a.layer, ix, iz, jx, jz)) ?? null;
+  }
+
+  /** Is the step from `a` to `b` through a gap too tight for a big monster? */
+  tightBetween(a: Spot, b: Spot): boolean {
+    if (a.layer !== b.layer) return false;
+    const ix = colOf(a.x);
+    const iz = rowOf(a.z);
+    const jx = colOf(b.x);
+    const jz = rowOf(b.z);
+    if ((ix === jx) === (iz === jz)) return false;
+    return this.tightEdges.has(this.edgeKey(a.layer, ix, iz, jx, jz));
+  }
+
+  /** Is there a clear line of sight between two floor positions? Walls, shut doors and tall cargo block it; tight gaps and open doors do not. */
+  sightClear(layer: 0 | 1, x0: number, z0: number, x1: number, z1: number): boolean {
+    let ix = colOf(x0);
+    let iz = rowOf(z0);
+    const ex = colOf(x1);
+    const ez = rowOf(z1);
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    const sx = Math.sign(dx);
+    const sz = Math.sign(dz);
+    const tdx = dx !== 0 ? Math.abs(CELL / dx) : Infinity;
+    const tdz = dz !== 0 ? Math.abs(CELL / dz) : Infinity;
+    let tx = dx !== 0 ? (sx > 0 ? (X0 + (ix + 1) * CELL - x0) / dx : (X0 + ix * CELL - x0) / dx) : Infinity;
+    let tz = dz !== 0 ? (sz > 0 ? (Z0 + (iz + 1) * CELL - z0) / dz : (Z0 + iz * CELL - z0) / dz) : Infinity;
+    let guard = 0;
+    while ((ix !== ex || iz !== ez) && guard++ < 80) {
+      let jx = ix;
+      let jz = iz;
+      if (tx < tz) {
+        jx += sx;
+        tx += tdx;
+      } else {
+        jz += sz;
+        tz += tdz;
+      }
+      if (jx < 0 || jz < 0 || jx >= COLS || jz >= ROWS) return false;
+      const key = this.edgeKey(layer, ix, iz, jx, jz);
+      if (this.wallEdges.has(key)) return false;
+      const door = this.doorEdges.get(key);
+      if (door && door.pos < 0.5) return false;
+      if (this.tall[layer][this.idx(jx, jz)]) return false;
+      ix = jx;
+      iz = jz;
+    }
+    return true;
   }
 
   linkIndex(layer: 0 | 1, ix: number, iz: number): number {

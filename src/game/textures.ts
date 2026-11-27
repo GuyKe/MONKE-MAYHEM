@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 /** Procedural surfaces: brushed metal wall panels, sterile floor tiles, grated catwalk, stained concrete. One texture tile covers about 2 m. */
-export type SurfaceKind = 'wall' | 'floor' | 'grate' | 'concrete' | 'hazard' | 'ceiling' | 'door';
+export type SurfaceKind = 'wall' | 'floor' | 'grate' | 'concrete' | 'hazard' | 'ceiling' | 'door' | 'wallpaper' | 'carpet' | 'tile';
 
 interface Maps {
   color: THREE.CanvasTexture;
@@ -236,6 +236,118 @@ function build(kind: SurfaceKind): Maps {
       c.lineWidth = 5;
       c.strokeRect(0, 0, S, S);
       noise(c, S, 500, 0.1);
+      break;
+    }
+    case 'wallpaper': {
+      // The Backrooms' mono-yellow wallpaper: faint vertical stripes and a tiny repeating motif, water-stained and worn.
+      c.fillStyle = '#cdbb52';
+      c.fillRect(0, 0, S, S);
+      for (let x = 0; x < S; x += 32) {
+        c.fillStyle = 'rgba(150,130,30,0.16)';
+        c.fillRect(x, 0, 14, S);
+      }
+      c.fillStyle = 'rgba(140,120,30,0.18)';
+      for (let y = 8; y < S; y += 32) for (let x = 7; x < S; x += 32) {
+        c.beginPath();
+        c.moveTo(x, y - 5);
+        c.lineTo(x + 4, y);
+        c.lineTo(x, y + 5);
+        c.lineTo(x - 4, y);
+        c.fill();
+      }
+      // Water damage: brown tide-marks creeping down from the top and up from the bottom.
+      for (let i = 0; i < 9; i++) {
+        const x = Math.random() * S;
+        const down = Math.random() < 0.6;
+        const g = c.createLinearGradient(x, down ? 0 : S, x, down ? 160 + Math.random() * 240 : S - 120);
+        g.addColorStop(0, 'rgba(110,80,30,0.34)');
+        g.addColorStop(1, 'rgba(110,80,30,0)');
+        c.fillStyle = g;
+        c.fillRect(x - 20 - Math.random() * 40, down ? 0 : S - 260, 60 + Math.random() * 90, 260);
+      }
+      for (let i = 0; i < 6; i++) {
+        const x = Math.random() * S;
+        const y = Math.random() * S;
+        const g = c.createRadialGradient(x, y, 3, x, y, 40 + Math.random() * 50);
+        g.addColorStop(0, 'rgba(100,70,25,0.22)');
+        g.addColorStop(1, 'rgba(100,70,25,0)');
+        c.fillStyle = g;
+        c.fillRect(x - 100, y - 100, 200, 200);
+      }
+      // A small peeling corner: pale curl with a dark gap behind it.
+      {
+        const x = 0;
+        const y = 40 + Math.random() * 120;
+        c.fillStyle = 'rgba(70,56,20,0.5)';
+        c.beginPath();
+        c.moveTo(x, y);
+        c.lineTo(x + 34, y);
+        c.lineTo(x, y + 44);
+        c.fill();
+        c.fillStyle = 'rgba(232,220,150,0.7)';
+        c.beginPath();
+        c.moveTo(x, y);
+        c.lineTo(x + 22, y + 5);
+        c.lineTo(x + 5, y + 28);
+        c.fill();
+      }
+      noise(c, S, 500, 0.06);
+      break;
+    }
+    case 'carpet': {
+      // Damp, tired beige commercial carpet: short fibres, darker wet patches, old stains.
+      c.fillStyle = '#b3a276';
+      c.fillRect(0, 0, S, S);
+      for (let i = 0; i < 9000; i++) {
+        const v = 150 + Math.floor(Math.random() * 50);
+        c.fillStyle = `rgba(${v},${v - 14},${v - 52},0.5)`;
+        c.fillRect(Math.random() * S, Math.random() * S, 2, 3);
+      }
+      for (let i = 0; i < 2500; i++) {
+        c.fillStyle = 'rgba(70,56,32,0.22)';
+        c.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+      }
+      for (let i = 0; i < 8; i++) {
+        const x = Math.random() * S;
+        const y = Math.random() * S;
+        const r = 40 + Math.random() * 90;
+        const g = c.createRadialGradient(x, y, 4, x, y, r);
+        g.addColorStop(0, 'rgba(70,52,30,0.38)');
+        g.addColorStop(1, 'rgba(70,52,30,0)');
+        c.fillStyle = g;
+        c.fillRect(x - r, y - r, r * 2, r * 2);
+      }
+      r.fillStyle = '#d0d0d0';
+      r.fillRect(0, 0, S, S);
+      break;
+    }
+    case 'tile': {
+      // Acoustic drop-ceiling tiles in a metal grid: 0.6 m squares, perforated, stained.
+      c.fillStyle = '#d6d0b4';
+      c.fillRect(0, 0, S, S);
+      for (let i = 0; i < 1800; i++) {
+        c.fillStyle = 'rgba(90,84,60,0.35)';
+        c.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+      }
+      for (let i = 0; i < 6; i++) {
+        const x = Math.random() * S;
+        const y = Math.random() * S;
+        const g = c.createRadialGradient(x, y, 3, x, y, 60);
+        g.addColorStop(0, 'rgba(120,86,40,0.4)');
+        g.addColorStop(1, 'rgba(120,86,40,0)');
+        c.fillStyle = g;
+        c.fillRect(x - 60, y - 60, 120, 120);
+      }
+      c.strokeStyle = '#8a8a82';
+      c.lineWidth = 8;
+      for (let i = 0; i <= 3; i++) {
+        c.beginPath();
+        c.moveTo(i * 128, 0);
+        c.lineTo(i * 128, S);
+        c.moveTo(0, i * 128);
+        c.lineTo(S, i * 128);
+        c.stroke();
+      }
       break;
     }
     case 'door': {

@@ -4,7 +4,7 @@ import { FLOOR_Y } from './nav';
 import { itemById } from './cosmetics';
 import { Door } from './doors';
 import { createEngine, type Engine } from './engine';
-import { Facility, ROOM_Z } from './facility';
+import { Facility } from './backrooms';
 import { CctvMap } from './map';
 import { Locker } from './lockers';
 import { batchStatic } from './batch';
@@ -32,11 +32,12 @@ const LOGS = [
 const LOBBY_SPAWN = new THREE.Vector3(0, 0, -3.2);
 const RED = new THREE.Color(1, 0.1, 0.05);
 /** The facility is bright concrete under fluorescent tubes: plenty of general light, with the black monster standing out against it. */
-const HEMI = 1.25;
-const AMBIENT = 0.75;
+const HEMI = 1.05;
+const AMBIENT = 0.7;
+const LAMP = new THREE.Color(0xfff0b8);
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
-const HALL_VIEW = new THREE.Vector3(0, -4, 26);
+const HALL_VIEW = new THREE.Vector3(0, -12, 20);
 const _f = new THREE.Vector3();
 
 /**
@@ -48,8 +49,8 @@ export async function runGame(): Promise<void> {
   const save = new Save();
   const e = await createEngine({ background: 0x1c2026, spawn: LOBBY_SPAWN, killY: -40 });
   const { scene } = e;
-  scene.fog = new THREE.Fog(0x1c2026, 18, 130);
-  const hemi = new THREE.HemisphereLight(0xe8edf4, 0x848a92, HEMI);
+  scene.fog = new THREE.Fog(0x4a4420, 10, 64);
+  const hemi = new THREE.HemisphereLight(0xf6edc4, 0x8a7a48, HEMI);
   const ambient = new THREE.AmbientLight(0xffffff, AMBIENT);
   scene.add(hemi, ambient);
 
@@ -88,14 +89,12 @@ export async function runGame(): Promise<void> {
   cctv.mesh.rotation.y = Math.PI;
   scene.add(cctv.mesh);
 
-  // Lockers along the hall walls: hide in one and keep still.
+  // Lockers against the maze walls: hide in one and keep still.
   const lockers: Locker[] = [];
-  for (const z of [26, 38, 50, 62]) {
-    lockers.push(new Locker(e, -19.3, z, 1), new Locker(e, 19.3, z, -1));
-    for (const x of [-19.4, 19.4]) {
-      facility.nav.setBlock(0, x - 0.7, x + 0.7, z - 0.6, z + 0.6, false);
-      facility.blockers.push({ x0: x - 0.6, x1: x + 0.6, z0: z - 0.6, z1: z + 0.6 });
-    }
+  for (const l of facility.lockerSpots) {
+    lockers.push(new Locker(e, l.x, l.z, l.facing));
+    facility.nav.setBlock(0, l.x - 0.7, l.x + 0.7, l.z - 0.6, l.z + 0.6, false);
+    facility.blockers.push({ x0: l.x - 0.6, x1: l.x + 0.6, z0: l.z - 0.6, z1: l.z + 0.6 });
   }
 
   const lockerRoot = new THREE.Group();
@@ -115,16 +114,11 @@ export async function runGame(): Promise<void> {
       lobby.refreshWardrobe();
     }
   };
-  ROOM_Z.forEach((zc, i) => {
-    for (const side of [1, -1]) {
-      const id = (side > 0 ? 0 : 4) + i;
-      const x = side * 21.3;
-      const z = zc + 4.5;
-      const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.0, 10), new THREE.MeshStandardMaterial({ color: 0x30363e, roughness: 0.5, metalness: 0.5 }));
-      stand.position.set(x, FLOOR_Y + 0.5, z);
-      scene.add(stand);
-      if (!save.data.logs.includes(id)) makeLog(ctx, new THREE.Vector3(x, FLOOR_Y + 1.08, z), id);
-    }
+  facility.logSpots.forEach((spot, id) => {
+    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.0, 10), new THREE.MeshStandardMaterial({ color: 0x30363e, roughness: 0.5, metalness: 0.5 }));
+    stand.position.set(spot.x, FLOOR_Y + 0.5, spot.z);
+    scene.add(stand);
+    if (!save.data.logs.includes(id)) makeLog(ctx, new THREE.Vector3(spot.x, FLOOR_Y + 1.08, spot.z), id);
   });
 
   // Gear lying about the facility (fresh each run).
@@ -174,11 +168,6 @@ export async function runGame(): Promise<void> {
     }
   };
   lobby.onLook = applyLook;
-  lobby.onTip = (text) => {
-    toast.show('BOT-9', '#9ad8ff', 5);
-    toast.show(text.length > 52 ? text.slice(0, text.lastIndexOf(' ', 52)) : text, '#e8f0f4', 5);
-    if (text.length > 52) toast.show(text.slice(text.lastIndexOf(' ', 52) + 1), '#e8f0f4', 5);
-  };
   lobby.onCourse = (seconds, best) => {
     toast.show(`COURSE: ${seconds.toFixed(1)}s`, '#60ff90', 4);
     if (best) toast.show('NEW BEST!', '#ffd060', 4);
@@ -224,10 +213,11 @@ export async function runGame(): Promise<void> {
   // --- The things in the dark ------------------------------------------------------------------------------------------
   const kinds: MonsterKind[] = ['shade', 'shade', 'shade'];
   kinds.forEach((k, i) => monsters.push(new Monster(e, k, facility.spawns[i])));
+  e.handSound = (p) => (p.y > -8 ? 'hand' : facility.inWater(p) ? 'splash' : 'squelch');
   const resetMonsters = (): void => monsters.forEach((m, i) => m.place(facility.spawns[i % facility.spawns.length]));
 
   // --- Lights ----------------------------------------------------------------------------------------------------------
-  const allFixtures = [...lobby.fixtures, ...facility.fixtures];
+  const allFixtures = lobby.fixtures;
   const pool = [0, 1, 2].map(() => {
     const l = new THREE.PointLight(0xcfe4ff, 12, 22, 1.5);
     scene.add(l);
@@ -656,7 +646,9 @@ export async function runGame(): Promise<void> {
     hemi.intensity = blackout > 0 ? 0.08 : HEMI;
     ambient.intensity = blackout > 0 ? 0.05 : AMBIENT;
 
-    // Lights: the nearest fixtures really light, all of them flicker.
+    // Lights: lobby fixtures flicker; in the maze the few real lights come from the nearest live ceiling panels.
+    facility.blackout = blackout > 0;
+    facility.redness = lockdownRed;
     for (const f of allFixtures) {
       const flick = Math.sin(t * 37 + f.phase) * Math.sin(t * 5.3 + f.phase * 2);
       let k = flick > 0.93 && f.pos.y < 3 ? 0.12 : 1;
@@ -671,18 +663,22 @@ export async function runGame(): Promise<void> {
     if (lightTimer <= 0) {
       lightTimer = 0.2;
       const byDistance = (list: typeof allFixtures, p: THREE.Vector3, n: number): typeof allFixtures => list.slice().sort((a, b) => a.pos.distanceToSquared(p) - b.pos.distanceToSquared(p)).slice(0, n);
-      // In the lobby, some of the light goes on the hall seen through the window.
-      const near = lobbyNow ? [...byDistance(lobby.fixtures, e.head, 2), ...byDistance(facility.fixtures, HALL_VIEW, 1)] : byDistance(allFixtures, e.head, pool.length);
+      type L = { pos: THREE.Vector3; k: number; lobby: boolean };
+      const toL = (f: (typeof allFixtures)[number]): L => ({ pos: f.pos, k: (f as unknown as { k?: number }).k ?? 1, lobby: true });
+      const maze = (p: THREE.Vector3, n: number): L[] => facility.nearestLights(p, n).map((m) => ({ pos: m.pos, k: m.k, lobby: false }));
+      const near: L[] = lobbyNow ? [...byDistance(lobby.fixtures, e.head, 2).map(toL), ...maze(HALL_VIEW, 1)] : maze(e.head, pool.length);
       pool.forEach((l, i) => {
         const f = near[i];
-        l.visible = true;
+        l.visible = !!f;
+        if (!f) return;
         l.position.copy(f.pos).y -= 0.4;
-        l.color.copy(f.base).lerp(RED, lockdownRed * 0.85);
-        l.intensity = (f.pos.y > 3.5 && f.pos.z < 7 ? 14 : 34) * ((f as unknown as { k?: number }).k ?? 1);
-        l.distance = f.pos.z < 7 ? 14 : lobbyNow ? 46 : 30;
-        if (lobbyNow && f.pos.z >= 7) l.intensity *= 3;
+        l.color.copy(LAMP).lerp(RED, lockdownRed * 0.85);
+        l.intensity = (f.lobby ? 14 : 30) * f.k * (lobbyNow && !f.lobby ? 3 : 1);
+        l.distance = f.lobby ? 14 : lobbyNow ? 46 : 16;
       });
     }
+    // The fluorescent buzz rises as a live panel gets close.
+    e.audio.setBuzz(lobbyNow ? Infinity : facility.nearestLive(e.head), blackout <= 0);
 
     // Wrist readout.
     wrist.set(lobbyNow ? `SAFE · $${save.data.credits}` : lockdown > 0 ? `LOCKDOWN ${Math.ceil(lockdown)}s` : `RELAYS ${relays}/2 · $${Math.floor(runCredits)}`);

@@ -12,32 +12,25 @@ for now; the code is laid out so multiplayer can be added.
    - **gear wall**: glowsticks, flashlights and radar pingers;
    - **a big reinforced window** over the machine hall, far below;
    - **a training annex**: stepping blocks, poles and a climbing wall up to a green plate, with a timer (poke START RUN) and a saved best time;
-   - a **helper drone (Bot-9)** that follows you and gives advice when you poke it, a **briefing board**, a **facility poll** monitor, a **vending machine** (an Energy Cell makes your next run faster), a lounge, benches facing the window, and a **security monitor**.
+   - a **briefing board** with survival tips, a **facility poll** monitor, a **vending machine** (an Energy Cell makes your next run faster), a lounge, benches facing the window, and a **security monitor**.
 2. **The drop.** Hit the window hard (three good punches or throws) and it shatters. Climb out and drop onto the catwalk hanging over the hall.
-3. **The hazard zone.** A bright concrete warehouse far below: pale mottled walls, grey tiles, fluorescent tubes, rusty and blue pipes, forklifts, shelves of crates, pallets, roller shutters, catwalks, and heavy blast doors with yellow-and-black frames into eight side rooms. Something lives here:
-   - **The shade** – entirely pitch black (it does not even take the light), with two glowing white pupils, blood splattered on it in random places, and a wide frown full of sharp teeth. Three of them patrol. They hunt by **sight** (stand in the light and they see you further) and by **sound**: running, landing from a height, shouting into your microphone, a radar ping, a door slamming, breaking glass. Move slowly and you stay quiet.
+3. **The Backrooms (Level 0).** Below the window an atrium opens onto an endless-feeling maze of mono-yellow wallpaper rooms: water stains, peeling corners, stained baseboards, damp carpet, an acoustic drop ceiling with a grid of recessed fluorescent panels (some steady, some flickering, some dead). A constant fluorescent buzz rises in pitch as you near a live panel; carpet squelches, water splashes, vents breathe far away. Landmarks: **The Pitfalls** (a lattice of narrow walkways over deep square drops), a **flooded hallway** with shallow reflective water, and a dim **relay station** with server racks. Something lives here:
+   - **The shade** – entirely pitch black, with two glowing white pupils, blood splatters and a wide frown full of sharp teeth. Three of them patrol. They hunt by **sight** and **sound** (running, landing, shouting, the radar ping, a slamming door, breaking glass). They are big: **tight gaps and narrow doorways slow them to a crawl**, but you can slip through.
 4. **Doors.** Each door has a panel with **OPEN / CLOSE / JAM**, and a handle you can grab and lift. Shut a door on a monster and it is stunned; jam one shut and the monsters have to batter their way through. But a closing door **crushes you instantly**, and a door you let go of half way drops.
 5. **Lockdown.** Every minute or two the alarm sounds, the lights flicker red and *every door* opens and closes by itself for about 25 seconds. The alarm draws the monsters.
-6. **The way out.** Restore power at the two **relays** (in the west and east rooms), then the exit gate opens. Reach the exit lift and press **EVACUATE**. You earn credits for surviving and for escaping, and keep some even when you die.
+6. **The way out.** Restore power at the two **relays** (one in the relay station, one across the Pitfalls), then the exit gate opens. Reach the exit lift and press **EVACUATE**. You earn credits for surviving and for escaping, and keep some even when you die.
 
-## The hazard zone
+## The Backrooms
 
-A machine hall with a catwalk loop and stairs, a coolant channel, a hanging crane with swaying cargo, steam vents that hiss, cables, and bodies of people who did not make it. Behind the eight blast doors are themed rooms:
-
-| East | West |
-| --- | --- |
-| Server room (blinking racks, camera monitors) | Morgue (sheeted tables, drawers, a flickering surgical lamp) |
-| Cold storage (freezers, hanging shrouds, mist) | Power room (generators; **Relay A**) |
-| Boiler room (glowing boilers, steam; **Relay B**) | Specimen lab (tanks with things floating in them, one empty and broken) |
-| Armory (lockers, benches, ammo) | Break room (couch, vending machine, posters) |
+A research gantry under the window leads down into the atrium; through it is the maze. Climb knocked-over office dividers up onto stacked crates, swing along exposed ceiling pipes, and use the shoulder-high holes in the drywall to cut through or hide above sightlines. Heavy doors have **push-buttons and a pull-down lever**; before one slams shut its lamp flashes and it beeps and throws sparks. **Relay B** is across the Pitfalls; **Relay A** is in the relay station. The exit lift is at the far south end.
 
 ## More to find and use
 
-- **Lockers** along the hall walls: step in and keep still; the door swings shut and nothing can see you. A hunter that comes right up to it may check, and find you.
-- **Data logs** on a stand in every room: hold one and it plays; each pays credits the first time (8 in all, shown at the terminal).
+- **Lockers** against the maze walls: step in and keep still; the door swings shut and nothing can see you. A hunter that comes right up to it may check, and find you.
+- **Data logs** on a stand in a dead end: hold one and it plays; each pays credits the first time (8 in all, shown at the terminal).
 - **Security monitor** on the lobby wall: a plan of the facility with every door's state, the relays, and flickering blips where the cameras think monsters are. It is not reliable.
 - **Power failures** (the lights die for several seconds; use your own light or stay still), **ambient scares** in the dark, a **red fear vignette** when something is on you.
-- **Gear** is scattered round the hall afresh each run, as well as on the lobby wall.
+- **Gear** is scattered round the maze afresh each run, as well as on the lobby wall.
 - **The window grows back**: it reseals when you return to the lobby, or on its own after a couple of minutes, and small cracks mend.
 
 ## Hand-held gear

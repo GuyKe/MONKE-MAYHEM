@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { DOOR_H, type Door } from './doors';
 import type { Engine } from './engine';
-import type { Facility } from './facility';
+import type { Facility } from './backrooms';
 import { CATWALK_Y, FLOOR_Y, colOf, rowOf, type Spot } from './nav';
 import { cone, cyl, dyn, limb, rnd, sphere, v3 } from './shapes';
 import { mergeUnits } from './batch';
@@ -407,7 +407,9 @@ export class Monster {
     let diff = Math.atan2(-dx, -dz) - this.heading;
     diff -= Math.round(diff / (Math.PI * 2)) * Math.PI * 2;
     if (Math.abs(diff) > 1.0) turnPenalty = 0.45;
-    const step = Math.min(d, speed * turnPenalty * dt);
+    // Narrow gaps and tight doorways slow it right down: a person slips through, the shade has to squeeze.
+    const squeeze = next && f.nav.tightBetween(this.spotNow(f), next) ? 0.28 : 1;
+    const step = Math.min(d, speed * turnPenalty * squeeze * dt);
     this.pos.x += (dx / d) * step;
     this.pos.z += (dz / d) * step;
     // Height: stairs glide between the catwalk and the floor.

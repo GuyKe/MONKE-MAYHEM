@@ -4,13 +4,13 @@ import { WorldButton } from '../ui/panel';
 import { MIRROR_LAYER } from './avatar';
 import { inSlot, type Cosmetic } from './cosmetics';
 import type { Engine } from './engine';
-import type { Fixture } from './facility';
+import type { Fixture } from './backrooms';
 import { Rack, makeFlashlight, makeGlowstick, makeRadar, type ItemContext } from './items';
 import type { Save, Slot } from './save';
 import { box, cyl, dyn, mat, part } from './shapes';
 import { batchStatic } from './batch';
 import { slab, surface } from './textures';
-import { Drone, TIPS } from './drone';
+import { TIPS } from './tips';
 import { forklift, hazardFrame, lockerBank, panelLight, picnicTable, pipe, plant, shelves, pallet } from './props';
 
 export const WIN_X = 5.5;
@@ -259,7 +259,6 @@ export class Lobby {
   onLook: (() => void) | null = null;
   onMic: ((on: boolean) => void) | null = null;
   micCheck = false;
-  drone!: Drone;
   onTip: ((text: string) => void) | null = null;
   onCourse: ((seconds: number, best: boolean) => void) | null = null;
   onVend: ((item: 'energy' | 'snack') => void) | null = null;
@@ -294,8 +293,6 @@ export class Lobby {
     this.buildVending();
     this.buildBriefing();
     this.buildPoll();
-    this.drone = new Drone(e);
-    this.drone.onTip = (t) => this.onTip?.(t);
     this.lobbyButtons.push(...e.panels.buttons.slice(before));
     this.refreshWardrobe();
     window.addEventListener('keydown', (ev) => this.onKey(ev));
@@ -1003,8 +1000,6 @@ export class Lobby {
   update(dt: number, time: number, hands: THREE.Vector3[], items: THREE.Vector3[], itemSpeeds: number[]): void {
     this.glass.update(dt, hands, items, itemSpeeds);
     const inLobby = this.e.head.z < 7.3 && this.e.head.y > -1.5;
-    this.drone.setActive(inLobby);
-    if (inLobby) this.drone.update(dt);
     // The training course: reach the green plate.
     if (this.run >= 0) {
       const live = this.e.time - this.run;

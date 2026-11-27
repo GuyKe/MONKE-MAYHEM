@@ -1,34 +1,47 @@
 import * as THREE from 'three';
 import { Baker } from '../world/baker';
-import { box, cone, cyl, low, UP } from './shapes';
+import { box, cyl, UP } from './shapes';
 
 const sphere = new THREE.IcosahedronGeometry(1, 2);
 
 /** The layer only a mirror sees: your own head is not drawn from the inside. */
 export const MIRROR_LAYER = 3;
 
-/** A monkey's colours: the fur, the bare face and ears, the belly. */
+/** A hazmat suit's colours: the suit, the reflective visor, the creased/dirty shade, and the rubber gloves. */
 export interface SkinDef {
   id: string;
   name: string;
   price: number;
+  /** The suit fabric. */
   fur: number;
+  /** The visor's reflective tint. */
   face: number;
+  /** Creases and dirt: a darker shade of the suit. */
   belly: number;
-  /** The hands (the fur, a touch darker). */
+  /** The rubber gloves. */
   glove: number;
 }
 
+const suit = (id: string, name: string, price: number, fur: number, face = 0x52e8f0, glove = 0x2a2a2e): SkinDef => ({
+  id,
+  name,
+  price,
+  fur,
+  face,
+  belly: new THREE.Color(fur).multiplyScalar(0.62).getHex(),
+  glove,
+});
+
 export const SKINS: SkinDef[] = [
-  { id: 'skin_green', name: 'GREEN MONKEY', price: 0, fur: 0x3fae3a, face: 0xbcc0c4, belly: 0xbcc0c4, glove: 0x34952f },
-  { id: 'skin_brown', name: 'BROWN MONKEY', price: 100, fur: 0x7a4a2a, face: 0xe0b890, belly: 0xe0b890, glove: 0x683e22 },
-  { id: 'skin_black', name: 'SHADOW MONKEY', price: 150, fur: 0x26262a, face: 0x8a8a92, belly: 0x6a6a72, glove: 0x1a1a1e },
-  { id: 'skin_orange', name: 'ORANGE MONKEY', price: 150, fur: 0xe07a20, face: 0xf0d8b0, belly: 0xf0d8b0, glove: 0xc06a18 },
-  { id: 'skin_blue', name: 'BLUE MONKEY', price: 200, fur: 0x3a6ad8, face: 0xc8d4e8, belly: 0xc8d4e8, glove: 0x3058b8 },
-  { id: 'skin_pink', name: 'PINK MONKEY', price: 200, fur: 0xe070a8, face: 0xf8d8e0, belly: 0xf8d8e0, glove: 0xc05c90 },
-  { id: 'skin_white', name: 'SNOW MONKEY', price: 250, fur: 0xeeeeee, face: 0xd0a898, belly: 0xdddddd, glove: 0xd0d0d0 },
-  { id: 'skin_purple', name: 'PURPLE MONKEY', price: 300, fur: 0x7a48c0, face: 0xd8c8f0, belly: 0xd8c8f0, glove: 0x6a3aa8 },
-  { id: 'skin_gold', name: 'GOLDEN MONKEY', price: 800, fur: 0xd8a820, face: 0xfff0b0, belly: 0xfff0b0, glove: 0xb88810 },
+  suit('skin_green', 'MUSTARD HAZMAT', 0, 0xd4a82c),
+  suit('skin_brown', 'MUD HAZMAT', 100, 0x7a5a38, 0x6af0e0, 0x1e1a18),
+  suit('skin_black', 'NIGHT HAZMAT', 150, 0x2a2c32, 0x40d0ff, 0x101012),
+  suit('skin_orange', 'SAFETY ORANGE', 150, 0xe86a1c, 0x60f0f0, 0x26262a),
+  suit('skin_blue', 'DEEP BLUE', 200, 0x2f58b8, 0x80f4ff, 0x1c1c22),
+  suit('skin_pink', 'BIOHAZARD PINK', 200, 0xe06aa0, 0x70ffe8, 0x2a2024),
+  suit('skin_white', 'LAB WHITE', 250, 0xe6e6e0, 0x40e0ff, 0x4a4a50),
+  suit('skin_purple', 'VIOLET HAZMAT', 300, 0x7a48c0, 0x90ffff, 0x1c1826),
+  suit('skin_gold', 'GOLD HAZMAT', 800, 0xf0c020, 0xb0fff8, 0x3a2a10),
 ];
 
 export function skinById(id: string): SkinDef {
@@ -47,64 +60,79 @@ function put(b: Baker, geo: THREE.BufferGeometry, at: [number, number, number], 
   b.add(geo, _m, _c.set(color));
 }
 
-/** A monkey's hand: a round palm, three fat fingers and a thumb. Origin at the palm; fingers point -Z. */
+/** A big chunky rubber glove: a fat palm, two stubby fingers and a thumb, and a black cuff. Origin at the palm; fingers point -Z. */
 export function buildGloveGeometry(side: 1 | -1, radius: number, color: number): THREE.BufferGeometry {
   const b = new Baker();
   const k = radius / 0.07;
   const at = (x: number, y: number, z: number): [number, number, number] => [x * k * side, y * k, z * k];
   const sz = (x: number, y: number, z: number): [number, number, number] => [x * k, y * k, z * k];
-  const pad = new THREE.Color(color).multiplyScalar(0.75).getHex();
-  put(b, sphere, at(0, 0, 0), sz(0.062, 0.042, 0.072), color);
-  put(b, sphere, at(0, -0.02, -0.01), sz(0.045, 0.02, 0.05), pad); // the pad
-  for (let f = 0; f < 3; f++) {
-    const x = (f - 1) * 0.04;
-    const len = f === 1 ? 0.068 : 0.058;
-    put(b, sphere, at(x, -0.006, -0.085 - len * 0.15), sz(0.021, 0.022, len * 0.8), color, [0.25, 0, 0]);
-    put(b, low, at(x, -0.018, -0.105 - len * 0.5), sz(0.016, 0.012, 0.016), pad);
+  const worn = new THREE.Color(color).multiplyScalar(1.5).getHex();
+  put(b, sphere, at(0, 0, 0), sz(0.07, 0.05, 0.076), color); // the palm
+  put(b, sphere, at(0, 0.012, 0.0), sz(0.05, 0.02, 0.05), worn); // a scuffed patch on the back
+  for (let f = 0; f < 2; f++) {
+    const x = (f - 0.5) * 0.058;
+    put(b, sphere, at(x, -0.004, -0.095), sz(0.03, 0.03, 0.06), color, [0.1, 0, 0]);
+    put(b, sphere, at(x, -0.012, -0.145), sz(0.027, 0.027, 0.03), color);
   }
-  put(b, sphere, at(0.058, 0.0, -0.03), sz(0.02, 0.02, 0.045), color, [0, -0.6, 0.2]); // the thumb
-  put(b, cyl, at(0, 0.004, 0.07), sz(0.05, 0.03, 0.05), color, [Math.PI / 2, 0, 0]); // the wrist
+  put(b, sphere, at(0.07, 0.0, -0.035), sz(0.03, 0.03, 0.05), color, [0, -0.6, 0.2]); // the thumb
+  put(b, cyl, at(0, 0.004, 0.075), sz(0.06, 0.04, 0.06), 0x16161a, [Math.PI / 2, 0, 0]); // the black cuff strap
   return b.build();
 }
 
 const bodyMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 
+const TAPE = 0x0e0e10;
+const STRAP = 0x18181a;
+
 function buildTorsoGeo(skin: SkinDef): THREE.BufferGeometry {
   const b = new Baker();
-  put(b, sphere, [0, -0.26, 0.03], [0.14, 0.09, 0.12], skin.fur); // the neck, into the shoulders
-  put(b, sphere, [0, -0.34, 0.02], [0.24, 0.1, 0.14], skin.fur); // shoulders
-  put(b, sphere, [0, -0.5, 0.03], [0.21, 0.27, 0.15], skin.fur); // a round body
-  put(b, sphere, [0, -0.5, -0.1], [0.14, 0.2, 0.06], skin.belly); // the belly patch
-  put(b, sphere, [0, -0.72, 0.03], [0.16, 0.1, 0.12], skin.fur); // the rounded bottom
-  for (const sx of [-1, 1]) put(b, sphere, [sx * 0.23, -0.36, 0.02], [0.08, 0.08, 0.08], skin.fur); // shoulder balls
-  // A little curled tail.
-  for (let i = 0; i < 6; i++) {
-    const t = i / 5;
-    put(b, sphere, [0, -0.72 + Math.sin(t * 2.4) * 0.12, 0.12 + t * 0.2], [0.035 - t * 0.012, 0.035 - t * 0.012, 0.04], i === 5 ? skin.belly : skin.fur);
+  put(b, sphere, [0, -0.27, 0.02], [0.15, 0.09, 0.13], skin.fur); // the collar
+  put(b, sphere, [0, -0.35, 0.02], [0.25, 0.11, 0.15], skin.fur); // shoulders
+  put(b, sphere, [0, -0.55, 0.03], [0.25, 0.3, 0.2], skin.fur); // a rounded bean body
+  put(b, sphere, [0, -0.78, 0.03], [0.2, 0.12, 0.16], skin.fur); // the smooth rounded bottom
+  put(b, sphere, [0, -0.82, 0.04], [0.14, 0.05, 0.12], skin.belly); // dirt where it drags
+  for (const sx of [-1, 1]) {
+    put(b, sphere, [sx * 0.25, -0.38, 0.02], [0.09, 0.09, 0.09], skin.fur); // shoulder balls
+    put(b, box, [sx * 0.17, -0.42, -0.16], [0.012, 0.3, 0.012], STRAP, [0.2, 0, sx * -0.35]); // harness straps
+    put(b, box, [sx * 0.2, -0.56, 0.0], [0.012, 0.2, 0.2], TAPE); // side seam tape
   }
+  put(b, box, [0, -0.62, -0.19], [0.24, 0.016, 0.03], STRAP); // the waist strap
+  put(b, box, [0, -0.5, -0.19], [0.012, 0.18, 0.03], TAPE); // the front zip, taped
+  // Creases.
+  for (const [x, y, w] of [[-0.1, -0.5, 0.07], [0.09, -0.56, 0.08], [-0.05, -0.68, 0.09], [0.12, -0.42, 0.05]] as const) put(b, sphere, [x, y, -0.185], [w, 0.012, 0.03], skin.belly, [0, 0, 0.3]);
+  // The filter canister on the chest.
+  put(b, cyl, [0.06, -0.44, -0.215], [0.06, 0.05, 0.06], 0x7c8086, [Math.PI / 2, 0, 0]);
+  put(b, cyl, [0.06, -0.44, -0.25], [0.045, 0.02, 0.045], 0x4a4e54, [Math.PI / 2, 0, 0]);
+  put(b, box, [0.06, -0.44, -0.265], [0.03, 0.006, 0.006], 0x202226);
+  // Grime and scuffs.
+  put(b, sphere, [-0.12, -0.72, -0.12], [0.07, 0.05, 0.03], skin.belly);
+  put(b, sphere, [0.1, -0.74, 0.08], [0.06, 0.06, 0.05], skin.belly);
   return b.build();
 }
 
 function buildHeadGeo(skin: SkinDef): THREE.BufferGeometry {
   const b = new Baker();
-  put(b, sphere, [0, 0.0, 0.035], [0.17, 0.17, 0.17], skin.fur); // a round head
-  put(b, sphere, [0, 0.0, -0.1], [0.125, 0.115, 0.07], skin.face); // the bare face
-  put(b, sphere, [0, -0.055, -0.14], [0.072, 0.055, 0.05], skin.face); // the muzzle
+  put(b, sphere, [0, 0.01, 0.04], [0.19, 0.19, 0.2], skin.fur); // the bulky hood
+  put(b, sphere, [0, -0.1, 0.03], [0.2, 0.06, 0.2], skin.fur); // the hood's rolled collar
+  put(b, sphere, [0, 0.03, -0.1], [0.14, 0.12, 0.08], 0x0c0e12); // the big dark visor
+  put(b, sphere, [-0.04, 0.06, -0.164], [0.07, 0.04, 0.015], skin.face); // reflective shine
+  put(b, sphere, [0.05, 0.0, -0.165], [0.04, 0.025, 0.012], skin.face);
+  put(b, box, [0, 0.0, -0.093], [0.155, 0.135, 0.02], TAPE); // the black seam tape round the visor
+  put(b, box, [0, 0.0, -0.1], [0.14, 0.12, 0.03], 0x0c0e12);
+  put(b, box, [0, 0.0, -0.126], [0.13, 0.11, 0.015], new THREE.Color(skin.face).multiplyScalar(0.28).getHex());
+  put(b, box, [0, -0.085, -0.15], [0.09, 0.06, 0.07], 0x6a6e72); // the boxy respirator built into the hood
+  for (let i = -1; i <= 1; i++) put(b, box, [i * 0.025, -0.085, -0.187], [0.008, 0.04, 0.006], 0x202226); // its vents
   for (const sx of [-1, 1]) {
-    put(b, sphere, [sx * 0.178, 0.0, 0.04], [0.055, 0.065, 0.04], skin.fur); // ears
-    put(b, sphere, [sx * 0.192, 0.0, 0.036], [0.034, 0.045, 0.02], skin.face); // inside the ears
-    put(b, sphere, [sx * 0.058, 0.035, -0.152], [0.043, 0.047, 0.026], 0xf6f6f2); // eyes
-    put(b, sphere, [sx * 0.058, 0.03, -0.172], [0.022, 0.026, 0.012], 0x0a0a0c); // pupils
-    put(b, sphere, [sx * 0.052, 0.04, -0.178], [0.007, 0.007, 0.005], 0xffffff); // a glint
-    put(b, sphere, [sx * 0.022, -0.045, -0.185], [0.009, 0.007, 0.006], 0x303034); // nostrils
-    put(b, box, [sx * 0.06, 0.082, -0.15], [0.05, 0.01, 0.01], skin.fur, [0, 0, sx * 0.2]); // brows
+    put(b, box, [sx * 0.1, -0.09, -0.12], [0.012, 0.02, 0.1], STRAP, [0, sx * 0.4, 0]); // mask straps
+    put(b, box, [sx * 0.185, 0.0, 0.04], [0.012, 0.19, 0.012], STRAP); // a strap round the hood
   }
-  put(b, box, [0, -0.085, -0.17], [0.07, 0.007, 0.008], 0x3a3a40); // a small flat mouth
-  for (let i = 0; i < 3; i++) put(b, cone, [(i - 1) * 0.045, 0.19, 0.0], [0.022, 0.08 - Math.abs(i - 1) * 0.02, 0.022], skin.fur, [0, 0, (i - 1) * -0.4]); // a tuft of hair
+  put(b, box, [0, 0.19, 0.03], [0.012, 0.012, 0.19], TAPE); // the seam over the top
+  put(b, sphere, [-0.1, 0.12, 0.0], [0.07, 0.05, 0.07], skin.belly); // a dirty patch
+  put(b, sphere, [0.08, 0.16, 0.1], [0.05, 0.02, 0.05], skin.belly); // a crease
   return b.build();
 }
 
-/** The player's own body: a monkey with long arms and no legs. You see its arms and hands and, looking down, its belly; in a mirror, all of it. */
+/** The player's own body: a hazmat survivor with long arms and no legs. You see its arms and gloves and, looking down, its chest canister; in a mirror, all of it. */
 export class SubjectBody {
   readonly root = new THREE.Group();
   readonly head = new THREE.Group();
@@ -134,9 +162,9 @@ export class SubjectBody {
       this.root.add(m);
       return m;
     };
-    const armGeo = new THREE.CylinderGeometry(0.048, 0.062, 1, 8);
-    const foreGeo = new THREE.CylinderGeometry(0.04, 0.05, 1, 8);
-    const elbowGeo = new THREE.IcosahedronGeometry(0.056, 1);
+    const armGeo = new THREE.CylinderGeometry(0.058, 0.07, 1, 8);
+    const foreGeo = new THREE.CylinderGeometry(0.052, 0.062, 1, 8);
+    const elbowGeo = new THREE.IcosahedronGeometry(0.068, 1);
     this.upper = [mk(armGeo, this.armMat), mk(armGeo, this.armMat)];
     this.fore = [mk(foreGeo, this.armMat), mk(foreGeo, this.armMat)];
     this.elbows = [mk(elbowGeo, this.armMat), mk(elbowGeo, this.armMat)];

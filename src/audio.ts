@@ -5,7 +5,7 @@ export type SoundName =
   | 'click' | 'key' | 'buy' | 'equip' | 'deny' | 'chime' | 'unlock'
   | 'glassCrack' | 'glassShatter' | 'doorMotor' | 'doorSlam' | 'doorCrush' | 'doorBang' | 'doorLock'
   | 'lockdown' | 'thump' | 'growl' | 'screech' | 'step' | 'skitter' | 'ping' | 'blip' | 'glow' | 'torch'
-  | 'thud' | 'splat' | 'die' | 'hand' | 'relay' | 'static';
+  | 'thud' | 'splat' | 'die' | 'hand' | 'relay' | 'static' | 'vent' | 'squelch' | 'splash';
 
 /** How big the space you are in sounds. */
 export type Zone = 'lobby' | 'room' | 'hall';
@@ -33,6 +33,8 @@ export class GameAudio {
   private volume = 0.8;
   private alarmNodes: { osc: OscillatorNode; lfo: OscillatorNode; gain: GainNode } | null = null;
   private hum: GainNode | null = null;
+  private buzzOsc: OscillatorNode[] = [];
+  private buzzGain: GainNode | null = null;
   readonly log: string[] = [];
   zone: Zone = 'lobby';
 
@@ -93,6 +95,23 @@ export class GameAudio {
       o.start();
     }
     this.hum.connect(this.dry);
+    // The fluorescent buzz: a 100 Hz mains drone plus a thin whine whose pitch climbs as you near a live light panel.
+    this.buzzGain = ctx.createGain();
+    this.buzzGain.gain.value = 0;
+    for (const [f, type] of [[100, 'sawtooth'], [200, 'square'], [3200, 'sine']] as Array<[number, OscillatorType]>) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.value = f > 1000 ? 0.05 : f > 150 ? 0.25 : 1;
+      const lp = ctx.createBiquadFilter();
+      lp.type = f > 1000 ? 'bandpass' : 'lowpass';
+      lp.frequency.value = f > 1000 ? 3200 : 900;
+      o.connect(g).connect(lp).connect(this.buzzGain);
+      o.start();
+      this.buzzOsc.push(o);
+    }
+    this.buzzGain.connect(this.dry);
     void ctx.resume();
   }
 
@@ -251,6 +270,9 @@ export class GameAudio {
       case 'die': this.tone(undefined, 1.6, 'sawtooth', 220, 40, 0.4); this.burst(undefined, 1.6, 'lowpass', 900, 60, 1, 0.5); break;
       case 'hand': this.tone(at, 0.06, 'sine', 160, 90, 0.4 * v); this.burst(at, 0.04, 'lowpass', 900, 300, 1, 0.25 * v); break;
       case 'relay': [330, 440, 660, 880].forEach((f, i) => this.tone(at, 0.4, 'square', f, f, 0.08, i * 0.1)); break;
+      case 'vent': this.burst(at, 1.6, 'bandpass', 300, 140, 1.5, 0.35 * v); this.tone(at, 1.4, 'sine', 62, 55, 0.12 * v); break;
+      case 'squelch': this.burst(at, 0.14, 'bandpass', 500, 220, 4, 0.5 * v); this.burst(at, 0.06, 'lowpass', 300, 120, 1, 0.3 * v, 0.05); break;
+      case 'splash': this.burst(at, 0.22, 'bandpass', 1800, 700, 2, 0.45 * v); this.burst(at, 0.3, 'lowpass', 500, 150, 1, 0.3 * v, 0.04); break;
       case 'static': this.burst(at, 0.4, 'bandpass', 2000, 4000, 0.6, 0.3 * v); break;
     }
   }
@@ -287,6 +309,17 @@ export class GameAudio {
       n.lfo.stop(ctx.currentTime + 1);
       this.alarmNodes = null;
     }
+  }
+
+  /** Set the fluorescent buzz from the distance to the nearest live panel (metres; Infinity or a blackout mutes it). */
+  setBuzz(dist: number, on = true): void {
+    if (!this.ctx || !this.buzzGain) return;
+    const t = this.ctx.currentTime;
+    const near = on ? Math.max(0, 1 - dist / 9) : 0;
+    this.buzzGain.gain.setTargetAtTime(near * 0.07, t, 0.15);
+    this.buzzOsc[0].frequency.setTargetAtTime(100 + near * 14, t, 0.2);
+    this.buzzOsc[1].frequency.setTargetAtTime(200 + near * 28, t, 0.2);
+    this.buzzOsc[2].frequency.setTargetAtTime(3200 + near * 900, t, 0.2);
   }
 
   /** Louder hum when things are tense. */
